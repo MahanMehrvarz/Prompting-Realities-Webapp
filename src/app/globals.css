@@ -1,8 +1,16 @@
+@import url("https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap");
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #05c46b;
+  --foreground: #101010;
+  --card-shell: #1b1b1b;
+  --card-fill: #f4ffe2;
+  --ink-dark: #1d1d1d;
+  --ink-muted: #285438;
+  --shadow-deep: #0d5e3c;
+  --accent-green: #03c46b;
+  --accent-red: #f45b4d;
 }
 
 @theme inline {
@@ -12,15 +20,50 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
+  margin: 0;
+  min-height: 100vh;
   background: var(--background);
+  background-image: radial-gradient(circle at 8% 18%, #1ee784 0%, transparent 45%),
+    radial-gradient(circle at 92% 12%, #00a957 0%, transparent 35%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Space Grotesk", var(--font-geist-sans), system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
+
+::selection {
+  background: rgba(16, 16, 16, 0.85);
+  color: #d7ffcd;
+}
+
+.card-panel {
+  border-radius: 20px;
+  border: 3px solid var(--card-shell);
+  background: var(--card-fill);
+  box-shadow: 5px 5px 0 var(--shadow-deep);
+}
+
+.panel-strip {
+  border-radius: 20px;
+  background: var(--ink-dark);
+  color: var(--card-fill);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.pill-chip {
+  border-radius: 999px;
+  border: 2px solid var(--card-shell);
+  font-weight: 600;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: transparent;
+  color: inherit;
+}
+
