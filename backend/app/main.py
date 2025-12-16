@@ -13,6 +13,7 @@ app = FastAPI(title="Prompting Realities Backend")
 @app.on_event("startup")
 def startup_event():
     """Create database tables on startup."""
+    print('Test')
     Base.metadata.create_all(bind=engine)
 
 app.add_middleware(
