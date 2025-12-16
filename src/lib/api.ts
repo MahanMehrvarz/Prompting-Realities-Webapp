@@ -24,6 +24,11 @@ async function apiFetch<T>(path: string, token?: string, options: RequestOptions
       try {
         window.localStorage.removeItem(TOKEN_STORAGE_KEY);
         window.localStorage.removeItem("pr-auth-email");
+        // Only reload if we're on the main dashboard page (not on chat pages)
+        // Chat pages can work with share tokens and should handle 401 errors themselves
+        if (typeof window !== 'undefined' && !window.location.pathname.includes('/chat/')) {
+          window.location.reload();
+        }
       } catch {
         /* ignore */
       }
@@ -116,6 +121,12 @@ export const assistantApi = {
       method: "DELETE",
     });
   },
+  messages(id: number, token: string) {
+    return apiFetch<MessageRecord[]>(`/assistants/${id}/messages`, token);
+  },
+  mqttLog(id: number, token: string) {
+    return apiFetch<MqttLogRecord[]>(`/assistants/${id}/mqtt-log`, token);
+  },
 };
 
 export const sessionApi = {
@@ -126,6 +137,12 @@ export const sessionApi = {
   },
   stop(sessionId: number, token: string) {
     return apiFetch<SessionRecord>(`/sessions/${sessionId}/stop`, token, {
+      method: "POST",
+    });
+  },
+  reset(sessionId: number, token?: string, sessionToken?: string) {
+    const query = sessionToken ? `?session_token=${sessionToken}` : "";
+    return apiFetch<SessionRecord>(`/sessions/${sessionId}/reset${query}`, token, {
       method: "POST",
     });
   },

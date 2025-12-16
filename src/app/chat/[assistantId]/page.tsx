@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { Mic, Send } from "lucide-react";
+import { Mic, Send, RotateCcw } from "lucide-react";
 import { TOKEN_STORAGE_KEY, sessionApi, MessageRecord } from "@/lib/api";
 
 type ChatMessage = {
@@ -27,9 +27,17 @@ export default function AssistantChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   useEffect(() => {
     setHydrated(true);
@@ -66,6 +74,24 @@ export default function AssistantChatPage() {
       .join(" ");
   }, [assistantName, assistantId]);
 
+  const handleResetConversation = async () => {
+    if (!sessionId || (!token && !shareToken) || isResetting) return;
+    setIsResetting(true);
+    try {
+      await sessionApi.reset(sessionId, token ?? undefined, shareToken ?? undefined);
+      // Reload messages after reset - should show empty conversation
+      const records = await sessionApi.messages(sessionId, token ?? undefined, shareToken ?? undefined);
+      setMessages(records.map(mapMessageRecord));
+      setShowResetModal(false);
+      setError(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Unable to reset conversation.";
+      setError(errorMessage);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!sessionId || (!token && !shareToken)) return;
@@ -84,9 +110,17 @@ export default function AssistantChatPage() {
       await sessionApi.sendMessage(sessionId, trimmed, token ?? undefined, shareToken ?? undefined);
       const records = await sessionApi.messages(sessionId, token ?? undefined, shareToken ?? undefined);
       setMessages(records.map(mapMessageRecord));
+      setError(null); // Clear any previous errors on success
     } catch (err) {
       setMessages((prev) => prev.filter((message) => message.id !== tempId));
-      setError("Unable to send message.");
+      const errorMessage = err instanceof Error ? err.message : "Unable to send message.";
+      if (errorMessage.includes("Session is not running") || errorMessage.includes("not running")) {
+        setError("This session has stopped. The host needs to start a new run.");
+      } else if (errorMessage.includes("Not authorized")) {
+        setError("Session link is invalid or expired. Ask the host for a new link.");
+      } else {
+        setError(errorMessage);
+      }
     }
   };
 
@@ -172,80 +206,152 @@ export default function AssistantChatPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-transparent px-4 py-6 text-[var(--foreground)] sm:px-8 max-w-3xl mx-auto w-full">
-      <header className="card-panel flex flex-col gap-3 px-5 py-4">
-        <p className="panel-strip inline-block px-4 py-1 text-[10px] uppercase tracking-[0.4em] text-[var(--card-fill)]">
-          Prompting Realities Chat
-        </p>
-        <h1 className="text-2xl font-semibold text-[var(--ink-dark)]">{title}</h1>
-        <p className="text-xs text-[var(--ink-muted)]">Session: {sessionId}</p>
+    <div className="flex h-screen flex-col bg-transparent text-[var(--foreground)]">
+      {/* Fixed Header - Compact on mobile */}
+      <header className="flex-shrink-0 border-b-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
+        <div className="mx-auto max-w-3xl flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-[var(--ink-dark)] sm:text-xl">{title}</h1>
+            <p className="text-xs text-[var(--ink-muted)] sm:text-sm">Session {sessionId}</p>
+          </div>
+          <button
+            onClick={() => setShowResetModal(true)}
+            className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
+            title="Reset conversation"
+          >
+            <RotateCcw className="h-4 w-4" />
+            <span className="hidden sm:inline">Reset</span>
+          </button>
+        </div>
       </header>
 
-      <main className="mt-6 flex flex-1 flex-col">
-        <div className="flex-1 space-y-4 overflow-y-auto px-1 py-2 sm:px-4">
-          {loading && <p className="text-sm text-[var(--ink-muted)]">Loading messages…</p>}
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${
-                message.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
+      {/* Scrollable Messages Area */}
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <div className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <div className="space-y-3 sm:space-y-4">
+            {loading && (
+              <div className="text-center">
+                <p className="text-sm text-[var(--ink-muted)]">Loading messages…</p>
+              </div>
+            )}
+
+            {error && (
+              <div className="mx-auto max-w-md rounded-2xl bg-red-100 px-4 py-3 text-center">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            {messages.map((message) => (
               <div
-                className={`max-w-full sm:max-w-[80%] rounded-[20px] px-4 py-3 text-base font-semibold leading-relaxed ${
-                  message.role === "user"
-                    ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
-                    : "bg-[var(--ink-muted)] text-[var(--card-fill)]"
-                }`}
+                key={message.id}
+                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <p>{message.content}</p>
-                <p className="mt-2 text-right text-[10px] font-semibold uppercase tracking-[0.3em] text-[#defbe6]">
-                  {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                <div
+                  className={`max-w-[85%] rounded-2xl px-3 py-2 sm:max-w-[75%] sm:px-4 sm:py-3 ${
+                    message.role === "user"
+                      ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
+                      : "bg-[var(--ink-muted)] text-[var(--card-fill)]"
+                  }`}
+                >
+                  <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
+                  <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
+                    {new Date(message.timestamp).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            {messages.length === 0 && !loading && !error && (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-center text-sm text-[var(--ink-muted)] sm:text-base">
+                  No messages yet. Start the conversation!
                 </p>
               </div>
-            </div>
-          ))}
-          {messages.length === 0 && !loading && (
-            <p className="text-center text-sm text-[var(--ink-muted)]">
-              This session is live locally. Messages will appear here as soon as you or your LLM thing send them.
-            </p>
-          )}
+            )}
+
+            {/* Scroll anchor */}
+            <div ref={messagesEndRef} />
+          </div>
         </div>
 
-        <form onSubmit={handleSend} className="mt-4">
-          <div className="card-panel flex flex-col gap-3 px-5 py-4">
-            <div className="flex items-center gap-3 rounded-[20px] bg-[var(--card-fill)] px-4 py-2 flex-wrap sm:flex-nowrap">
+        {/* Fixed Input Bar - Sticky to bottom */}
+        <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
+          <form onSubmit={handleSend} className="mx-auto max-w-3xl">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Mic button */}
               <button
                 type="button"
                 title={isRecording ? "Recording…" : "Hold to talk"}
-                className={`rounded-full border-[3px] border-[var(--card-shell)] px-4 py-2 text-[var(--ink-muted)] ${
-                  isRecording ? "bg-[var(--ink-muted)] text-[var(--card-fill)]" : "bg-transparent"
+                className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all ${
+                  isRecording
+                    ? "bg-red-500 text-white scale-110"
+                    : "bg-transparent border-2 border-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/20"
                 }`}
                 {...recordingEvents}
               >
-                <Mic className="h-4 w-4" />
+                <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
               </button>
+
+              {/* Input field */}
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="Type a message"
-                className="min-w-0 flex-1 bg-transparent text-base text-[var(--foreground)] outline-none placeholder:text-[#7aa88d]"
+                placeholder="Message..."
+                className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3 sm:text-base"
+                autoComplete="off"
               />
+
+              {/* Send button - Icon only on mobile, with text on desktop */}
               <button
                 type="submit"
-                className="inline-flex items-center gap-2 rounded-full bg-[var(--ink-dark)] px-4 py-2 text-base font-semibold text-[var(--card-fill)] transition hover:-translate-y-0.5"
+                disabled={!input.trim()}
+                className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 sm:px-4 sm:py-3"
+                aria-label="Send message"
               >
-                Send
-                <Send className="h-4 w-4" />
+                <Send className="h-5 w-5 sm:h-5 sm:w-5" />
               </button>
             </div>
-            <p className="text-xs text-[var(--ink-muted)]">
-              Hold the mic button to record a quick voice note or type to send instantly.
-            </p>
-          </div>
-        </form>
+
+            {/* Helper text - hidden on mobile, visible on desktop */}
+            {isRecording && (
+              <p className="mt-2 text-center text-xs text-red-600 sm:text-sm">
+                Recording... Release to send
+              </p>
+            )}
+          </form>
+        </div>
       </main>
+
+      {/* Reset Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-[var(--card-fill)] p-6 shadow-xl">
+            <h2 className="mb-3 text-xl font-bold text-[var(--ink-dark)]">Reset Conversation?</h2>
+            <p className="mb-6 text-sm text-[var(--ink-muted)]">
+              This will start a fresh conversation thread. Your chat history will be preserved in the database but won't be visible in this session.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowResetModal(false)}
+                disabled={isResetting}
+                className="flex-1 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-4 py-2.5 text-sm font-medium text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetConversation}
+                disabled={isResetting}
+                className="flex-1 rounded-full bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-red-600 disabled:opacity-50"
+              >
+                {isResetting ? "Resetting..." : "Reset"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

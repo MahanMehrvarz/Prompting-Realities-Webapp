@@ -376,7 +376,7 @@ export default function Home() {
         lastShareToken: session.share_token,
         lastUpdated: session.created_at,
       }));
-      await refreshChatHistory(selectedAssistant.id, session.id);
+      await refreshChatHistory(selectedAssistant.id);
     } catch (error) {
       console.error("Unable to start assistant", error);
     }
@@ -400,15 +400,14 @@ export default function Home() {
     }
   };
 
-  const refreshChatHistory = async (assistantId: number, sessionId?: number) => {
+  const refreshChatHistory = async (assistantId: number) => {
     if (!authToken) return;
     const assistant = assistants.find((item) => item.id === assistantId);
-    const targetSession = sessionId ?? assistant?.activeSessionId ?? assistant?.lastSessionId;
-    if (!assistant || !targetSession) return;
+    if (!assistant) return;
     try {
       const [messages, mqttRecords] = await Promise.all([
-        sessionApi.messages(targetSession, authToken),
-        sessionApi.mqttLog(targetSession, authToken),
+        assistantApi.messages(assistantId, authToken),
+        assistantApi.mqttLog(assistantId, authToken),
       ]);
       const mapped: ChatMessage[] = messages.map((message: MessageRecord) => ({
         id: `${message.id}`,
@@ -430,7 +429,7 @@ export default function Home() {
         chatHistory: mapped,
         mqttLog: mqttEntries.reverse(),
         lastUpdated: new Date().toISOString(),
-        lastSessionId: targetSession,
+        lastSessionId: item.lastSessionId,
         lastShareToken: item.shareToken ?? item.lastShareToken,
       }));
     } catch (error) {
@@ -446,7 +445,7 @@ export default function Home() {
 
   useEffect(() => {
     if (selectedAssistant && authToken && selectedAssistant.lastSessionId) {
-      refreshChatHistory(selectedAssistant.id, selectedAssistant.lastSessionId);
+      refreshChatHistory(selectedAssistant.id);
     }
   }, [selectedAssistant?.id, selectedAssistant?.lastSessionId, authToken]);
 
@@ -498,15 +497,7 @@ export default function Home() {
 
   const handleRefreshMqttFeed = () => {
     if (!selectedAssistant) return;
-    const sessionToUse =
-      selectedAssistant.activeSessionId && selectedAssistant.status === "running"
-        ? selectedAssistant.activeSessionId
-        : selectedAssistant.lastSessionId;
-    if (!sessionToUse) {
-      console.warn("No session available to refresh MQTT feed.");
-      return;
-    }
-    refreshChatHistory(selectedAssistant.id, sessionToUse);
+    refreshChatHistory(selectedAssistant.id);
   };
 
   const handleLogout = () => {
