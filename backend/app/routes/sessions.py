@@ -15,7 +15,7 @@ from .. import models, schemas
 from ..conversation_service import run_model_turn, transcribe_blob
 from ..database import get_db
 from ..mqtt_utils import publish_payload, test_mqtt_connection
-from ..security import get_current_user, maybe_current_user
+from ..security import get_current_user_id, maybe_current_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 def _get_session(
     db: Session,
     session_id: int,
-    user: models.User | None,
+    user_id: str | None,
     session_token: str | None = None,
 ) -> models.AssistantSession:
     session = (
@@ -37,7 +37,7 @@ def _get_session(
     )
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    if user and session.assistant.user_id == user.id:
+    if user_id and session.assistant.supabase_user_id == user_id:
         return session
     if session_token and session.share_token == session_token:
         return session
@@ -48,11 +48,11 @@ def _get_session(
 async def start_session(
     assistant_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
     assistant = (
         db.query(models.Assistant)
-        .filter(models.Assistant.id == assistant_id, models.Assistant.user_id == user.id)
+        .filter(models.Assistant.id == assistant_id, models.Assistant.supabase_user_id == user_id)
         .first()
     )
     if not assistant:
@@ -82,9 +82,9 @@ async def start_session(
 def stop_session(
     session_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
-    session = _get_session(db, session_id, user)
+    session = _get_session(db, session_id, user_id)
     session.status = "idle"
     session.active = False
     db.commit()
@@ -97,14 +97,14 @@ async def reset_conversation(
     session_id: int,
     session_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: models.User | None = Depends(maybe_current_user),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
     """Reset the conversation thread without deleting chat history.
 
     This creates a new thread ID and clears the last_response_id to start
     a fresh conversation context while keeping all existing messages in the database.
     """
-    session = _get_session(db, session_id, user, session_token)
+    session = _get_session(db, session_id, user_id, session_token)
 
     # Reset the conversation thread by creating a new thread ID and clearing response ID
     session.current_thread_id = secrets.token_urlsafe(16)
@@ -121,9 +121,9 @@ def get_messages(
     session_id: int,
     session_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: models.User | None = Depends(maybe_current_user),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
-    session = _get_session(db, session_id, user, session_token)
+    session = _get_session(db, session_id, user_id, session_token)
     # Return only messages for the current conversation thread
     return (
         db.query(models.ChatMessage)
@@ -141,9 +141,9 @@ def get_mqtt_log(
     session_id: int,
     session_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: models.User | None = Depends(maybe_current_user),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
-    session = _get_session(db, session_id, user, session_token)
+    session = _get_session(db, session_id, user_id, session_token)
     messages = (
         db.query(models.ChatMessage)
         .filter(
@@ -176,9 +176,9 @@ async def send_message(
     payload: schemas.SendMessageRequest,
     session_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: models.User | None = Depends(maybe_current_user),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
-    session = _get_session(db, session_id, user, session_token)
+    session = _get_session(db, session_id, user_id, session_token)
     if not session.active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not running")
 
@@ -254,7 +254,7 @@ async def transcribe_audio_route(
     file: UploadFile = File(...),
     session_token: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    user: models.User | None = Depends(maybe_current_user),
+    user: str | None = Depends(maybe_current_user_id),
 ):
     _get_session(db, session_id, user, session_token)  # ensure access
     audio_bytes = await file.read()

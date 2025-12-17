@@ -1,70 +1,100 @@
-"""Authentication helpers (password hashing + bearer tokens)."""
+"""Authentication helpers for Supabase JWT validation."""
 
 from __future__ import annotations
 
-import datetime as dt
-import secrets
-
+import jwt
+from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
 
-from .config import ACCESS_TOKEN_EXPIRE_MINUTES
-from .database import get_db
-from . import models
+from .config import SUPABASE_URL, SUPABASE_JWT_SECRET
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    return pwd_context.verify(password, hashed)
-
-
-def create_token(db: Session, user: models.User) -> models.AuthToken:
-    token_value = secrets.token_urlsafe(32)
-    expires_at = dt.datetime.utcnow() + dt.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    token = models.AuthToken(token=token_value, user=user, expires_at=expires_at)
-    db.add(token)
-    db.commit()
-    db.refresh(token)
-    return token
-
-
-def get_current_user(
+def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> models.User:
+) -> str:
+    """
+    Extract and validate Supabase user ID from JWT token.
+    
+    Uses Supabase's JWKS endpoint to fetch and validate JWT signing keys (RS256).
+    This is more secure than using the legacy JWT secret.
+    """
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    token_value = credentials.credentials
-    token = (
-        db.query(models.AuthToken)
-        .filter(models.AuthToken.token == token_value)
-        .first()
-    )
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    if not SUPABASE_URL:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase URL not configured. Please set SUPABASE_URL environment variable."
+        )
 
-    if token.expires_at and token.expires_at < dt.datetime.utcnow().replace(tzinfo=None):
-        db.delete(token)
-        db.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
-
-    return token.user
-
-
-def maybe_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-) -> models.User | None:
+    token = credentials.credentials
+    
     try:
-        return get_current_user(credentials, db)
+        
+        # Check if token uses HS256 (symmetric) or RS256 (asymmetric)
+        token_header = jwt.get_unverified_header(token)
+        algorithm = token_header.get("alg")
+        
+        if algorithm == "HS256" and SUPABASE_JWT_SECRET:
+            # Use JWT secret for HS256 tokens
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False}
+            )
+        elif algorithm == "RS256":
+            # Use JWKS for RS256 tokens
+            jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+            jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                options={"verify_aud": False}
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Unsupported token algorithm: {algorithm}"
+            )
+        
+        # Extract user ID from the 'sub' claim (subject)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing user ID"
+            )
+        
+        return user_id
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has expired"
+        )
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid token: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Authentication error: {str(e)}"
+        )
+
+
+def maybe_current_user_id(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> str | None:
+    """Optional authentication - returns None if not authenticated."""
+    try:
+        return get_current_user_id(credentials)
     except HTTPException:
         return None
