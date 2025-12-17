@@ -11,6 +11,8 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   Link as LinkIcon,
   PauseCircle,
   PlayCircle,
@@ -24,9 +26,9 @@ import {
   MessageRecord,
   MqttLogRecord,
   assistantApi,
-  authApi,
   sessionApi,
 } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
 
 type ConfigSection = "prompt" | "schema" | "mqtt" | "apiKey";
 type AssistantStatus = "idle" | "running";
@@ -228,6 +230,7 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<number | null>(null);
@@ -240,13 +243,40 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(TOKEN_STORAGE_KEY);
-    const storedEmail = window.localStorage.getItem("pr-auth-email");
-    if (stored) {
-      setAuthToken(stored);
-      if (storedEmail) setUserEmail(storedEmail);
-      fetchAssistants(stored);
-    }
+    // Check for existing Supabase session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setAuthToken(session.access_token);
+        setUserEmail(session.user.email ?? null);
+        window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
+        if (session.user.email) {
+          window.localStorage.setItem("pr-auth-email", session.user.email);
+        }
+        fetchAssistants(session.access_token);
+      }
+    });
+
+    // Listen for auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setAuthToken(session.access_token);
+        setUserEmail(session.user.email ?? null);
+        window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
+        if (session.user.email) {
+          window.localStorage.setItem("pr-auth-email", session.user.email);
+        }
+        fetchAssistants(session.access_token);
+      } else {
+        setAuthToken(null);
+        setUserEmail(null);
+        window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+        window.localStorage.removeItem("pr-auth-email");
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const fetchAssistants = async (token = authToken) => {
@@ -307,13 +337,35 @@ export default function Home() {
   const handleAuthSubmit = async (mode: "login" | "signup") => {
     setAuthError(null);
     try {
-      const action = mode === "login" ? authApi.login : authApi.signup;
-      const result = await action(authEmail, authPassword);
-      setAuthToken(result.access_token);
-      setUserEmail(authEmail);
-      window.localStorage.setItem(TOKEN_STORAGE_KEY, result.access_token);
-      window.localStorage.setItem("pr-auth-email", authEmail);
-      fetchAssistants(result.access_token);
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        if (data.session) {
+          setAuthToken(data.session.access_token);
+          setUserEmail(authEmail);
+          window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
+          window.localStorage.setItem("pr-auth-email", authEmail);
+          fetchAssistants(data.session.access_token);
+        } else {
+          setAuthError("Please check your email to confirm your account.");
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        if (data.session) {
+          setAuthToken(data.session.access_token);
+          setUserEmail(authEmail);
+          window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
+          window.localStorage.setItem("pr-auth-email", authEmail);
+          fetchAssistants(data.session.access_token);
+        }
+      }
     } catch (error) {
       setAuthError("Unable to authenticate. Check your credentials.");
     }
@@ -500,7 +552,8 @@ export default function Home() {
     refreshChatHistory(selectedAssistant.id);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setAuthToken(null);
     setUserEmail(null);
     window.localStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -549,13 +602,23 @@ export default function Home() {
               onChange={(event) => setAuthEmail(event.target.value)}
               className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)]"
             />
-            <input
-              type="password"
-              placeholder="Password"
-              value={authPassword}
-              onChange={(event) => setAuthPassword(event.target.value)}
-              className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)]"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 pr-12 text-sm text-[var(--foreground)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] transition hover:text-[var(--foreground)]"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => handleAuthSubmit(authMode)}

@@ -85,20 +85,6 @@ export type MqttLogRecord = {
   created_at: string;
 };
 
-export const authApi = {
-  signup(email: string, password: string) {
-    return apiFetch<{ access_token: string }>("/auth/signup", undefined, {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-  },
-  login(email: string, password: string) {
-    return apiFetch<{ access_token: string }>("/auth/login", undefined, {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-  },
-};
 
 export const assistantApi = {
   list(token: string) {

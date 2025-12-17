@@ -67,3 +67,12 @@ body {
   color: inherit;
 }
 
+/* Cursor pointer for interactive elements */
+button,
+a,
+[role="button"],
+[type="button"],
+[type="submit"],
+[type="reset"] {
+  cursor: pointer;
+}

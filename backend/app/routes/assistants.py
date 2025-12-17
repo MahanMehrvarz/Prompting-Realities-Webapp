@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
-from ..security import get_current_user
+from ..security import get_current_user_id
 
 router = APIRouter(prefix="/assistants", tags=["assistants"])
 
@@ -17,11 +17,11 @@ router = APIRouter(prefix="/assistants", tags=["assistants"])
 @router.get("/", response_model=list[schemas.AssistantOut])
 def list_assistants(
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
     assistants = (
         db.query(models.Assistant)
-        .filter(models.Assistant.user_id == user.id)
+        .filter(models.Assistant.supabase_user_id == user_id)
         .all()
     )
     for assistant in assistants:
@@ -40,10 +40,10 @@ def list_assistants(
 def create_assistant(
     payload: schemas.AssistantCreate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
     assistant = models.Assistant(
-        user_id=user.id,
+        supabase_user_id=user_id,
         **payload.dict(),
     )
     db.add(assistant)
@@ -57,11 +57,11 @@ def update_assistant(
     assistant_id: int,
     payload: schemas.AssistantUpdate,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
     assistant = (
         db.query(models.Assistant)
-        .filter(models.Assistant.id == assistant_id, models.Assistant.user_id == user.id)
+        .filter(models.Assistant.id == assistant_id, models.Assistant.supabase_user_id == user_id)
         .first()
     )
     if not assistant:
@@ -78,11 +78,11 @@ def update_assistant(
 def delete_assistant(
     assistant_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
     assistant = (
         db.query(models.Assistant)
-        .filter(models.Assistant.id == assistant_id, models.Assistant.user_id == user.id)
+        .filter(models.Assistant.id == assistant_id, models.Assistant.supabase_user_id == user_id)
         .first()
     )
     if not assistant:
@@ -91,10 +91,10 @@ def delete_assistant(
     db.commit()
 
 
-def _get_user_assistant(db: Session, assistant_id: int, user: models.User) -> models.Assistant:
+def _get_user_assistant(db: Session, assistant_id: int, user_id: str) -> models.Assistant:
     assistant = (
         db.query(models.Assistant)
-        .filter(models.Assistant.id == assistant_id, models.Assistant.user_id == user.id)
+        .filter(models.Assistant.id == assistant_id, models.Assistant.supabase_user_id == user_id)
         .first()
     )
     if not assistant:
@@ -106,9 +106,9 @@ def _get_user_assistant(db: Session, assistant_id: int, user: models.User) -> mo
 def assistant_messages(
     assistant_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
-    assistant = _get_user_assistant(db, assistant_id, user)
+    assistant = _get_user_assistant(db, assistant_id, user_id)
     return (
         db.query(models.ChatMessage)
         .filter(models.ChatMessage.assistant_id == assistant.id)
@@ -121,9 +121,9 @@ def assistant_messages(
 def assistant_mqtt_log(
     assistant_id: int,
     db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
 ):
-    assistant = _get_user_assistant(db, assistant_id, user)
+    assistant = _get_user_assistant(db, assistant_id, user_id)
     messages = (
         db.query(models.ChatMessage)
         .filter(
@@ -136,7 +136,7 @@ def assistant_mqtt_log(
     )
     log_entries: list[schemas.MqttLogOut] = []
     for message in messages:
-        if not message.value_json:
+        if message.value_json is None:
             continue
         try:
             payload = json.loads(message.value_json)

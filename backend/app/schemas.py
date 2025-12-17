@@ -8,25 +8,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, EmailStr, Field
 
 
-class UserBase(BaseModel):
-    email: EmailStr
-
-
-class UserCreate(UserBase):
-    password: str = Field(min_length=6, max_length=72)
-
-
-class UserOut(UserBase):
-    id: int
-    created_at: dt.datetime
-
-    class Config:
-        from_attributes = True
-
-
-class TokenOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+# User and auth schemas removed - authentication now handled by Supabase
 
 
 class AssistantBase(BaseModel):

@@ -26,35 +26,15 @@ def utcnow() -> dt.datetime:
     return dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc)
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    password_hash = Column(String(255), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-    assistants = relationship("Assistant", back_populates="owner", cascade="all, delete")
-    tokens = relationship("AuthToken", back_populates="user", cascade="all, delete")
-
-
-class AuthToken(Base):
-    __tablename__ = "auth_tokens"
-
-    id = Column(Integer, primary_key=True)
-    token = Column(String(255), unique=True, index=True, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=True)
-
-    user = relationship("User", back_populates="tokens")
+# User and AuthToken models removed - authentication now handled by Supabase
+# User ID will be extracted from Supabase JWT tokens
 
 
 class Assistant(Base):
     __tablename__ = "assistants"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    supabase_user_id = Column(String(255), nullable=False, index=True)  # Supabase user UUID
     name = Column(String(255), nullable=False)
     prompt_instruction = Column(Text, default="", nullable=False)
     json_schema = Column(Text, default="", nullable=False)
@@ -67,7 +47,6 @@ class Assistant(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
-    owner = relationship("User", back_populates="assistants")
     sessions = relationship("AssistantSession", back_populates="assistant", cascade="all, delete")
 
 
