@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Mic, Send, RotateCcw } from "lucide-react";
-import { TOKEN_STORAGE_KEY, sessionApi, MessageRecord } from "@/lib/api";
+import { supabase } from "@/lib/supabase";
+import {
+  sessionService,
+  messageService,
+  type ChatMessage as DbChatMessage,
+} from "@/lib/supabaseClient";
+import { backendApi } from "@/lib/backendApi";
+
+const TOKEN_STORAGE_KEY = "pr-auth-token";
 
 type ChatMessage = {
   id: string;
@@ -16,7 +24,9 @@ export default function AssistantChatPage() {
   const params = useParams<{ assistantId?: string }>();
   const assistantId = params?.assistantId ?? "assistant";
   const searchParams = useSearchParams();
-  const sessionId = Number(searchParams.get("session") ?? "");
+  const sessionIdParam = searchParams.get("session");
+  // Session ID is actually a UUID string, not a number
+  const sessionId = sessionIdParam || null;
   const shareToken = searchParams.get("share");
   const assistantName = searchParams.get("name");
 
@@ -29,6 +39,7 @@ export default function AssistantChatPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [sessionActive, setSessionActive] = useState<boolean | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
@@ -55,8 +66,13 @@ export default function AssistantChatPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const records = await sessionApi.messages(sessionId, token ?? undefined, shareToken ?? undefined);
-        setMessages(records.map(mapMessageRecord));
+        // Check session status
+        const session = await sessionService.get(sessionId);
+        setSessionActive(session.active);
+        
+        // Load ALL messages for this session, regardless of thread_id
+        const records = await messageService.listBySession(sessionId);
+        setMessages(records.flatMap(mapMessageRecord));
       } catch (err) {
         setError("Unable to load chat history.");
       } finally {
@@ -78,10 +94,19 @@ export default function AssistantChatPage() {
     if (!sessionId || (!token && !shareToken) || isResetting) return;
     setIsResetting(true);
     try {
-      await sessionApi.reset(sessionId, token ?? undefined, shareToken ?? undefined);
-      // Reload messages after reset - should show empty conversation
-      const records = await sessionApi.messages(sessionId, token ?? undefined, shareToken ?? undefined);
-      setMessages(records.map(mapMessageRecord));
+      // Get current session to get thread_id
+      const session = await sessionService.get(sessionId);
+      
+      // Generate new thread ID
+      const newThreadId = crypto.randomUUID();
+      
+      // Update session with new thread ID
+      await sessionService.update(sessionId, {
+        current_thread_id: newThreadId,
+      });
+      
+      // Clear messages locally
+      setMessages([]);
       setShowResetModal(false);
       setError(null);
     } catch (err) {
@@ -94,9 +119,20 @@ export default function AssistantChatPage() {
 
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!sessionId || (!token && !shareToken)) return;
+    console.log("🚀 [Frontend] handleSend triggered");
+    
+    if (!sessionId || (!token && !shareToken)) {
+      console.log("❌ [Frontend] Missing sessionId or token");
+      return;
+    }
+    
     const trimmed = input.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      console.log("❌ [Frontend] Empty message");
+      return;
+    }
+    
+    console.log("📝 [Frontend] User message:", trimmed);
     setInput("");
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: ChatMessage = {
@@ -106,15 +142,101 @@ export default function AssistantChatPage() {
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimisticMessage]);
+    
     try {
-      await sessionApi.sendMessage(sessionId, trimmed, token ?? undefined, shareToken ?? undefined);
-      const records = await sessionApi.messages(sessionId, token ?? undefined, shareToken ?? undefined);
-      setMessages(records.map(mapMessageRecord));
-      setError(null); // Clear any previous errors on success
+      // Get session info
+      console.log("🔍 [Frontend] Fetching session info for:", sessionId);
+      const session = await sessionService.get(sessionId);
+      console.log("✅ [Frontend] Session retrieved:", { active: session.active, thread_id: session.current_thread_id });
+      
+      // Check if session is active
+      if (!session.active) {
+        throw new Error("Session is not running");
+      }
+      
+      // Get assistant info to make AI call
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user && !shareToken) {
+        throw new Error("Not authorized");
+      }
+      
+      // Get assistant config from database
+      console.log("🔍 [Frontend] Fetching assistant configuration...");
+      const { data: assistantData, error: assistantError } = await supabase
+        .from("assistants")
+        .select("*")
+        .eq("id", assistantId)
+        .single();
+      
+      if (assistantError || !assistantData) {
+        throw new Error("Failed to fetch assistant configuration");
+      }
+      
+      // Get API key from localStorage
+      const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
+      const storedApiKey = window.localStorage.getItem(`${API_KEY_STORAGE_PREFIX}${assistantId}`);
+      
+      if (!storedApiKey) {
+        throw new Error("API key not found. Please configure the assistant first.");
+      }
+      
+      console.log("🤖 [Frontend] Calling backend AI API...");
+      const aiResponse = await backendApi.chat(
+        {
+          previous_response_id: null, // TODO: Track conversation history
+          user_message: trimmed,
+          assistant_config: {
+            prompt_instruction: assistantData.prompt_instruction || "You are a helpful assistant.",
+            json_schema: assistantData.json_schema || null,
+            api_key: storedApiKey,
+          },
+        },
+        token ?? ""
+      );
+      console.log("✅ [Frontend] Backend response received:", aiResponse);
+      
+      // Save complete conversation turn (user + assistant) in a single entry
+      console.log("💾 [Frontend] Saving conversation turn to database...");
+      
+      // Extract the text response from the payload
+      let responseText = null;
+      if (aiResponse.payload) {
+        // Try to extract text from common fields
+        const possibleFields = ["answer", "response", "text", "content", "message"];
+        for (const field of possibleFields) {
+          if (typeof aiResponse.payload[field] === "string") {
+            responseText = aiResponse.payload[field];
+            break;
+          }
+        }
+        // If no common field found, stringify the whole payload
+        if (!responseText) {
+          responseText = JSON.stringify(aiResponse.payload);
+        }
+      }
+
+      const conversationMessage = await messageService.create({
+        session_id: sessionId,
+        assistant_id: assistantId,
+        thread_id: session.current_thread_id,
+        user_text: trimmed, // Store user's message
+        assistant_payload: aiResponse.payload, // Store as actual JSON object
+        response_text: responseText, // Store just the text response
+        value_json: aiResponse.payload, // Store as actual JSON object
+      });
+      console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
+      
+      // Reload all messages for this session (all threads)
+      console.log("🔄 [Frontend] Reloading messages from database...");
+      const records = await messageService.listBySession(sessionId);
+      setMessages(records.flatMap(mapMessageRecord));
+      console.log("✅ [Frontend] Messages reloaded, count:", records.length);
+      setError(null);
     } catch (err) {
+      console.error("❌ [Frontend] Error in handleSend:", err);
       setMessages((prev) => prev.filter((message) => message.id !== tempId));
       const errorMessage = err instanceof Error ? err.message : "Unable to send message.";
-      if (errorMessage.includes("Session is not running") || errorMessage.includes("not running")) {
+      if (errorMessage.includes("Session is not running") || errorMessage.includes("not running") || errorMessage.includes("not active")) {
         setError("This session has stopped. The host needs to start a new run.");
       } else if (errorMessage.includes("Not authorized")) {
         setError("Session link is invalid or expired. Ask the host for a new link.");
@@ -144,7 +266,7 @@ export default function AssistantChatPage() {
         }
         const file = new File([blob], "voice-input.webm", { type: blob.type });
         try {
-          const result = await sessionApi.transcribe(sessionId, file, token ?? undefined, shareToken ?? undefined);
+          const result = await backendApi.transcribe(file, token ?? undefined);
           setInput((prev) => (prev ? `${prev} ${result.text}` : result.text));
         } catch (err) {
           setError("Unable to transcribe audio.");
@@ -279,49 +401,59 @@ export default function AssistantChatPage() {
 
         {/* Fixed Input Bar - Sticky to bottom */}
         <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
-          <form onSubmit={handleSend} className="mx-auto max-w-3xl">
-            <div className="flex items-center gap-2 sm:gap-3">
-              {/* Mic button */}
-              <button
-                type="button"
-                title={isRecording ? "Recording…" : "Hold to talk"}
-                className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all ${
-                  isRecording
-                    ? "bg-red-500 text-white scale-110"
-                    : "bg-transparent border-2 border-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/20"
-                }`}
-                {...recordingEvents}
-              >
-                <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
-              </button>
-
-              {/* Input field */}
-              <input
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="Message..."
-                className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3 sm:text-base"
-                autoComplete="off"
-              />
-
-              {/* Send button - Icon only on mobile, with text on desktop */}
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 sm:px-4 sm:py-3"
-                aria-label="Send message"
-              >
-                <Send className="h-5 w-5 sm:h-5 sm:w-5" />
-              </button>
+          {sessionActive === false ? (
+            <div className="mx-auto max-w-3xl">
+              <div className="rounded-2xl border-2 border-[var(--card-shell)] bg-[#fff0dc] px-4 py-3 text-center">
+                <p className="text-sm font-medium text-[#4a2100]">
+                  Session stopped. Restart the session to send messages.
+                </p>
+              </div>
             </div>
+          ) : (
+            <form onSubmit={handleSend} className="mx-auto max-w-3xl">
+              <div className="flex items-center gap-2 sm:gap-3">
+                {/* Mic button */}
+                <button
+                  type="button"
+                  title={isRecording ? "Recording…" : "Hold to talk"}
+                  className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all ${
+                    isRecording
+                      ? "bg-red-500 text-white scale-110"
+                      : "bg-transparent border-2 border-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/20"
+                  }`}
+                  {...recordingEvents}
+                >
+                  <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
+                </button>
 
-            {/* Helper text - hidden on mobile, visible on desktop */}
-            {isRecording && (
-              <p className="mt-2 text-center text-xs text-red-600 sm:text-sm">
-                Recording... Release to send
-              </p>
-            )}
-          </form>
+                {/* Input field */}
+                <input
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="Message..."
+                  className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3 sm:text-base"
+                  autoComplete="off"
+                />
+
+                {/* Send button - Icon only on mobile, with text on desktop */}
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 sm:px-4 sm:py-3"
+                  aria-label="Send message"
+                >
+                  <Send className="h-5 w-5 sm:h-5 sm:w-5" />
+                </button>
+              </div>
+
+              {/* Helper text - hidden on mobile, visible on desktop */}
+              {isRecording && (
+                <p className="mt-2 text-center text-xs text-red-600 sm:text-sm">
+                  Recording... Release to send
+                </p>
+              )}
+            </form>
+          )}
         </div>
       </main>
 
@@ -331,7 +463,7 @@ export default function AssistantChatPage() {
           <div className="w-full max-w-md rounded-2xl bg-[var(--card-fill)] p-6 shadow-xl">
             <h2 className="mb-3 text-xl font-bold text-[var(--ink-dark)]">Reset Conversation?</h2>
             <p className="mb-6 text-sm text-[var(--ink-muted)]">
-              This will start a fresh conversation thread. Your chat history will be preserved in the database but won't be visible in this session.
+              This will start a fresh conversation thread. All previous messages will remain visible, but new messages will be part of a new conversation context.
             </p>
             <div className="flex gap-3">
               <button
@@ -359,6 +491,35 @@ export default function AssistantChatPage() {
 function normalizeAssistantText(text?: string | null): string {
   if (!text) return "";
   const trimmed = text.trim();
+  
+  // Try to parse as JSON first
+  try {
+    const parsed = JSON.parse(trimmed);
+    
+    // If it's an object, extract text from common fields
+    if (typeof parsed === "object" && parsed !== null) {
+      // Try common field names for the actual response text
+      const possibleFields = ["answer", "response", "text", "content", "message"];
+      
+      for (const field of possibleFields) {
+        if (typeof parsed[field] === "string") {
+          return parsed[field];
+        }
+      }
+      
+      // If no common field found, return the whole JSON as formatted string
+      return JSON.stringify(parsed, null, 2);
+    }
+    
+    // If it's a string, return it
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+  } catch {
+    // Not valid JSON, continue with original logic
+  }
+  
+  // Fallback to original fragment-based parsing
   const fragments: string[] = [];
   let depth = 0;
   let buffer = "";
@@ -388,16 +549,28 @@ function normalizeAssistantText(text?: string | null): string {
   return responses.join("\n\n");
 }
 
-function mapMessageRecord(message: MessageRecord): ChatMessage {
-  const content =
-    message.role === "assistant"
-      ? normalizeAssistantText(message.response_text)
-      : message.user_text ?? "";
-
-  return {
-    id: `${message.id}`,
-    role: message.role,
-    content,
-    timestamp: message.created_at,
-  };
+function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  
+  // If there's a user message, add it first
+  if (message.user_text) {
+    messages.push({
+      id: `${message.id}-user`,
+      role: "user",
+      content: message.user_text,
+      timestamp: message.created_at,
+    });
+  }
+  
+  // If there's an assistant response, add it
+  if (message.response_text || message.assistant_payload) {
+    messages.push({
+      id: `${message.id}-assistant`,
+      role: "assistant",
+      content: normalizeAssistantText(message.response_text),
+      timestamp: message.created_at,
+    });
+  }
+  
+  return messages;
 }

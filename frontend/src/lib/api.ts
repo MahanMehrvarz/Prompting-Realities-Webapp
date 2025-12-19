@@ -7,7 +7,7 @@ type RequestOptions = {
   body?: BodyInit | null;
 };
 
-const authHeader = (token?: string) =>
+const authHeader = (token?: string): Record<string, string> =>
   token ? { Authorization: `Bearer ${token}` } : {};
 
 async function apiFetch<T>(path: string, token?: string, options: RequestOptions = {}): Promise<T> {
@@ -46,13 +46,12 @@ export type AssistantRecord = {
   id: number;
   name: string;
   prompt_instruction: string;
-  json_schema: string;
+  json_schema: Record<string, any> | null;
   mqtt_host: string;
   mqtt_port: number;
   mqtt_user?: string | null;
   mqtt_pass?: string | null;
   mqtt_topic: string;
-  api_key?: string | null;
   created_at: string;
   updated_at: string;
   latest_session_id?: number | null;
@@ -71,7 +70,6 @@ export type SessionRecord = {
 
 export type MessageRecord = {
   id: number;
-  role: "user" | "assistant";
   user_text?: string | null;
   response_text?: string | null;
   assistant_payload?: string | null;

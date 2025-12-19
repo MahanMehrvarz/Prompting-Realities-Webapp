@@ -20,15 +20,20 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import {
-  TOKEN_STORAGE_KEY,
-  AssistantRecord,
-  MessageRecord,
-  MqttLogRecord,
-  assistantApi,
-  sessionApi,
-} from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import {
+  assistantService,
+  sessionService,
+  messageService,
+  type Assistant as DbAssistant,
+  type AssistantSession,
+  type ChatMessage as DbChatMessage,
+} from "@/lib/supabaseClient";
+import { backendApi } from "@/lib/backendApi";
+
+const TOKEN_STORAGE_KEY = "pr-auth-token";
+const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
+const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
 
 type ConfigSection = "prompt" | "schema" | "mqtt" | "apiKey";
 type AssistantStatus = "idle" | "running";
@@ -36,6 +41,7 @@ type EditableField =
   | "name"
   | "promptInstruction"
   | "jsonSchema"
+  | "jsonSchemaText"
   | "mqttHost"
   | "mqttPort"
   | "mqttUser"
@@ -45,16 +51,16 @@ type EditableField =
 
 type ChatMessage = {
   id: string;
-  role: "user" | "assistant";
   content: string;
   timestamp: string;
 };
 
 type Assistant = {
-  id: number;
+  id: string;
   name: string;
   promptInstruction: string;
-  jsonSchema: string;
+  jsonSchema: Record<string, any> | null;
+  jsonSchemaText: string; // Raw text for editing
   mqttHost: string;
   mqttPort: string;
   mqttUser?: string;
@@ -66,9 +72,9 @@ type Assistant = {
   lastUpdated?: string;
   mqttLog: MqttLogEntry[];
   chatHistory: ChatMessage[];
-  activeSessionId?: number;
+  activeSessionId?: string;
   shareToken?: string;
-  lastSessionId?: number;
+  lastSessionId?: string;
   lastShareToken?: string;
 };
 
@@ -132,7 +138,7 @@ const configSections: {
     id: "schema",
     label: "JSON Schema",
     helper: "Response contract for structured output.",
-    isComplete: (assistant) => assistant.jsonSchema.trim().length > 0,
+    isComplete: (assistant) => assistant.jsonSchema !== null && Object.keys(assistant.jsonSchema).length > 0,
   },
   {
     id: "mqtt",
@@ -151,37 +157,25 @@ const configSections: {
   },
 ];
 
-const fieldToPayload: Record<EditableField, string> = {
-  name: "name",
-  promptInstruction: "prompt_instruction",
-  jsonSchema: "json_schema",
-  mqttHost: "mqtt_host",
-  mqttPort: "mqtt_port",
-  mqttUser: "mqtt_user",
-  mqttPass: "mqtt_pass",
-  mqttTopic: "mqtt_topic",
-  apiKey: "api_key",
-};
 
-const formatAssistant = (record: AssistantRecord): Assistant => ({
+const formatAssistant = (record: DbAssistant): Assistant => ({
   id: record.id,
   name: record.name,
   promptInstruction: record.prompt_instruction ?? "",
-  jsonSchema: record.json_schema ?? "",
+  jsonSchema: record.json_schema ?? null,
+  jsonSchemaText: record.json_schema ? JSON.stringify(record.json_schema, null, 2) : "",
   mqttHost: record.mqtt_host ?? "",
   mqttPort: String(record.mqtt_port ?? 1883),
   mqttUser: record.mqtt_user ?? undefined,
-  mqttPass: record.mqtt_pass ?? undefined,
   mqttTopic: record.mqtt_topic ?? "",
-  apiKey: record.api_key ?? undefined,
   status: "idle",
   mqttConnected: false,
   lastUpdated: record.updated_at,
   mqttLog: [],
   chatHistory: [],
   shareToken: undefined,
-  lastSessionId: record.latest_session_id ?? undefined,
-  lastShareToken: record.latest_share_token ?? undefined,
+  lastSessionId: undefined,
+  lastShareToken: undefined,
 });
 
 const timeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -233,10 +227,12 @@ export default function Home() {
   const [showPassword, setShowPassword] = useState(false);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
-  const [selectedAssistantId, setSelectedAssistantId] = useState<number | null>(null);
+  const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
   const [activeConfigSection, setActiveConfigSection] = useState<ConfigSection>("prompt");
-  const [copiedAssistantId, setCopiedAssistantId] = useState<number | null>(null);
+  const [copiedAssistantId, setCopiedAssistantId] = useState<string | null>(null);
   const [loadingAssistants, setLoadingAssistants] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     setHydrated(true);
@@ -252,7 +248,7 @@ export default function Home() {
         if (session.user.email) {
           window.localStorage.setItem("pr-auth-email", session.user.email);
         }
-        fetchAssistants(session.access_token);
+        fetchAssistants();
       }
     });
 
@@ -267,7 +263,7 @@ export default function Home() {
         if (session.user.email) {
           window.localStorage.setItem("pr-auth-email", session.user.email);
         }
-        fetchAssistants(session.access_token);
+        fetchAssistants();
       } else {
         setAuthToken(null);
         setUserEmail(null);
@@ -279,12 +275,49 @@ export default function Home() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchAssistants = async (token = authToken) => {
-    if (!token) return;
+  const fetchAssistants = async () => {
     setLoadingAssistants(true);
     try {
-      const records = await assistantApi.list(token);
-      const formatted = records.map(formatAssistant);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const records = await assistantService.list(user.id);
+      const formatted = await Promise.all(records.map(async (record) => {
+        const assistant = formatAssistant(record);
+        
+        // Load stored API key and MQTT password from localStorage
+        const storedApiKey = window.localStorage.getItem(`${API_KEY_STORAGE_PREFIX}${assistant.id}`);
+        if (storedApiKey) {
+          assistant.apiKey = storedApiKey;
+        }
+        
+        const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistant.id}`);
+        if (storedMqttPass) {
+          assistant.mqttPass = storedMqttPass;
+        }
+        
+        // Check for active or latest session
+        try {
+          const latestSession = await sessionService.getLatestForAssistant(assistant.id);
+          if (latestSession) {
+            assistant.lastSessionId = latestSession.id;
+            assistant.lastShareToken = latestSession.share_token;
+            
+            // If session is active, set it as running
+            if (latestSession.active && latestSession.status === "running") {
+              assistant.status = "running";
+              assistant.activeSessionId = latestSession.id;
+              assistant.shareToken = latestSession.share_token;
+              assistant.mqttConnected = latestSession.mqtt_connected;
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to fetch session for assistant ${assistant.id}`, error);
+        }
+        
+        return assistant;
+      }));
+      
       setAssistants(formatted);
       setSelectedAssistantId((prev) => {
         if (prev && formatted.some((assistant) => assistant.id === prev)) {
@@ -314,14 +347,15 @@ export default function Home() {
   const readyToRun =
     !!selectedAssistant && missingRequirements.length === 0 && !!selectedAssistant.apiKey;
 
+  // Only show session link when assistant is running
   const visibleSessionId =
-    selectedAssistant?.activeSessionId && selectedAssistant.status === "running"
+    selectedAssistant?.status === "running" && selectedAssistant.activeSessionId
       ? selectedAssistant.activeSessionId
-      : selectedAssistant?.lastSessionId;
+      : null;
   const visibleShareToken =
-    selectedAssistant?.activeSessionId && selectedAssistant.status === "running"
+    selectedAssistant?.status === "running" && selectedAssistant.shareToken
       ? selectedAssistant.shareToken
-      : selectedAssistant?.lastShareToken;
+      : null;
 
   const sessionPath =
     selectedAssistant && visibleSessionId && visibleShareToken
@@ -348,7 +382,7 @@ export default function Home() {
           setUserEmail(authEmail);
           window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
           window.localStorage.setItem("pr-auth-email", authEmail);
-          fetchAssistants(data.session.access_token);
+          fetchAssistants();
         } else {
           setAuthError("Please check your email to confirm your account.");
         }
@@ -363,7 +397,7 @@ export default function Home() {
           setUserEmail(authEmail);
           window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
           window.localStorage.setItem("pr-auth-email", authEmail);
-          fetchAssistants(data.session.access_token);
+          fetchAssistants();
         }
       }
     } catch (error) {
@@ -371,7 +405,7 @@ export default function Home() {
     }
   };
 
-  const updateAssistantState = (assistantId: number, updater: (assistant: Assistant) => Assistant) => {
+  const updateAssistantState = (assistantId: string, updater: (assistant: Assistant) => Assistant) => {
     setAssistants((prev) =>
       prev.map((assistant) =>
         assistant.id === assistantId ? updater(assistant) : assistant
@@ -379,33 +413,86 @@ export default function Home() {
     );
   };
 
-  const handleFieldChange = (assistantId: number, field: EditableField, value: string) => {
+  const handleFieldChange = (assistantId: string, field: EditableField, value: string) => {
+    // Store raw value in local state - no auto-save
     updateAssistantState(assistantId, (assistant) => ({
       ...assistant,
       [field]: value,
       lastUpdated: new Date().toISOString(),
     }));
-    if (!authToken) return;
-    const payloadKey = fieldToPayload[field];
-    assistantApi
-      .update(assistantId, { [payloadKey]: field === "mqttPort" ? Number(value) : value }, authToken)
-      .catch((error) => console.error("Failed to update assistant", error));
+    
+    // Save API key and MQTT password to localStorage when they change (per assistant)
+    if (field === "apiKey" && value.trim()) {
+      window.localStorage.setItem(`${API_KEY_STORAGE_PREFIX}${assistantId}`, value);
+    }
+    if (field === "mqttPass" && value.trim()) {
+      window.localStorage.setItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`, value);
+    }
+  };
+
+  const saveAssistantNow = async (assistantId: string, validateSchema = false) => {
+    setSaveError(null);
+    setSaveSuccess(false);
+    
+    const assistant = assistants.find((a) => a.id === assistantId);
+    if (!assistant) return false;
+    
+    // Parse and validate JSON schema
+    let parsedSchema: Record<string, any> | null = null;
+    if (assistant.jsonSchemaText.trim()) {
+      try {
+        parsedSchema = JSON.parse(assistant.jsonSchemaText);
+      } catch (error) {
+        if (validateSchema) {
+          setSaveError("Invalid JSON schema. Please fix the syntax before saving.");
+          return false;
+        }
+      }
+    }
+    
+    try {
+      // Don't save MQTT password to database - it's stored in localStorage only
+      await assistantService.update(assistantId, {
+        name: assistant.name,
+        prompt_instruction: assistant.promptInstruction,
+        json_schema: parsedSchema,
+        mqtt_host: assistant.mqttHost,
+        mqtt_port: Number(assistant.mqttPort),
+        mqtt_user: assistant.mqttUser || null,
+        mqtt_topic: assistant.mqttTopic,
+      });
+      
+      // Update local state with parsed schema
+      updateAssistantState(assistantId, (a) => ({
+        ...a,
+        jsonSchema: parsedSchema,
+      }));
+      
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+      return true;
+    } catch (error) {
+      console.error("Failed to save assistant", error);
+      setSaveError("Failed to save configuration. Please try again.");
+      return false;
+    }
   };
 
   const handleAddAssistant = async () => {
-    if (!authToken) return;
     try {
-      const record = await assistantApi.create(
-        {
-                    name: `LLM Thing ${assistants.length + 1}`,
-          prompt_instruction: "",
-          json_schema: "",
-          mqtt_host: "localhost",
-          mqtt_topic: "topic/default",
-          mqtt_port: 1883,
-        },
-        authToken
-      );
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const record = await assistantService.create({
+        supabase_user_id: user.id,
+        name: `LLM Thing ${assistants.length + 1}`,
+        prompt_instruction: "",
+        json_schema: null,
+        mqtt_host: "localhost",
+        mqtt_topic: "topic/default",
+        mqtt_port: 1883,
+        mqtt_user: null,
+      });
       const formatted = formatAssistant(record);
       setAssistants((prev) => [...prev, formatted]);
       setSelectedAssistantId(record.id);
@@ -416,17 +503,48 @@ export default function Home() {
 
   const handleRunAssistant = async () => {
     if (!selectedAssistant || !authToken || !readyToRun) return;
+    
+    // Save and validate before running
+    const saved = await saveAssistantNow(selectedAssistant.id, true);
+    if (!saved) return;
+    
     try {
-      const session = await sessionApi.start(selectedAssistant.id, authToken);
+      // Test MQTT connection first
+      const mqttTestResult = await backendApi.testMqtt({
+        host: selectedAssistant.mqttHost,
+        port: Number(selectedAssistant.mqttPort),
+        username: selectedAssistant.mqttUser || null,
+        password: selectedAssistant.mqttPass || null,
+      }, authToken);
+      
+      // Check if there's an existing session for this assistant
+      let session;
+      const existingSession = await sessionService.getLatestForAssistant(selectedAssistant.id);
+      
+      if (existingSession) {
+        // Reuse existing session - just reactivate it
+        session = await sessionService.update(existingSession.id, {
+          status: "running",
+          active: true,
+          mqtt_connected: mqttTestResult.success,
+        });
+      } else {
+        // Create new session only if none exists
+        session = await sessionService.create(
+          selectedAssistant.id,
+          mqttTestResult.success
+        );
+      }
+      
       updateAssistantState(selectedAssistant.id, (assistant) => ({
         ...assistant,
         status: "running",
-        mqttConnected: session.mqtt_connected ?? assistant.mqttConnected,
+        mqttConnected: mqttTestResult.success,
         activeSessionId: session.id,
         shareToken: session.share_token,
         lastSessionId: session.id,
         lastShareToken: session.share_token,
-        lastUpdated: session.created_at,
+        lastUpdated: session.updated_at || session.created_at,
       }));
       await refreshChatHistory(selectedAssistant.id);
     } catch (error) {
@@ -435,9 +553,12 @@ export default function Home() {
   };
 
   const handleStopAssistant = async () => {
-    if (!selectedAssistant || !authToken || !selectedAssistant.activeSessionId) return;
+    if (!selectedAssistant || !selectedAssistant.activeSessionId) return;
     try {
-      await sessionApi.stop(selectedAssistant.activeSessionId, authToken);
+      await sessionService.update(selectedAssistant.activeSessionId, {
+        status: "stopped",
+        active: false,
+      });
       updateAssistantState(selectedAssistant.id, (assistant) => ({
         ...assistant,
         status: "idle",
@@ -452,28 +573,25 @@ export default function Home() {
     }
   };
 
-  const refreshChatHistory = async (assistantId: number) => {
-    if (!authToken) return;
+  const refreshChatHistory = async (assistantId: string) => {
     const assistant = assistants.find((item) => item.id === assistantId);
     if (!assistant) return;
     try {
       const [messages, mqttRecords] = await Promise.all([
-        assistantApi.messages(assistantId, authToken),
-        assistantApi.mqttLog(assistantId, authToken),
+        messageService.listByAssistant(assistantId),
+        messageService.getMqttLog(assistantId),
       ]);
-      const mapped: ChatMessage[] = messages.map((message: MessageRecord) => ({
+      const mapped: ChatMessage[] = messages.map((message: DbChatMessage) => ({
         id: `${message.id}`,
-        role: message.role,
-        content:
-          message.role === "assistant"
-            ? normalizeAssistantText(message.response_text)
-            : message.user_text ?? "",
+        content: message.user_text ?? "",
         timestamp: message.created_at,
       }));
-      const mqttEntries: MqttLogEntry[] = mqttRecords.map((record: MqttLogRecord) => ({
+      const mqttEntries: MqttLogEntry[] = mqttRecords.map((record: any) => ({
         id: `${record.id}`,
         direction: "outgoing",
-        payload: JSON.stringify(record.payload, null, 2),
+        payload: typeof record.value_json === 'string' 
+          ? record.value_json 
+          : JSON.stringify(record.value_json, null, 2),
         timestamp: record.created_at,
       }));
       updateAssistantState(assistantId, (item) => ({
@@ -507,9 +625,9 @@ export default function Home() {
       const sanitized = message.content.replace(/"/g, '""');
       const mqttPayload = selectedAssistant.mqttLog.find((log) => log.timestamp === message.timestamp)?.payload ?? "";
       const sanitizedPayload = mqttPayload.replace(/"/g, '""');
-      return `${message.timestamp},${message.role},"${sanitized}","${sanitizedPayload}"`;
+      return `${message.timestamp},"${sanitized}","${sanitizedPayload}"`;
     });
-    const csvContent = ["timestamp,role,content,mqtt_payload", ...rows].join("\n");
+    const csvContent = ["timestamp,content,mqtt_payload", ...rows].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -561,9 +679,20 @@ export default function Home() {
   };
 
   const handleDeleteAssistant = async () => {
-    if (!selectedAssistant || !authToken) return;
+    if (!selectedAssistant) return;
     try {
-      await assistantApi.remove(selectedAssistant.id, authToken);
+      // Stop the session if it's running before deleting
+      if (selectedAssistant.status === "running" && selectedAssistant.activeSessionId) {
+        await sessionService.update(selectedAssistant.activeSessionId, {
+          status: "stopped",
+          active: false,
+        });
+      }
+      
+      // Soft delete the assistant
+      await assistantService.delete(selectedAssistant.id);
+      
+      // Remove from UI
       setAssistants((prev) => prev.filter((assistant) => assistant.id !== selectedAssistant.id));
       setSelectedAssistantId((prev) => {
         if (prev === selectedAssistant.id) {
@@ -806,7 +935,7 @@ export default function Home() {
               <div className="rounded-[20px] border-[2px] border-[var(--card-shell)] bg-white px-4 py-3 shadow-[5px_5px_0_var(--card-shell)]">
                 <p className="text-xs uppercase tracking-[0.4em] text-[#0b321e]">Assistant replies</p>
                 <p className="mt-2 text-2xl font-semibold text-[var(--ink-dark)]">
-                  {selectedAssistant.chatHistory.filter((msg) => msg.role === "assistant").length}
+                  {selectedAssistant.chatHistory.length}
                 </p>
                 <p className="text-xs text-[var(--ink-muted)]">LLM responses stored in server DB</p>
               </div>
@@ -890,9 +1019,9 @@ export default function Home() {
                       Response JSON schema
                     </label>
                     <textarea
-                      value={selectedAssistant.jsonSchema}
+                      value={selectedAssistant.jsonSchemaText}
                       onChange={(event) =>
-                        handleFieldChange(selectedAssistant.id, "jsonSchema", event.target.value)
+                        handleFieldChange(selectedAssistant.id, "jsonSchemaText", event.target.value)
                       }
                       rows={12}
                       placeholder="Paste the schema that downstream systems expect."
@@ -995,6 +1124,19 @@ export default function Home() {
           </section>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
+            {saveError && (
+              <p className="text-xs text-red-600">{saveError}</p>
+            )}
+            {saveSuccess && (
+              <p className="text-xs text-green-600">Configuration saved!</p>
+            )}
+            <button
+              type="button"
+              onClick={() => selectedAssistant && saveAssistantNow(selectedAssistant.id, false)}
+              className="flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-2 text-xs font-semibold text-[var(--card-fill)] transition hover:-translate-y-0.5"
+            >
+              Save
+            </button>
             <button
               type="button"
               onClick={() => selectedAssistant && refreshChatHistory(selectedAssistant.id)}
@@ -1107,12 +1249,20 @@ export default function Home() {
                         <Copy className="h-3.5 w-3.5" />
                         {copiedAssistantId === selectedAssistant.id ? "Copied" : "Copy"}
                       </button>
-                      <Link
-                        href={sessionPath}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (selectedAssistant) {
+                            const saved = await saveAssistantNow(selectedAssistant.id, true);
+                            if (saved) {
+                              window.location.href = sessionPath;
+                            }
+                          }
+                        }}
                         className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-3 py-1 text-xs font-semibold text-[var(--card-fill)]"
                       >
                         Open chat
-                      </Link>
+                      </button>
                     </div>
                     <p className="mt-3 flex items-center gap-2 text-xs text-[#8b3b00]">
                       <AlertCircle className="h-3.5 w-3.5" />
