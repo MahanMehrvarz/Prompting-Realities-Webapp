@@ -8,19 +8,19 @@
   - Later: show an error or modal saying *“A new session is active”*
 
 ## Database & Backend Configuration
-- [ ] Finalize DB configuration
-- [ ] Decide on Supabase usage  
+- [X] Finalize DB configuration
+- [X] Decide on Supabase usage  
   - Should SQLite be skipped entirely?
-- [ ] Ensure all LLM responses are stored correctly
+- [X] Ensure all LLM responses are stored correctly
 
 ## Database Schema
-- [ ] Create table for users
-- [ ] Create table for LLM Things
-- [ ] Create table for LLM API responses
+- [X] Create table for users
+- [X] Create table for LLM Things
+- [X] Create table for LLM API responses
 
 ## Data Retention & Lifecycle
-- [ ] Ensure all chat history always remains accessible via the link
-- [ ] If an LLM Thing is deleted, keep its data in the database
+- [X] Ensure all chat history always remains accessible via the link
+- [X] If an LLM Thing is deleted, keep its data in the database
 - [ ] Later: add a first-use modal explaining that log data is kept for research purposes  
   - Logs are unbounded to the user’s email address
 
@@ -36,3 +36,8 @@
 
 ## Input & Interaction
 - [ ] Implement microphone input
+
+## Other
+- [ ] Ask for confirmation before deleting a session
+- [ ] Check QR code functionality (probably broken from introduction of JWT)
+- [ ] Add button redirecting to dashboard
