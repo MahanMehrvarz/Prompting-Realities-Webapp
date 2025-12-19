@@ -4,20 +4,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import models  # noqa: F401 ensures models register with Base metadata
-from .database import Base, engine
-from .routes import assistants, sessions
+from .routes import ai
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create database tables on startup."""
-    Base.metadata.create_all(bind=engine)
+    """Startup and shutdown logic."""
     yield
     # shutdown logic
 
 app = FastAPI(
-    title="Prompting Realities Backend",
+    title="Prompting Realities Backend - AI Services",
+    description="Backend for MQTT, OpenAI, and transcription services. Data storage handled by Supabase.",
     lifespan=lifespan
 )
 
@@ -29,8 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(assistants.router)
-app.include_router(sessions.router)
+app.include_router(ai.router)
 
 
 @app.get("/health")

@@ -2,20 +2,117 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+import logging
+import json
+from typing import Optional, Tuple, Dict, Any
+from openai import AsyncOpenAI
 
-#from conversation_client import conversation_response, transcribe_audio
+logger = logging.getLogger(__name__)
 
 
-async def run_model_turn(previous_response_id: Optional[str], user_message: str):
-    """Proxy to the original conversation workflow."""
-    '''
-    payload, new_response_id = await conversation_response(previous_response_id, user_message)
-    return payload, new_response_id
-    '''
-    return None, None
+async def run_model_turn(
+    previous_response_id: Optional[str],
+    user_message: str,
+    api_key: str,
+    prompt_instruction: str = "You are a helpful assistant.",
+    json_schema: Optional[Dict[str, Any]] = None
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """
+    Call OpenAI API to generate a response.
+    
+    Args:
+        previous_response_id: ID of the previous response (for conversation continuity)
+        user_message: The user's message
+        api_key: OpenAI API key
+        prompt_instruction: System prompt for the assistant
+        json_schema: Optional JSON schema for structured output
+        
+    Returns:
+        Tuple of (payload dict, response_id string)
+    """
+    logger.info("🔧 [ConversationService] run_model_turn called")
+    logger.info(f"📝 [ConversationService] previous_response_id: {previous_response_id}")
+    logger.info(f"💬 [ConversationService] user_message: {user_message}")
+    logger.info(f"📋 [ConversationService] prompt_instruction: {prompt_instruction[:50]}...")
+    logger.info(f"🔑 [ConversationService] API key present: {bool(api_key)}")
+    logger.info(f"📊 [ConversationService] JSON schema provided: {bool(json_schema)}")
+    
+    if not api_key:
+        logger.error("❌ [ConversationService] No API key provided")
+        raise ValueError("OpenAI API key is required")
+    
+    try:
+        # Initialize OpenAI client
+        client = AsyncOpenAI(api_key=api_key)
+        
+        # Build messages for the conversation
+        messages = [
+            {"role": "system", "content": prompt_instruction},
+            {"role": "user", "content": user_message}
+        ]
+        
+        logger.info("🤖 [ConversationService] Calling OpenAI API...")
+        
+        # Make the API call
+        if json_schema and isinstance(json_schema, dict) and json_schema.get("type") == "object":
+            # Use structured output if schema is provided
+            logger.info("📊 [ConversationService] Using structured output with JSON schema")
+            logger.info(f"📊 [ConversationService] Schema details: {json_schema}")
+            
+            # Use non-strict mode to let OpenAI handle the schema validation
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "assistant_response",
+                        "strict": False,  # Non-strict mode is more flexible
+                        "schema": json_schema
+                    }
+                }
+            )
+        else:
+            # Regular text response
+            if json_schema:
+                logger.warning(f"⚠️ [ConversationService] Invalid JSON schema provided (type: {type(json_schema)}, value: {json_schema}), falling back to regular text response")
+            else:
+                logger.info("💬 [ConversationService] No JSON schema provided, using regular text response")
+            
+            response = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages
+            )
+        
+        # Extract the response
+        assistant_message = response.choices[0].message.content
+        response_id = response.id
+        
+        logger.info(f"✅ [ConversationService] OpenAI response received, ID: {response_id}")
+        logger.info(f"📝 [ConversationService] Response preview: {assistant_message[:100] if assistant_message else 'None'}...")
+        
+        # Parse the response into a payload
+        if json_schema and assistant_message:
+            try:
+                payload = json.loads(assistant_message)
+                logger.info("✅ [ConversationService] Successfully parsed JSON response")
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ [ConversationService] Failed to parse JSON response: {e}")
+                payload = {"response": assistant_message}
+        else:
+            payload = {"response": assistant_message}
+        
+        return payload, response_id
+        
+    except Exception as e:
+        logger.error(f"❌ [ConversationService] Error calling OpenAI API: {e}", exc_info=True)
+        raise
 
 
 async def transcribe_blob(audio_bytes: bytes) -> Optional[str]:
+    logger.info("🔧 [ConversationService] transcribe_blob called")
+    logger.info(f"📊 [ConversationService] audio_bytes length: {len(audio_bytes)}")
+    logger.warning("⚠️ [ConversationService] transcribe_blob is stubbed - returning empty string")
+    
     #return await transcribe_audio(audio_bytes)
     return ""
