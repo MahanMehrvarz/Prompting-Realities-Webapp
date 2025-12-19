@@ -21,15 +21,12 @@ def _env(key: str, default: str | None = None) -> str:
     return value
 
 
-DATABASE_URL = os.getenv(
-    "PR_BACKEND_DB_URL", f"sqlite:///{DATA_DIR / 'app.db'}"
-)
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("PR_ACCESS_TOKEN_MINUTES", "43200"))  # 30 days.
-SECRET_KEY = os.getenv("PR_SECRET_KEY", "dev-secret-change-me")
+# Supabase configuration for JWT validation
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 
-# Supabase configuration (optional - only needed if using Supabase auth)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+if not SUPABASE_URL or not SUPABASE_JWT_SECRET:
+    raise RuntimeError("SUPABASE_URL and SUPABASE_JWT_SECRET environment variables are required")
 
 # Reuse legacy settings module for OpenAI/MQTT defaults when custom assistant
 # values are missing.
