@@ -46,11 +46,10 @@ export type ChatMessage = {
   id: string;
   session_id: string;
   assistant_id: string;
-  thread_id: string;
   user_text: string | null;
   assistant_payload: Record<string, any> | null;
   response_text: string | null;
-  value_json: Record<string, any> | null;
+  mqtt_payload: Record<string, any> | null;
   created_at: string;
 };
 
@@ -117,7 +116,6 @@ export const sessionService = {
         status: "running",
         mqtt_connected: mqttConnected,
         active: true,
-        current_thread_id: threadId,
         share_token: shareToken,
       })
       .select()
@@ -157,9 +155,9 @@ export const sessionService = {
       .eq("assistant_id", assistantId)
       .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows
+    if (error) throw error;
     return data as AssistantSession | null;
   },
 };
@@ -207,10 +205,10 @@ export const messageService = {
   async getMqttLog(assistantId: string) {
     const { data, error } = await supabaseClient
       .from("chat_messages")
-      .select("id, value_json, created_at")
+      .select("id, mqtt_payload, created_at")
       .eq("assistant_id", assistantId)
-      .not("value_json", "is", null)
-      .order("created_at", { ascending: true });
+      .not("mqtt_payload", "is", null)
+      .order("created_at", { ascending: false });
 
     if (error) throw error;
     return data;
