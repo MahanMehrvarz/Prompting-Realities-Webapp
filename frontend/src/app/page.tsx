@@ -30,6 +30,8 @@ import {
   type ChatMessage as DbChatMessage,
 } from "@/lib/supabaseClient";
 import { backendApi } from "@/lib/backendApi";
+import { SkeletonLoader } from "@/components/SkeletonLoader";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
@@ -231,24 +233,32 @@ export default function Home() {
   const [activeConfigSection, setActiveConfigSection] = useState<ConfigSection>("prompt");
   const [copiedAssistantId, setCopiedAssistantId] = useState<string | null>(null);
   const [loadingAssistants, setLoadingAssistants] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [loadingMqttLog, setLoadingMqttLog] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   useEffect(() => {
     setHydrated(true);
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+    
     // Check for existing Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+      if (session && isMounted) {
         setAuthToken(session.access_token);
         setUserEmail(session.user.email ?? null);
         window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
         if (session.user.email) {
           window.localStorage.setItem("pr-auth-email", session.user.email);
         }
-        fetchAssistants();
+        // Only fetch assistants on initial mount, not on every tab switch
+        if (assistants.length === 0 && !initialLoadComplete) {
+          fetchAssistants();
+        }
       }
     });
 
@@ -256,6 +266,8 @@ export default function Home() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return;
+      
       if (session) {
         setAuthToken(session.access_token);
         setUserEmail(session.user.email ?? null);
@@ -263,7 +275,10 @@ export default function Home() {
         if (session.user.email) {
           window.localStorage.setItem("pr-auth-email", session.user.email);
         }
-        fetchAssistants();
+        // Only fetch assistants if we don't have any yet AND haven't loaded before
+        if (assistants.length === 0 && !initialLoadComplete) {
+          fetchAssistants();
+        }
       } else {
         setAuthToken(null);
         setUserEmail(null);
@@ -272,11 +287,17 @@ export default function Home() {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, [assistants.length, initialLoadComplete]);
 
   const fetchAssistants = async () => {
-    setLoadingAssistants(true);
+    // Only show loading skeleton on initial load
+    if (!initialLoadComplete) {
+      setLoadingAssistants(true);
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -318,7 +339,34 @@ export default function Home() {
         return assistant;
       }));
       
-      setAssistants(formatted);
+      // Update assistants state, preserving chat history, MQTT log, and unsaved edits for existing assistants
+      setAssistants((prevAssistants) => {
+        return formatted.map((newAssistant) => {
+          const existingAssistant = prevAssistants.find((a) => a.id === newAssistant.id);
+          if (existingAssistant) {
+            // Preserve chat history, MQTT log, and any unsaved configuration changes
+            return {
+              ...newAssistant,
+              // Preserve in-memory data
+              chatHistory: existingAssistant.chatHistory,
+              mqttLog: existingAssistant.mqttLog,
+              // Preserve unsaved edits (use existing values if they differ from DB)
+              name: existingAssistant.name,
+              promptInstruction: existingAssistant.promptInstruction,
+              jsonSchemaText: existingAssistant.jsonSchemaText,
+              mqttHost: existingAssistant.mqttHost,
+              mqttPort: existingAssistant.mqttPort,
+              mqttUser: existingAssistant.mqttUser,
+              mqttTopic: existingAssistant.mqttTopic,
+              // Keep localStorage values (API key and MQTT password)
+              apiKey: existingAssistant.apiKey,
+              mqttPass: existingAssistant.mqttPass,
+            };
+          }
+          return newAssistant;
+        });
+      });
+      
       setSelectedAssistantId((prev) => {
         if (prev && formatted.some((assistant) => assistant.id === prev)) {
           return prev;
@@ -329,6 +377,7 @@ export default function Home() {
       console.error("Unable to fetch assistants", error);
     } finally {
       setLoadingAssistants(false);
+      setInitialLoadComplete(true);
     }
   };
 
@@ -576,6 +625,7 @@ export default function Home() {
   const refreshChatHistory = async (assistantId: string) => {
     const assistant = assistants.find((item) => item.id === assistantId);
     if (!assistant) return;
+    setLoadingMqttLog(true);
     try {
       const [messages, mqttRecords] = await Promise.all([
         messageService.listByAssistant(assistantId),
@@ -589,35 +639,37 @@ export default function Home() {
       const mqttEntries: MqttLogEntry[] = mqttRecords.map((record: any) => ({
         id: `${record.id}`,
         direction: "outgoing",
-        payload: typeof record.value_json === 'string' 
-          ? record.value_json 
-          : JSON.stringify(record.value_json, null, 2),
+        payload: typeof record.mqtt_payload === 'string' 
+          ? record.mqtt_payload 
+          : JSON.stringify(record.mqtt_payload, null, 2),
         timestamp: record.created_at,
       }));
+      
+      // Don't reverse - keep chronological order (oldest first, newest last)
       updateAssistantState(assistantId, (item) => ({
         ...item,
         chatHistory: mapped,
-        mqttLog: mqttEntries.reverse(),
+        mqttLog: mqttEntries,
         lastUpdated: new Date().toISOString(),
         lastSessionId: item.lastSessionId,
         lastShareToken: item.shareToken ?? item.lastShareToken,
       }));
     } catch (error) {
       console.error("Unable to load chat history", error);
+    } finally {
+      setLoadingMqttLog(false);
     }
   };
 
+  // Load chat history when assistant is selected or session changes
   useEffect(() => {
-    if (selectedAssistant?.activeSessionId && authToken) {
+    if (!selectedAssistant || !authToken) return;
+    
+    // Only refresh if there's an active session or a last session to load from
+    if (selectedAssistant.activeSessionId || selectedAssistant.lastSessionId) {
       refreshChatHistory(selectedAssistant.id);
     }
-  }, [selectedAssistant?.activeSessionId, authToken]);
-
-  useEffect(() => {
-    if (selectedAssistant && authToken && selectedAssistant.lastSessionId) {
-      refreshChatHistory(selectedAssistant.id);
-    }
-  }, [selectedAssistant?.id, selectedAssistant?.lastSessionId, authToken]);
+  }, [selectedAssistant?.id, authToken]);
 
   const handleDownloadCsv = () => {
     if (!selectedAssistant || selectedAssistant.chatHistory.length === 0) return;
@@ -772,6 +824,19 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col text-[var(--foreground)]">
+      <ConfirmationModal
+        isOpen={showDeleteModal}
+        title="Delete LLM thing?"
+        message={`Are you sure you want to delete "${selectedAssistant?.name}"? This action cannot be undone. All configuration, chat history, and MQTT logs will be permanently removed.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={async () => {
+          await handleDeleteAssistant();
+          setShowDeleteModal(false);
+        }}
+        onCancel={() => setShowDeleteModal(false)}
+      />
       <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
         <h1 className="text-5xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
           Prompting Realities
@@ -799,43 +864,50 @@ export default function Home() {
             <p className="text-xs text-[var(--ink-muted)]">Select an LLM thing to configure or run.</p>
           </div>
           <div className="flex flex-col gap-3">
-          {assistants.map((assistant) => {
-            const badge = assistantStatusBadge(assistant);
-            const isSelected = assistant.id === selectedAssistant?.id;
-            return (
-              <button
-                key={assistant.id}
-                onClick={() => setSelectedAssistantId(assistant.id)}
-                className={`rounded-[20px] border-[3px] px-4 py-4 text-left transition-all ${
-                  isSelected
-                    ? "border-[var(--card-shell)] bg-white"
-                    : "border-transparent bg-white/70 hover:border-[var(--card-shell)]/60"
-                }`}
-              >
-                <div className="flex items-center justify-between rounded-[20px] bg-[var(--ink-dark)] px-4 py-2 text-[var(--card-fill)]">
-                  <div>
-                    <p className="font-semibold">{assistant.name}</p>
-                    <p className="text-xs opacity-80">
-                      Topic: {assistant.mqttTopic || "not set"}
-                    </p>
+          {loadingAssistants ? (
+            <>
+              <SkeletonLoader variant="assistant" />
+              <SkeletonLoader variant="assistant" />
+            </>
+          ) : (
+            assistants.map((assistant) => {
+              const badge = assistantStatusBadge(assistant);
+              const isSelected = assistant.id === selectedAssistant?.id;
+              return (
+                <button
+                  key={assistant.id}
+                  onClick={() => setSelectedAssistantId(assistant.id)}
+                  className={`rounded-[20px] border-[3px] px-4 py-4 text-left transition-all ${
+                    isSelected
+                      ? "border-[var(--card-shell)] bg-white"
+                      : "border-transparent bg-white/70 hover:border-[var(--card-shell)]/60"
+                  }`}
+                >
+                  <div className="flex items-center justify-between rounded-[20px] bg-[var(--ink-dark)] px-4 py-2 text-[var(--card-fill)]">
+                    <div>
+                      <p className="font-semibold">{assistant.name}</p>
+                      <p className="text-xs opacity-80">
+                        Topic: {assistant.mqttTopic || "not set"}
+                      </p>
+                    </div>
+                    <span
+                      className={`pill-chip ${badge.tone} border-0 px-3 py-1 text-[10px] tracking-[0.2em]`}
+                    >
+                      {badge.label}
+                    </span>
                   </div>
-                  <span
-                    className={`pill-chip ${badge.tone} border-0 px-3 py-1 text-[10px] tracking-[0.2em]`}
-                  >
-                    {badge.label}
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--foreground)]/70">
-                  <span className="rounded-full border border-[var(--card-shell)] bg-white/80 px-3 py-1 font-semibold">
-                    {assistant.chatHistory.length} msgs
-                  </span>
-                  <span className="rounded-full border border-[var(--card-shell)] bg-white/80 px-3 py-1 font-semibold">
-                    MQTT {assistant.mqttHost ? "wired" : "pending"}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--foreground)]/70">
+                    <span className="rounded-full border border-[var(--card-shell)] bg-white/80 px-3 py-1 font-semibold">
+                      {assistant.chatHistory.length} msgs
+                    </span>
+                    <span className="rounded-full border border-[var(--card-shell)] bg-white/80 px-3 py-1 font-semibold">
+                      MQTT {assistant.mqttHost ? "wired" : "pending"}
+                    </span>
+                  </div>
+                </button>
+              );
+            })
+          )}
           <button
             type="button"
             onClick={handleAddAssistant}
@@ -1154,7 +1226,7 @@ export default function Home() {
             </button>
             <button
               type="button"
-              onClick={handleDeleteAssistant}
+              onClick={() => setShowDeleteModal(true)}
               className="flex items-center gap-2 text-xs font-semibold text-[#8b1400] underline decoration-dotted underline-offset-4 transition hover:text-[#c51c00]"
             >
               <Trash2 className="h-3.5 w-3.5" /> Remove LLM thing
@@ -1188,10 +1260,15 @@ export default function Home() {
               <div className="mt-6">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-[var(--foreground)]">MQTT message feed</p>
-                  <span className="text-xs text-[var(--ink-muted)]">most recent first</span>
                 </div>
-                <div className="mt-3 max-h-72 overflow-y-auto rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white/70 p-4">
-                  {selectedAssistant.mqttLog.length === 0 ? (
+                <div className="mt-3 max-h-120 overflow-y-auto rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white/70 p-4">
+                  {loadingMqttLog ? (
+                    <ul className="space-y-3">
+                      <SkeletonLoader variant="mqtt-log" />
+                      <SkeletonLoader variant="mqtt-log" />
+                      <SkeletonLoader variant="mqtt-log" />
+                    </ul>
+                  ) : selectedAssistant.mqttLog.length === 0 ? (
                     <p className="text-sm text-[var(--ink-muted)]">
                       Start the LLM thing to populate MQTT activity.
                     </p>

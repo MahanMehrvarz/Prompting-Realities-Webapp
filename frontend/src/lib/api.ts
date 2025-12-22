@@ -73,7 +73,7 @@ export type MessageRecord = {
   user_text?: string | null;
   response_text?: string | null;
   assistant_payload?: string | null;
-  value_json?: string | null;
+  mqtt_payload?: string | null;
   created_at: string;
 };
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
-import { Mic, Send, RotateCcw } from "lucide-react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { Mic, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   sessionService,
@@ -21,6 +21,7 @@ type ChatMessage = {
 };
 
 export default function AssistantChatPage() {
+  const router = useRouter();
   const params = useParams<{ assistantId?: string }>();
   const assistantId = params?.assistantId ?? "assistant";
   const searchParams = useSearchParams();
@@ -37,8 +38,6 @@ export default function AssistantChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [isResetting, setIsResetting] = useState(false);
   const [sessionActive, setSessionActive] = useState<boolean | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -61,26 +60,43 @@ export default function AssistantChatPage() {
     }
   }, []);
 
+  // Load messages only once when component mounts or sessionId changes
   useEffect(() => {
     if ((!token && !shareToken) || !sessionId) return;
+    
+    let isMounted = true;
+    
     const load = async () => {
       setLoading(true);
       try {
         // Check session status
         const session = await sessionService.get(sessionId);
-        setSessionActive(session.active);
+        if (isMounted) {
+          setSessionActive(session.active);
+        }
         
         // Load ALL messages for this session, regardless of thread_id
         const records = await messageService.listBySession(sessionId);
-        setMessages(records.flatMap(mapMessageRecord));
+        if (isMounted) {
+          setMessages(records.flatMap(mapMessageRecord));
+        }
       } catch (err) {
-        setError("Unable to load chat history.");
+        if (isMounted) {
+          setError("Unable to load chat history.");
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
+    
     load();
-  }, [token, shareToken, sessionId]);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [sessionId]);
 
   const title = useMemo(() => {
     if (assistantName) return assistantName;
@@ -90,31 +106,8 @@ export default function AssistantChatPage() {
       .join(" ");
   }, [assistantName, assistantId]);
 
-  const handleResetConversation = async () => {
-    if (!sessionId || (!token && !shareToken) || isResetting) return;
-    setIsResetting(true);
-    try {
-      // Get current session to get thread_id
-      const session = await sessionService.get(sessionId);
-      
-      // Generate new thread ID
-      const newThreadId = crypto.randomUUID();
-      
-      // Update session with new thread ID
-      await sessionService.update(sessionId, {
-        current_thread_id: newThreadId,
-      });
-      
-      // Clear messages locally
-      setMessages([]);
-      setShowResetModal(false);
-      setError(null);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unable to reset conversation.";
-      setError(errorMessage);
-    } finally {
-      setIsResetting(false);
-    }
+  const handleBackToDashboard = () => {
+    router.push("/");
   };
 
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -195,8 +188,39 @@ export default function AssistantChatPage() {
       );
       console.log("✅ [Frontend] Backend response received:", aiResponse);
       
+      // Publish to MQTT if we have a payload
+      if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
+        console.log("📡 [Frontend] Publishing to MQTT...");
+        const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
+        const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`);
+        
+        try {
+          const mqttResult = await backendApi.publishMqtt(
+            {
+              host: assistantData.mqtt_host,
+              port: assistantData.mqtt_port || 1883,
+              topic: assistantData.mqtt_topic,
+              payload: aiResponse.payload,
+              username: assistantData.mqtt_user || null,
+              password: storedMqttPass || null,
+            },
+            token ?? undefined
+          );
+          
+          if (mqttResult.success) {
+            console.log("✅ [Frontend] MQTT publish successful");
+          } else {
+            console.warn("⚠️ [Frontend] MQTT publish failed:", mqttResult.message);
+          }
+        } catch (mqttError) {
+          console.error("❌ [Frontend] MQTT publish error:", mqttError);
+        }
+      } else {
+        console.log("⏭️ [Frontend] Skipping MQTT publish - missing payload or MQTT config");
+      }
+      
       // Save complete conversation turn (user + assistant) in a single entry
-      console.log("💾 [Frontend] Saving conversation turn to database...");
+      console.log("� [Frontend] Saving conversation turn to database...");
       
       // Extract the text response from the payload
       let responseText = null;
@@ -218,16 +242,15 @@ export default function AssistantChatPage() {
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
-        thread_id: session.current_thread_id,
         user_text: trimmed, // Store user's message
         assistant_payload: aiResponse.payload, // Store as actual JSON object
         response_text: responseText, // Store just the text response
-        value_json: aiResponse.payload, // Store as actual JSON object
+        mqtt_payload: aiResponse.payload, // Store as actual JSON object
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       
       // Reload all messages for this session (all threads)
-      console.log("🔄 [Frontend] Reloading messages from database...");
+      console.log("�🔄 [Frontend] Reloading messages from database...");
       const records = await messageService.listBySession(sessionId);
       setMessages(records.flatMap(mapMessageRecord));
       console.log("✅ [Frontend] Messages reloaded, count:", records.length);
@@ -337,12 +360,12 @@ export default function AssistantChatPage() {
             <p className="text-xs text-[var(--ink-muted)] sm:text-sm">Session {sessionId}</p>
           </div>
           <button
-            onClick={() => setShowResetModal(true)}
+            onClick={handleBackToDashboard}
             className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
-            title="Reset conversation"
+            title="Return to Dashboard"
           >
-            <RotateCcw className="h-4 w-4" />
-            <span className="hidden sm:inline">Reset</span>
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Dashboard</span>
           </button>
         </div>
       </header>
@@ -456,34 +479,6 @@ export default function AssistantChatPage() {
           )}
         </div>
       </main>
-
-      {/* Reset Confirmation Modal */}
-      {showResetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-md rounded-2xl bg-[var(--card-fill)] p-6 shadow-xl">
-            <h2 className="mb-3 text-xl font-bold text-[var(--ink-dark)]">Reset Conversation?</h2>
-            <p className="mb-6 text-sm text-[var(--ink-muted)]">
-              This will start a fresh conversation thread. All previous messages will remain visible, but new messages will be part of a new conversation context.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowResetModal(false)}
-                disabled={isResetting}
-                className="flex-1 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-4 py-2.5 text-sm font-medium text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleResetConversation}
-                disabled={isResetting}
-                className="flex-1 rounded-full bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-red-600 disabled:opacity-50"
-              >
-                {isResetting ? "Resetting..." : "Reset"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

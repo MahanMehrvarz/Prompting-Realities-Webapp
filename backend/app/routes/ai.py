@@ -116,7 +116,16 @@ async def publish_to_mqtt(
     Publish a payload to an MQTT broker.
     This is a server-side operation since browsers cannot connect to MQTT directly.
     """
+    logger.info("📡 [Backend] /ai/mqtt/publish endpoint called")
+    logger.info(f"🔑 [Backend] User ID: {user_id}")
+    logger.info(f"🌐 [Backend] MQTT Host: {request.host}:{request.port}")
+    logger.info(f"📋 [Backend] MQTT Topic: {request.topic}")
+    logger.info(f"📦 [Backend] Payload: {request.payload}")
+    logger.info(f"👤 [Backend] Username: {request.username}")
+    logger.info(f"🔐 [Backend] Password present: {bool(request.password)}")
+    
     try:
+        logger.info("🚀 [Backend] Calling publish_payload...")
         success = await publish_payload(
             host=request.host,
             port=request.port,
@@ -125,12 +134,14 @@ async def publish_to_mqtt(
             username=request.username,
             password=request.password,
         )
+        logger.info(f"✅ [Backend] publish_payload completed: success={success}")
+        
         return MqttResponse(
             success=success,
             message="Published successfully" if success else "Failed to publish"
         )
     except Exception as exc:
-        logger.error(f"MQTT publish failed: {exc}")
+        logger.error(f"❌ [Backend] MQTT publish failed: {exc}", exc_info=True)
         return MqttResponse(success=False, message=str(exc))
 
 
