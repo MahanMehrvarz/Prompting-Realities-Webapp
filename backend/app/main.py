@@ -5,13 +5,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import ai
+from .mqtt_manager import mqtt_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
     yield
-    # shutdown logic
+    # Shutdown: disconnect all persistent MQTT connections
+    await mqtt_manager.disconnect_all()
 
 app = FastAPI(
     title="Prompting Realities Backend - AI Services",

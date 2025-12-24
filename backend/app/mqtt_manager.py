@@ -1,0 +1,182 @@
+"""Persistent MQTT connection manager for maintaining connections across requests."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from typing import Any, Dict, Optional
+
+import paho.mqtt.client as mqtt
+
+logger = logging.getLogger(__name__)
+
+
+class MqttConnectionManager:
+    """Manages persistent MQTT connections per broker configuration."""
+
+    def __init__(self):
+        self._connections: Dict[str, mqtt.Client] = {}
+        self._lock = asyncio.Lock()
+
+    def _get_connection_key(
+        self,
+        host: str,
+        port: int,
+        username: Optional[str] = None,
+        user_email: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> str:
+        """Generate a unique key for a broker configuration including user session."""
+        base_key = f"{host}:{port}:{username or 'anonymous'}"
+        if user_email and session_id:
+            return f"{base_key}:{user_email}:{session_id}"
+        elif user_email:
+            return f"{base_key}:{user_email}"
+        return base_key
+
+    async def get_or_create_connection(
+        self,
+        host: str,
+        port: int,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        user_email: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> Optional[mqtt.Client]:
+        """Get existing connection or create a new persistent one."""
+        connection_key = self._get_connection_key(host, port, username, user_email, session_id)
+
+        async with self._lock:
+            # Check if we already have a connected client
+            if connection_key in self._connections:
+                client = self._connections[connection_key]
+                if client.is_connected():
+                    logger.info(f"♻️ Reusing existing MQTT connection to {host}:{port}")
+                    return client
+                else:
+                    # Connection lost, remove it
+                    logger.warning(f"⚠️ Existing connection to {host}:{port} is disconnected, removing")
+                    del self._connections[connection_key]
+
+            # Create new persistent connection with user email and session as client ID
+            if user_email and session_id:
+                client_id = f"{user_email}_{session_id}"
+            elif user_email:
+                client_id = user_email
+            else:
+                client_id = f"backend_{connection_key}"
+            
+            logger.info(f"🔌 Creating new persistent MQTT connection to {host}:{port} with client_id: {client_id}")
+            client = mqtt.Client(client_id=client_id, clean_session=False)
+
+            if username:
+                client.username_pw_set(username=username, password=password)
+
+            # Set up callbacks for connection monitoring
+            def on_connect(client, userdata, flags, rc):
+                if rc == 0:
+                    logger.info(f"✅ Successfully connected to MQTT broker {host}:{port}")
+                else:
+                    logger.error(f"❌ Failed to connect to MQTT broker {host}:{port}, rc={rc}")
+
+            def on_disconnect(client, userdata, rc):
+                if rc != 0:
+                    logger.warning(f"⚠️ Unexpected disconnection from {host}:{port}, rc={rc}")
+
+            client.on_connect = on_connect
+            client.on_disconnect = on_disconnect
+
+            # Connect to broker
+            loop = asyncio.get_event_loop()
+
+            def _connect():
+                try:
+                    client.connect(host, port, keepalive=60)
+                    client.loop_start()  # Start background network loop
+                    return True
+                except Exception as exc:
+                    logger.error(f"Failed to connect to {host}:{port} - {exc}")
+                    return False
+
+            try:
+                success = await loop.run_in_executor(None, _connect)
+                if success:
+                    self._connections[connection_key] = client
+                    return client
+                else:
+                    return None
+            except Exception as exc:
+                logger.error(f"Exception while connecting to {host}:{port} - {exc}")
+                return None
+
+    async def publish(
+        self,
+        host: str,
+        port: int,
+        topic: str,
+        payload: Dict[str, Any],
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        user_email: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Publish a message using a persistent connection."""
+        client = await self.get_or_create_connection(host, port, username, password, user_email, session_id)
+        if not client:
+            logger.error(f"Failed to get MQTT connection for {host}:{port}")
+            return False
+
+        payload_text = json.dumps(payload)
+        loop = asyncio.get_event_loop()
+
+        def _publish():
+            try:
+                result = client.publish(topic, payload_text, qos=1)
+                # Wait for publish to complete
+                result.wait_for_publish(timeout=5.0)
+                return result.rc == mqtt.MQTT_ERR_SUCCESS
+            except Exception as exc:
+                logger.error(f"Failed to publish to {topic} - {exc}")
+                return False
+
+        try:
+            success = await loop.run_in_executor(None, _publish)
+            if success:
+                logger.info(f"📤 Successfully published to {host}:{port}/{topic}")
+            else:
+                logger.warning(f"⚠️ Failed to publish to {host}:{port}/{topic}")
+            return success
+        except Exception as exc:
+            logger.error(f"Exception while publishing to {topic} - {exc}")
+            return False
+
+    async def test_connection(
+        self,
+        host: str,
+        port: int,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        user_email: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Test connection to MQTT broker."""
+        client = await self.get_or_create_connection(host, port, username, password, user_email, session_id)
+        return client is not None and client.is_connected()
+
+    async def disconnect_all(self):
+        """Disconnect all persistent connections (for shutdown)."""
+        async with self._lock:
+            logger.info(f"🔌 Disconnecting {len(self._connections)} MQTT connections")
+            for connection_key, client in self._connections.items():
+                try:
+                    client.loop_stop()
+                    client.disconnect()
+                    logger.info(f"✅ Disconnected from {connection_key}")
+                except Exception as exc:
+                    logger.error(f"Error disconnecting from {connection_key} - {exc}")
+            self._connections.clear()
+
+
+# Global singleton instance
+mqtt_manager = MqttConnectionManager()
