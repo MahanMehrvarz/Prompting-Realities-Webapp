@@ -32,6 +32,8 @@ import {
 import { backendApi } from "@/lib/backendApi";
 import { SkeletonLoader } from "@/components/SkeletonLoader";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
+import { ExportDataModal, type ExportOptions } from "@/components/ExportDataModal";
+import JSZip from "jszip";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
@@ -238,6 +240,9 @@ export default function Home() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdminStatus, setCheckingAdminStatus] = useState(true);
 
   useEffect(() => {
     setHydrated(true);
@@ -247,18 +252,35 @@ export default function Home() {
     let isMounted = true;
     
     // Check for existing Supabase session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session && isMounted) {
         setAuthToken(session.access_token);
         setUserEmail(session.user.email ?? null);
         window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
         if (session.user.email) {
           window.localStorage.setItem("pr-auth-email", session.user.email);
+          
+          // Check admin status
+          try {
+            const { data: adminData } = await supabase
+              .from("admin_emails")
+              .select("email")
+              .eq("email", session.user.email)
+              .maybeSingle();
+            
+            setIsAdmin(!!adminData);
+          } catch (error) {
+            console.error("Error checking admin status:", error);
+          }
         }
+        setCheckingAdminStatus(false);
+        
         // Only fetch assistants on initial mount, not on every tab switch
         if (assistants.length === 0 && !initialLoadComplete) {
           fetchAssistants();
         }
+      } else {
+        setCheckingAdminStatus(false);
       }
     });
 
@@ -431,6 +453,20 @@ export default function Home() {
           setUserEmail(authEmail);
           window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
           window.localStorage.setItem("pr-auth-email", authEmail);
+          
+          // Check admin status after signup
+          try {
+            const { data: adminData } = await supabase
+              .from("admin_emails")
+              .select("email")
+              .eq("email", authEmail)
+              .maybeSingle();
+            
+            setIsAdmin(!!adminData);
+          } catch (error) {
+            console.error("Error checking admin status:", error);
+          }
+          
           fetchAssistants();
         } else {
           setAuthError("Please check your email to confirm your account.");
@@ -446,6 +482,20 @@ export default function Home() {
           setUserEmail(authEmail);
           window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
           window.localStorage.setItem("pr-auth-email", authEmail);
+          
+          // Check admin status after login
+          try {
+            const { data: adminData } = await supabase
+              .from("admin_emails")
+              .select("email")
+              .eq("email", authEmail)
+              .maybeSingle();
+            
+            setIsAdmin(!!adminData);
+          } catch (error) {
+            console.error("Error checking admin status:", error);
+          }
+          
           fetchAssistants();
         }
       }
@@ -671,6 +721,208 @@ export default function Home() {
     }
   }, [selectedAssistant?.id, authToken]);
 
+  const handleExportData = async (options: ExportOptions, format: "csv" | "json") => {
+    try {
+      // Fetch all data from database
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !user.email) {
+        alert("Authentication required. Please log in again.");
+        return;
+      }
+
+      // Verify admin status before exporting
+      try {
+        const { data: adminData, error: adminError } = await supabase
+          .from("admin_emails")
+          .select("email")
+          .eq("email", user.email)
+          .maybeSingle();
+        
+        if (adminError) throw adminError;
+        
+        if (!adminData) {
+          alert("Access denied. You do not have permission to export data.");
+          return;
+        }
+      } catch (error) {
+        console.error("Error verifying admin status:", error);
+        alert("Failed to verify admin permissions. Please try again.");
+        return;
+      }
+
+      // Fetch ALL assistants including deleted ones
+      const { data: allAssistants, error: assistantsError } = await supabase
+        .from("assistants")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (assistantsError) throw assistantsError;
+      
+      // Fetch all sessions and messages for each assistant
+      const sessionsWithMessages = await Promise.all(
+        (allAssistants || []).map(async (assistant) => {
+          const sessions = await supabase
+            .from("assistant_sessions")
+            .select("*")
+            .eq("assistant_id", assistant.id)
+            .order("created_at", { ascending: false });
+
+          const messages = await supabase
+            .from("chat_messages")
+            .select("*")
+            .eq("assistant_id", assistant.id)
+            .order("created_at", { ascending: true });
+
+          return {
+            assistant,
+            sessions: sessions.data || [],
+            messages: messages.data || [],
+            userId: assistant.supabase_user_id,
+          };
+        })
+      );
+
+      if (format === "csv") {
+        await exportAsCSV(sessionsWithMessages, options);
+      } else {
+        await exportAsJSON(sessionsWithMessages, options);
+      }
+    } catch (error) {
+      console.error("Export failed:", error);
+      alert("Failed to export data. Please try again.");
+    }
+  };
+
+  const exportAsCSV = async (
+    data: any[],
+    options: ExportOptions
+  ) => {
+    const zip = new JSZip();
+
+    // Build messages CSV
+    const messageHeaders: string[] = [];
+    if (options.messages.timestamp) messageHeaders.push("timestamp");
+    if (options.messages.assistantId) messageHeaders.push("assistant_id");
+    if (options.messages.userMessage) messageHeaders.push("user_message");
+    if (options.messages.assistantResponse) messageHeaders.push("assistant_response");
+    if (options.messages.jsonPayload) messageHeaders.push("json_payload");
+    if (options.messages.mqttPayload) messageHeaders.push("mqtt_payload");
+
+    const messageRows: string[] = [messageHeaders.join(",")];
+
+    data.forEach(({ messages }) => {
+      messages.forEach((msg: any) => {
+        const row: string[] = [];
+        if (options.messages.timestamp) row.push(msg.created_at || "");
+        if (options.messages.assistantId) row.push(msg.assistant_id || "");
+        if (options.messages.userMessage) {
+          const sanitized = (msg.user_text || "").replace(/"/g, '""').replace(/\n/g, " ");
+          row.push(`"${sanitized}"`);
+        }
+        if (options.messages.assistantResponse) {
+          const sanitized = (msg.response_text || "").replace(/"/g, '""').replace(/\n/g, " ");
+          row.push(`"${sanitized}"`);
+        }
+        if (options.messages.jsonPayload) {
+          const sanitized = JSON.stringify(msg.assistant_payload || {}).replace(/"/g, '""');
+          row.push(`"${sanitized}"`);
+        }
+        if (options.messages.mqttPayload) {
+          const sanitized = JSON.stringify(msg.mqtt_payload || {}).replace(/"/g, '""');
+          row.push(`"${sanitized}"`);
+        }
+        messageRows.push(row.join(","));
+      });
+    });
+
+    zip.file("messages.csv", messageRows.join("\n"));
+
+    // Build sessions CSV
+    const sessionHeaders: string[] = ["session_id"];
+    if (options.session.userEmail) sessionHeaders.push("user_email");
+    if (options.session.assistantName) sessionHeaders.push("assistant_name");
+    if (options.session.numberOfMessages) sessionHeaders.push("number_of_messages");
+    if (options.session.jsonSchema) sessionHeaders.push("json_schema");
+    if (options.session.mqttTopic) sessionHeaders.push("mqtt_topic");
+
+    const sessionRows: string[] = [sessionHeaders.join(",")];
+
+    data.forEach(({ assistant, sessions, messages, userId }) => {
+      sessions.forEach((session: any) => {
+        const sessionMessages = messages.filter((m: any) => m.session_id === session.id);
+        const row: string[] = [session.id];
+        if (options.session.userEmail) row.push(userId || "unknown");
+        if (options.session.assistantName) row.push(`"${assistant.name.replace(/"/g, '""')}"`);
+        if (options.session.numberOfMessages) row.push(String(sessionMessages.length));
+        if (options.session.jsonSchema) {
+          const sanitized = JSON.stringify(assistant.json_schema || {}).replace(/"/g, '""');
+          row.push(`"${sanitized}"`);
+        }
+        if (options.session.mqttTopic) row.push(assistant.mqtt_topic || "");
+        sessionRows.push(row.join(","));
+      });
+    });
+
+    zip.file("sessions.csv", sessionRows.join("\n"));
+
+    // Generate and download ZIP
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `prompting-realities-export-${new Date().toISOString().split("T")[0]}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAsJSON = async (
+    data: any[],
+    options: ExportOptions
+  ) => {
+    const exportData = data.map(({ assistant, sessions, messages, userId }) => {
+      return sessions.map((session: any) => {
+        const sessionMessages = messages.filter((m: any) => m.session_id === session.id);
+        
+        const sessionData: any = {
+          session_id: session.id,
+        };
+
+        if (options.session.userEmail) sessionData.user_id = userId || "unknown";
+        if (options.session.assistantName) sessionData.assistant_name = assistant.name;
+        if (options.session.numberOfMessages) sessionData.number_of_messages = sessionMessages.length;
+        if (options.session.jsonSchema) sessionData.json_schema = assistant.json_schema;
+        if (options.session.mqttTopic) sessionData.mqtt_topic = assistant.mqtt_topic;
+
+        // Add messages array to session
+        sessionData.messages = sessionMessages.map((msg: any) => {
+          const messageData: any = {};
+          if (options.messages.timestamp) messageData.timestamp = msg.created_at;
+          if (options.messages.assistantId) messageData.assistant_id = msg.assistant_id;
+          if (options.messages.userMessage) messageData.user_message = msg.user_text;
+          if (options.messages.assistantResponse) messageData.assistant_response = msg.response_text;
+          if (options.messages.jsonPayload) messageData.json_payload = msg.assistant_payload;
+          if (options.messages.mqttPayload) messageData.mqtt_payload = msg.mqtt_payload;
+          return messageData;
+        });
+
+        return sessionData;
+      });
+    }).flat();
+
+    const jsonContent = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonContent], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `prompting-realities-export-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleDownloadCsv = () => {
     if (!selectedAssistant || selectedAssistant.chatHistory.length === 0) return;
     const rows = selectedAssistant.chatHistory.map((message) => {
@@ -837,6 +1089,13 @@ export default function Home() {
         }}
         onCancel={() => setShowDeleteModal(false)}
       />
+      <ExportDataModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        onExport={async (options, format) => {
+          await handleExportData(options, format);
+        }}
+      />
       <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
         <h1 className="text-5xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
           Prompting Realities
@@ -857,6 +1116,26 @@ export default function Home() {
           </div>
         </div>
       </header>
+      {isAdmin && !checkingAdminStatus && (
+        <section className="border-b-4 border-[var(--card-shell)] bg-[#fff9e6] px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[var(--ink-dark)]">Data Export</p>
+              <p className="text-xs text-[var(--ink-muted)]">
+                Export all system data for analysis and backup.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowExportModal(true)}
+              className="flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-5 py-2 text-sm font-semibold text-[var(--card-fill)] shadow-[5px_5px_0_var(--shadow-deep)] transition hover:-translate-y-1"
+            >
+              <Download className="h-4 w-4" />
+              Export Data
+            </button>
+          </div>
+        </section>
+      )}
       <div className="grid flex-1 grid-cols-1 gap-6 px-4 py-6 lg:grid-cols-[320px_1fr] lg:px-10">
         <aside className="card-panel flex flex-col gap-6 bg-[var(--card-fill)]/95 p-6">
           <div>

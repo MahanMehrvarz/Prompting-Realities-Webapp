@@ -31,10 +31,10 @@
   - Logs are unbounded to the user’s email address
 
 ## Export & Data Access
-- [ ] Provide a downloadable version containing:
+- [X] Provide a downloadable version containing:
   - Chat history (user + AI)
   - MQTT message history
-- [ ] Use JSON as a baseline format  
+- [X] Use JSON as a baseline format  
   - Explore more readable alternatives
 
 ## Performance & Reliability
