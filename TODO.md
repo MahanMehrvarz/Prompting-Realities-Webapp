@@ -46,5 +46,5 @@
 ## Other
 - [X] Ask for confirmation before deleting a session
 - [ ] Check QR code functionality (probably broken from introduction of JWT)
-- [ ] Add button redirecting to dashboard
+- [X] Add button redirecting to dashboard
 - [X] Show loading until all information is loaded
