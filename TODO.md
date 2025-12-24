@@ -13,6 +13,12 @@
   - Should SQLite be skipped entirely?
 - [X] Ensure all LLM responses are stored correctly
 
+## MQTT
+- [X] Make sure MQTT feed is updated in real time
+- [X] Make MQTT connection persistent
+- [X] Differentiate between user connections in MQTT server
+- [X] Warn user when message is not being sent to MQTT broker
+
 ## Database Schema
 - [X] Create table for users
 - [X] Create table for LLM Things
@@ -42,4 +48,3 @@
 - [ ] Check QR code functionality (probably broken from introduction of JWT)
 - [X] Add button redirecting to dashboard
 - [X] Show loading until all information is loaded
-- [X] Make sure MQTT feed is updated in real time

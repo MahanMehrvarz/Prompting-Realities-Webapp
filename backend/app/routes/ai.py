@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from ..conversation_service import run_model_turn, transcribe_blob
 from ..mqtt_utils import publish_payload, test_mqtt_connection
-from ..security import get_current_user_id, maybe_current_user_id
+from ..security import get_current_user_id, get_current_user_email, maybe_current_user_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -37,6 +37,7 @@ class MqttPublishRequest(BaseModel):
     payload: Dict[str, Any]
     username: str | None = None
     password: str | None = None
+    session_id: str | None = None
 
 
 class MqttTestRequest(BaseModel):
@@ -110,14 +111,15 @@ async def chat_with_openai(
 @router.post("/mqtt/publish", response_model=MqttResponse)
 async def publish_to_mqtt(
     request: MqttPublishRequest,
-    user_id: str | None = Depends(maybe_current_user_id),
+    user_email: str = Depends(get_current_user_email),
 ):
     """
     Publish a payload to an MQTT broker.
     This is a server-side operation since browsers cannot connect to MQTT directly.
     """
     logger.info("📡 [Backend] /ai/mqtt/publish endpoint called")
-    logger.info(f"🔑 [Backend] User ID: {user_id}")
+    logger.info(f"📧 [Backend] User Email: {user_email}")
+    logger.info(f"🆔 [Backend] Session ID: {request.session_id}")
     logger.info(f"🌐 [Backend] MQTT Host: {request.host}:{request.port}")
     logger.info(f"📋 [Backend] MQTT Topic: {request.topic}")
     logger.info(f"📦 [Backend] Payload: {request.payload}")
@@ -133,6 +135,8 @@ async def publish_to_mqtt(
             payload=request.payload,
             username=request.username,
             password=request.password,
+            user_email=user_email,
+            session_id=request.session_id,
         )
         logger.info(f"✅ [Backend] publish_payload completed: success={success}")
         

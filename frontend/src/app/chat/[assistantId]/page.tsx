@@ -18,6 +18,7 @@ type ChatMessage = {
   role: "assistant" | "user";
   content: string;
   timestamp: string;
+  mqttFailed?: boolean; // Flag to indicate MQTT publish failure
 };
 
 export default function AssistantChatPage() {
@@ -78,7 +79,8 @@ export default function AssistantChatPage() {
         // Load ALL messages for this session, regardless of thread_id
         const records = await messageService.listBySession(sessionId);
         if (isMounted) {
-          setMessages(records.flatMap(mapMessageRecord));
+          const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
+          setMessages(mappedMessages);
         }
       } catch (err) {
         if (isMounted) {
@@ -189,10 +191,15 @@ export default function AssistantChatPage() {
       console.log("✅ [Frontend] Backend response received:", aiResponse);
       
       // Publish to MQTT if we have a payload
+      let mqttPublishSuccess = false;
+      let mqttPublishAttempted = false;
+      
       if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
         console.log("📡 [Frontend] Publishing to MQTT...");
         const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
         const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`);
+        
+        mqttPublishAttempted = true;
         
         try {
           const mqttResult = await backendApi.publishMqtt(
@@ -209,11 +216,14 @@ export default function AssistantChatPage() {
           
           if (mqttResult.success) {
             console.log("✅ [Frontend] MQTT publish successful");
+            mqttPublishSuccess = true;
           } else {
             console.warn("⚠️ [Frontend] MQTT publish failed:", mqttResult.message);
+            mqttPublishSuccess = false;
           }
         } catch (mqttError) {
           console.error("❌ [Frontend] MQTT publish error:", mqttError);
+          mqttPublishSuccess = false;
         }
       } else {
         console.log("⏭️ [Frontend] Skipping MQTT publish - missing payload or MQTT config");
@@ -239,20 +249,23 @@ export default function AssistantChatPage() {
         }
       }
 
+      // Only save mqtt_payload if MQTT publish was successful
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
         user_text: trimmed, // Store user's message
         assistant_payload: aiResponse.payload, // Store as actual JSON object
         response_text: responseText, // Store just the text response
-        mqtt_payload: aiResponse.payload, // Store as actual JSON object
+        mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? aiResponse.payload : null, // Only store if MQTT publish succeeded
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       
       // Reload all messages for this session (all threads)
-      console.log("�🔄 [Frontend] Reloading messages from database...");
+      console.log("🔄 [Frontend] Reloading messages from database...");
       const records = await messageService.listBySession(sessionId);
-      setMessages(records.flatMap(mapMessageRecord));
+      const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
+      
+      setMessages(mappedMessages);
       console.log("✅ [Frontend] Messages reloaded, count:", records.length);
       setError(null);
     } catch (err) {
@@ -391,20 +404,28 @@ export default function AssistantChatPage() {
                 key={message.id}
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <div
-                  className={`max-w-[85%] rounded-2xl px-3 py-2 sm:max-w-[75%] sm:px-4 sm:py-3 ${
-                    message.role === "user"
-                      ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
-                      : "bg-[var(--ink-muted)] text-[var(--card-fill)]"
-                  }`}
-                >
-                  <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
-                  <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
-                    {new Date(message.timestamp).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit"
-                    })}
-                  </p>
+                <div className="flex flex-col gap-1 max-w-[85%] sm:max-w-[75%]">
+                  <div
+                    className={`rounded-2xl px-3 py-2 sm:px-4 sm:py-3 ${
+                      message.role === "user"
+                        ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
+                        : "bg-[var(--ink-muted)] text-[var(--card-fill)]"
+                    }`}
+                  >
+                    <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
+                    <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
+                      {new Date(message.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit"
+                      })}
+                    </p>
+                  </div>
+                  {message.mqttFailed && (
+                    <div className="flex items-center gap-1 px-2 py-1 text-xs text-[#8b3b00] bg-[#fff0dc] rounded-lg border border-[#ffb347]">
+                      <span className="text-[10px]">⚠️</span>
+                      <span>MQTT publish failed</span>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -559,11 +580,15 @@ function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
   
   // If there's an assistant response, add it
   if (message.response_text || message.assistant_payload) {
+    // Check if MQTT publish failed: assistant_payload exists but mqtt_payload is null
+    const mqttFailed = message.assistant_payload !== null && message.mqtt_payload === null;
+    
     messages.push({
       id: `${message.id}-assistant`,
       role: "assistant",
       content: normalizeAssistantText(message.response_text),
       timestamp: message.created_at,
+      mqttFailed: mqttFailed,
     });
   }
   
