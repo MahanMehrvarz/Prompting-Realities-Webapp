@@ -386,8 +386,7 @@ export default function Home() {
               mqttPort: existingAssistant.mqttPort,
               mqttUser: existingAssistant.mqttUser,
               mqttTopic: existingAssistant.mqttTopic,
-              // Keep localStorage values (API key and MQTT password)
-              apiKey: existingAssistant.apiKey,
+              // Keep localStorage values (MQTT password)
               mqttPass: existingAssistant.mqttPass,
             };
           }

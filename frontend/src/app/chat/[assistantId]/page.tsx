@@ -293,17 +293,14 @@ export default function AssistantChatPage() {
         const file = new File([blob], "voice-input.webm", { type: blob.type });
         setIsTranscribing(true);
         try {
-          // Get API key from localStorage
-          const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
-          const storedApiKey = window.localStorage.getItem(`${API_KEY_STORAGE_PREFIX}${assistantId}`);
-          
-          if (!storedApiKey) {
-            setError("API key not found. Please configure the assistant first.");
+          // Backend will fetch API key from database (same approach as chat)
+          if (!token) {
+            setError("Authentication required. Please log in.");
             setIsTranscribing(false);
             return;
           }
           
-          const result = await backendApi.transcribe(file, storedApiKey, token ?? undefined);
+          const result = await backendApi.transcribe(file, assistantId, token);
           setInput((prev) => (prev ? `${prev} ${result.text}` : result.text));
         } catch (err) {
           const errorMsg = "Unable to transcribe audio.";
