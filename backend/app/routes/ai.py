@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from ..conversation_service import run_model_turn, transcribe_blob
@@ -176,15 +176,37 @@ async def test_mqtt(
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio(
     file: UploadFile = File(...),
+    api_key: str = Form(...),
     user_id: str | None = Depends(maybe_current_user_id),
 ):
     """
     Transcribe audio file using OpenAI Whisper API.
+    Requires api_key to be sent as form data.
     """
+    logger.info("🎤 [Backend] /ai/transcribe endpoint called")
+    logger.info(f"📁 [Backend] File: {file.filename}, Content-Type: {file.content_type}")
+    logger.info(f"🔑 [Backend] API key present: {bool(api_key)}")
+    logger.info(f"👤 [Backend] User ID: {user_id}")
+    
     try:
+        if not api_key:
+            logger.error("❌ [Backend] No API key provided")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key is required for transcription"
+            )
+        
         audio_bytes = await file.read()
-        text = await transcribe_blob(audio_bytes)
+        logger.info(f"📊 [Backend] Audio bytes read: {len(audio_bytes)} bytes")
+        
+        text = await transcribe_blob(audio_bytes, api_key)
+        if text:
+            logger.info(f"✅ [Backend] Transcription successful: {text[:100]}...")
+        else:
+            logger.info(f"✅ [Backend] Transcription successful but empty")
+        
         if not text:
+            logger.error("❌ [Backend] Transcription returned empty text")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Unable to transcribe audio"
@@ -193,7 +215,7 @@ async def transcribe_audio(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"Transcription failed: {exc}")
+        logger.error(f"❌ [Backend] Transcription failed: {exc}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Transcription failed: {str(exc)}"

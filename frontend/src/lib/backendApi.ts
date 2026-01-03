@@ -137,10 +137,12 @@ export const backendApi = {
    */
   async transcribe(
     file: File,
+    apiKey: string,
     token?: string
   ): Promise<TranscriptionResponse> {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("api_key", apiKey);
 
     const response = await fetch(`${API_BASE}/ai/transcribe`, {
       method: "POST",

@@ -109,10 +109,51 @@ async def run_model_turn(
         raise
 
 
-async def transcribe_blob(audio_bytes: bytes) -> Optional[str]:
+async def transcribe_blob(audio_bytes: bytes, api_key: str) -> Optional[str]:
+    """
+    Transcribe audio using OpenAI Whisper API.
+    
+    Args:
+        audio_bytes: Audio file bytes
+        api_key: OpenAI API key
+        
+    Returns:
+        Transcribed text or None if transcription fails
+    """
     logger.info("🔧 [ConversationService] transcribe_blob called")
     logger.info(f"📊 [ConversationService] audio_bytes length: {len(audio_bytes)}")
-    logger.warning("⚠️ [ConversationService] transcribe_blob is stubbed - returning empty string")
+    logger.info(f"🔑 [ConversationService] API key present: {bool(api_key)}")
     
-    #return await transcribe_audio(audio_bytes)
-    return ""
+    if not api_key:
+        logger.error("❌ [ConversationService] No API key provided for transcription")
+        raise ValueError("OpenAI API key is required for transcription")
+    
+    if not audio_bytes:
+        logger.error("❌ [ConversationService] No audio data provided")
+        raise ValueError("Audio data is required")
+    
+    try:
+        # Initialize OpenAI client
+        client = AsyncOpenAI(api_key=api_key)
+        
+        # Create a file-like object from bytes
+        from io import BytesIO
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = "audio.webm"  # Give it a name with extension
+        
+        logger.info("🎤 [ConversationService] Calling OpenAI Whisper API...")
+        
+        # Call Whisper API
+        transcription = await client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file
+        )
+        
+        text = transcription.text
+        logger.info(f"✅ [ConversationService] Transcription successful: {text[:100]}...")
+        
+        return text
+        
+    except Exception as e:
+        logger.error(f"❌ [ConversationService] Transcription failed: {e}", exc_info=True)
+        raise

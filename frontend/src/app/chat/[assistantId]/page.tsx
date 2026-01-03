@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   sessionService,
@@ -39,6 +39,8 @@ export default function AssistantChatPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState<boolean | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -283,7 +285,7 @@ export default function AssistantChatPage() {
   };
 
   const beginRecording = async () => {
-    if (!sessionId || (!token && !shareToken) || isRecording) return;
+    if (!sessionId || (!token && !shareToken) || isRecording || isTranscribing) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -295,19 +297,35 @@ export default function AssistantChatPage() {
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        setIsRecording(false);
         const blob = new Blob(recordedChunks.current, { type: recorder.mimeType });
         if (blob.size === 0) {
-          setIsRecording(false);
           return;
         }
         const file = new File([blob], "voice-input.webm", { type: blob.type });
+        setIsTranscribing(true);
         try {
-          const result = await backendApi.transcribe(file, token ?? undefined);
+          // Get API key from localStorage
+          const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
+          const storedApiKey = window.localStorage.getItem(`${API_KEY_STORAGE_PREFIX}${assistantId}`);
+          
+          if (!storedApiKey) {
+            setError("API key not found. Please configure the assistant first.");
+            setIsTranscribing(false);
+            return;
+          }
+          
+          const result = await backendApi.transcribe(file, storedApiKey, token ?? undefined);
           setInput((prev) => (prev ? `${prev} ${result.text}` : result.text));
         } catch (err) {
-          setError("Unable to transcribe audio.");
+          const errorMsg = "Unable to transcribe audio.";
+          setTranscriptionError(errorMsg);
+          // Clear the transcription error after 3 seconds
+          setTimeout(() => {
+            setTranscriptionError(null);
+          }, 3000);
         } finally {
-          setIsRecording(false);
+          setIsTranscribing(false);
         }
       };
       recorder.start();
@@ -444,30 +462,67 @@ export default function AssistantChatPage() {
         </div>
 
         {/* Fixed Input Bar - Sticky to bottom */}
-        <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
-          {sessionActive === false ? (
-            <div className="mx-auto max-w-3xl">
-              <div className="rounded-2xl border-2 border-[var(--card-shell)] bg-[#fff0dc] px-4 py-3 text-center">
-                <p className="text-sm font-medium text-[#4a2100]">
-                  Session stopped. Restart the session to send messages.
+        <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)]">
+          {/* Helper text - positioned above the input controls, outside the padding */}
+          {isRecording && (
+            <div className="px-4 pt-3 sm:px-6 sm:pt-4">
+              <div className="mx-auto max-w-3xl">
+                <p className="text-center text-xs text-red-600 sm:text-sm">
+                  Recording... Release to send
                 </p>
               </div>
             </div>
-          ) : (
-            <form onSubmit={handleSend} className="mx-auto max-w-3xl">
-              <div className="flex items-center gap-2 sm:gap-3">
+          )}
+          {isTranscribing && !transcriptionError && (
+            <div className="px-4 pt-3 sm:px-6 sm:pt-4">
+              <div className="mx-auto max-w-3xl">
+                <p className="text-center text-xs text-blue-600 sm:text-sm">
+                  Transcribing...
+                </p>
+              </div>
+            </div>
+          )}
+          {transcriptionError && (
+            <div className="px-4 pt-3 sm:px-6 sm:pt-4">
+              <div className="mx-auto max-w-3xl">
+                <p className="text-center text-xs text-red-600 sm:text-sm">
+                  {transcriptionError}
+                </p>
+              </div>
+            </div>
+          )}
+          
+          <div className="px-4 py-3 sm:px-6 sm:py-4">
+            {sessionActive === false ? (
+              <div className="mx-auto max-w-3xl">
+                <div className="rounded-2xl border-2 border-[var(--card-shell)] bg-[#fff0dc] px-4 py-3 text-center">
+                  <p className="text-sm font-medium text-[#4a2100]">
+                    Session stopped. Restart the session to send messages.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSend} className="mx-auto max-w-3xl">
+                <div className="flex items-center gap-2 sm:gap-3">
                 {/* Mic button */}
                 <button
                   type="button"
-                  title={isRecording ? "Recording…" : "Hold to talk"}
+                  title={isTranscribing ? "Transcribing…" : isRecording ? "Recording…" : "Hold to talk"}
+                  disabled={isTranscribing}
                   className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all ${
-                    isRecording
+                    isTranscribing
+                      ? "bg-blue-500 text-white cursor-not-allowed"
+                      : isRecording
                       ? "bg-red-500 text-white scale-110"
                       : "bg-transparent border-2 border-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/20"
                   }`}
-                  {...recordingEvents}
+                  {...(!isTranscribing ? recordingEvents : {})}
                 >
-                  <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
+                  {isTranscribing ? (
+                    <Loader2 className="h-5 w-5 sm:h-5 sm:w-5 animate-spin" />
+                  ) : (
+                    <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
+                  )}
                 </button>
 
                 {/* Input field */}
@@ -489,15 +544,9 @@ export default function AssistantChatPage() {
                   <Send className="h-5 w-5 sm:h-5 sm:w-5" />
                 </button>
               </div>
-
-              {/* Helper text - hidden on mobile, visible on desktop */}
-              {isRecording && (
-                <p className="mt-2 text-center text-xs text-red-600 sm:text-sm">
-                  Recording... Release to send
-                </p>
-              )}
-            </form>
-          )}
+              </form>
+            )}
+          </div>
         </div>
       </main>
     </div>

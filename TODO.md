@@ -41,10 +41,11 @@
 - [ ] Set up load testing
 
 ## Input & Interaction
-- [ ] Implement microphone input
+- [X] Implement microphone input
 
 ## Other
 - [X] Ask for confirmation before deleting a session
 - [ ] Check QR code functionality (probably broken from introduction of JWT)
 - [X] Add button redirecting to dashboard
 - [X] Show loading until all information is loaded
+- [ ] Fix message responses sometimes not being parsed in the chat
