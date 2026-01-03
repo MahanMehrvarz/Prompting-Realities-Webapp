@@ -11,6 +11,56 @@ from openai.types.chat import ChatCompletionMessageParam
 logger = logging.getLogger(__name__)
 
 
+def extract_display_text_from_payload(payload: Optional[Dict[str, Any]]) -> Optional[str]:
+    """
+    Extract displayable text from a JSON payload.
+    
+    This function handles various JSON schema formats by:
+    1. Looking for common text fields (answer, response, text, content, message)
+    2. Filtering out null values
+    3. Providing a clean fallback for unknown schemas
+    
+    Args:
+        payload: The JSON payload from the AI response
+        
+    Returns:
+        Extracted text or None if no suitable text found
+    """
+    if not payload or not isinstance(payload, dict):
+        return None
+    
+    # Try common field names for the actual response text
+    common_fields = ["answer", "response", "text", "content", "message"]
+    
+    for field in common_fields:
+        value = payload.get(field)
+        if value is not None and isinstance(value, str) and value.strip():
+            return value.strip()
+    
+    # If no common field found, create a formatted representation
+    # Filter out null values and empty strings for cleaner display
+    filtered_payload = {
+        k: v for k, v in payload.items() 
+        if v is not None and v != ""
+    }
+    
+    # If we have any non-null values, format them nicely
+    if filtered_payload:
+        # Try to create a human-readable format
+        text_parts = []
+        for key, value in filtered_payload.items():
+            if isinstance(value, (str, int, float, bool)):
+                text_parts.append(f"{key}: {value}")
+            elif isinstance(value, (dict, list)):
+                text_parts.append(f"{key}: {json.dumps(value)}")
+        
+        if text_parts:
+            return "\n".join(text_parts)
+    
+    # Last resort: return the full JSON as formatted string
+    return json.dumps(payload, indent=2)
+
+
 async def run_model_turn(
     previous_response_id: Optional[str],
     user_message: str,
@@ -18,7 +68,7 @@ async def run_model_turn(
     prompt_instruction: str = "You are a helpful assistant.",
     json_schema: Optional[Dict[str, Any]] = None,
     conversation_history: Optional[list[dict[str, str]]] = None
-) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Call OpenAI API to generate a response.
     
@@ -31,7 +81,7 @@ async def run_model_turn(
         conversation_history: Optional list of previous messages in the conversation
         
     Returns:
-        Tuple of (payload dict, response_id string)
+        Tuple of (payload dict, response_id string, display_text string)
     """
     logger.info("🔧 [ConversationService] run_model_turn called")
     logger.info(f"📝 [ConversationService] previous_response_id: {previous_response_id}")
@@ -118,13 +168,23 @@ async def run_model_turn(
             try:
                 payload = json.loads(assistant_message)
                 logger.info("✅ [ConversationService] Successfully parsed JSON response")
+                logger.info(f"📦 [ConversationService] Parsed payload: {payload}")
             except json.JSONDecodeError as e:
                 logger.warning(f"⚠️ [ConversationService] Failed to parse JSON response: {e}")
+                logger.warning(f"📝 [ConversationService] Raw assistant_message: {assistant_message}")
                 payload = {"response": assistant_message}
         else:
+            logger.info(f"💬 [ConversationService] No JSON schema or no assistant message, wrapping in response object")
+            logger.info(f"📊 [ConversationService] json_schema present: {bool(json_schema)}")
+            logger.info(f"📝 [ConversationService] assistant_message present: {bool(assistant_message)}")
             payload = {"response": assistant_message}
         
-        return payload, response_id
+        # Extract display text from the payload
+        display_text = extract_display_text_from_payload(payload)
+        logger.info(f"📝 [ConversationService] Extracted display text: {display_text[:100] if display_text else 'None'}...")
+        logger.info(f"📤 [ConversationService] Final payload being returned: {payload}")
+        
+        return payload, response_id, display_text
         
     except Exception as e:
         logger.error(f"❌ [ConversationService] Error calling OpenAI API: {e}", exc_info=True)
