@@ -139,15 +139,16 @@ export const backendApi = {
 
   /**
    * Transcribe audio file using OpenAI Whisper API.
+   * Backend fetches assistant config and API key from database.
    */
   async transcribe(
     file: File,
-    apiKey: string,
-    token?: string
+    assistantId: string,
+    token: string
   ): Promise<TranscriptionResponse> {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("api_key", apiKey);
+    formData.append("assistant_id", assistantId);
 
     const response = await fetch(`${API_BASE}/ai/transcribe`, {
       method: "POST",
