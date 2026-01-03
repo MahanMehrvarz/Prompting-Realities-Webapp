@@ -36,7 +36,6 @@ import { ExportDataModal, type ExportOptions } from "@/components/ExportDataModa
 import JSZip from "jszip";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
-const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
 const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
 
 type ConfigSection = "prompt" | "schema" | "mqtt" | "apiKey";
@@ -328,12 +327,19 @@ export default function Home() {
       const formatted = await Promise.all(records.map(async (record) => {
         const assistant = formatAssistant(record);
         
-        // Load stored API key and MQTT password from localStorage
-        const storedApiKey = window.localStorage.getItem(`${API_KEY_STORAGE_PREFIX}${assistant.id}`);
-        if (storedApiKey) {
-          assistant.apiKey = storedApiKey;
+        // Load API key from database (encrypted)
+        if (authToken) {
+          try {
+            const apiKeyResponse = await backendApi.getApiKey(assistant.id, authToken);
+            if (apiKeyResponse.api_key) {
+              assistant.apiKey = apiKeyResponse.api_key;
+            }
+          } catch (error) {
+            console.error(`Failed to fetch API key for assistant ${assistant.id}`, error);
+          }
         }
         
+        // Load MQTT password from localStorage (still stored locally)
         const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistant.id}`);
         if (storedMqttPass) {
           assistant.mqttPass = storedMqttPass;
@@ -380,8 +386,7 @@ export default function Home() {
               mqttPort: existingAssistant.mqttPort,
               mqttUser: existingAssistant.mqttUser,
               mqttTopic: existingAssistant.mqttTopic,
-              // Keep localStorage values (API key and MQTT password)
-              apiKey: existingAssistant.apiKey,
+              // Keep localStorage values (MQTT password)
               mqttPass: existingAssistant.mqttPass,
             };
           }
@@ -512,7 +517,7 @@ export default function Home() {
     );
   };
 
-  const handleFieldChange = (assistantId: string, field: EditableField, value: string) => {
+  const handleFieldChange = async (assistantId: string, field: EditableField, value: string) => {
     // Store raw value in local state - no auto-save
     updateAssistantState(assistantId, (assistant) => ({
       ...assistant,
@@ -520,10 +525,19 @@ export default function Home() {
       lastUpdated: new Date().toISOString(),
     }));
     
-    // Save API key and MQTT password to localStorage when they change (per assistant)
-    if (field === "apiKey" && value.trim()) {
-      window.localStorage.setItem(`${API_KEY_STORAGE_PREFIX}${assistantId}`, value);
+    // Save API key to database (encrypted) when it changes
+    if (field === "apiKey" && value.trim() && authToken) {
+      try {
+        await backendApi.updateApiKey({
+          assistant_id: assistantId,
+          api_key: value,
+        }, authToken);
+      } catch (error) {
+        console.error("Failed to save API key", error);
+      }
     }
+    
+    // Save MQTT password to localStorage when it changes (per assistant)
     if (field === "mqttPass" && value.trim()) {
       window.localStorage.setItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`, value);
     }

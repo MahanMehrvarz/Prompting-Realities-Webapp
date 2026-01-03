@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from ..conversation_service import run_model_turn, transcribe_blob
@@ -20,7 +20,7 @@ class ChatRequest(BaseModel):
     """Request to chat with OpenAI."""
     previous_response_id: str | None = None
     user_message: str
-    assistant_config: Dict[str, Any]  # Contains prompt_instruction, json_schema, api_key
+    assistant_id: str  # ID of the assistant to get config from database
 
 
 class ChatResponse(BaseModel):
@@ -65,41 +65,105 @@ async def chat_with_openai(
     user_id: str = Depends(get_current_user_id),
 ):
     """
-    Call OpenAI API with the provided configuration.
+    Call OpenAI API - fetches assistant config and API key from database.
     Frontend is responsible for storing the response in Supabase.
     """
     logger.info("🚀 [Backend] /ai/chat endpoint called")
     logger.info(f"📝 [Backend] User message: {request.user_message}")
     logger.info(f"🔑 [Backend] User ID: {user_id}")
-    logger.info(f"⚙️ [Backend] Assistant config keys: {list(request.assistant_config.keys())}")
-    logger.info(f"📋 [Backend] Prompt instruction: {request.assistant_config.get('prompt_instruction', 'N/A')[:50]}...")
-    logger.info(f"📊 [Backend] JSON schema type: {type(request.assistant_config.get('json_schema'))}")
-    logger.info(f"📊 [Backend] JSON schema value: {request.assistant_config.get('json_schema')}")
-    logger.info(f"🔑 [Backend] API key present: {bool(request.assistant_config.get('api_key'))}")
+    logger.info(f"🆔 [Backend] Assistant ID: {request.assistant_id}")
     
     try:
-        # Extract API key from config
-        api_key = request.assistant_config.get("api_key", "")
-        if not api_key:
-            logger.error("❌ [Backend] No API key provided in assistant_config")
+        # Import here to avoid circular dependency
+        from supabase import create_client
+        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..encryption import decrypt_api_key
+        
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="API key is required in assistant_config"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
             )
         
+        # Initialize Supabase client
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        
+        # Fetch assistant configuration from database
+        logger.info(f"🔍 [Backend] Fetching assistant configuration for {request.assistant_id}")
+        response = supabase.table("assistants").select("*").eq("id", request.assistant_id).execute()
+        
+        if not response.data or len(response.data) == 0:
+            logger.error(f"❌ [Backend] Assistant {request.assistant_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assistant not found"
+            )
+        
+        assistant = response.data[0]
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+        
+        # Verify the assistant belongs to the user
+        if assistant.get("supabase_user_id") != user_id:
+            logger.error(f"❌ [Backend] User {user_id} does not own assistant {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to use this assistant"
+            )
+        
+        # Decrypt the API key
+        encrypted_key = assistant.get("openai_key", "")
+        if not encrypted_key or not isinstance(encrypted_key, str):
+            logger.error(f"❌ [Backend] No API key found for assistant {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key not configured for this assistant"
+            )
+        
+        try:
+            api_key = decrypt_api_key(encrypted_key)
+        except Exception as decrypt_error:
+            logger.error(f"❌ [Backend] Failed to decrypt API key: {decrypt_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to decrypt API key"
+            )
+        
+        if not api_key:
+            logger.error(f"❌ [Backend] Decrypted API key is empty for assistant {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key not configured for this assistant"
+            )
+        
+        # Extract configuration
+        prompt_instruction_raw = assistant.get("prompt_instruction", "You are a helpful assistant.")
+        prompt_instruction = str(prompt_instruction_raw) if prompt_instruction_raw else "You are a helpful assistant."
+        
+        json_schema_raw = assistant.get("json_schema")
+        json_schema = json_schema_raw if isinstance(json_schema_raw, dict) else None
+        
+        logger.info(f"📋 [Backend] Prompt instruction: {prompt_instruction[:50]}...")
+        logger.info(f"📊 [Backend] JSON schema present: {json_schema is not None}")
         logger.info("🤖 [Backend] Calling run_model_turn...")
+        
         payload, response_id = await run_model_turn(
             request.previous_response_id,
             request.user_message,
             api_key,
-            request.assistant_config.get("prompt_instruction", "You are a helpful assistant."),
-            request.assistant_config.get("json_schema")
+            prompt_instruction,
+            json_schema
         )
         logger.info(f"✅ [Backend] run_model_turn completed: payload={payload}, response_id={response_id}")
         
         response = ChatResponse(payload=payload, response_id=response_id)
         logger.info(f"📤 [Backend] Sending response back to frontend")
         return response
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"❌ [Backend] OpenAI chat failed: {exc}", exc_info=True)
         raise HTTPException(
@@ -176,15 +240,97 @@ async def test_mqtt(
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio(
     file: UploadFile = File(...),
-    user_id: str | None = Depends(maybe_current_user_id),
+    assistant_id: str = Form(...),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
     Transcribe audio file using OpenAI Whisper API.
+    Fetches assistant config and API key from database (like chat endpoint).
     """
+    logger.info("🎤 [Backend] /ai/transcribe endpoint called")
+    logger.info(f"📁 [Backend] File: {file.filename}, Content-Type: {file.content_type}")
+    logger.info(f"🔑 [Backend] User ID: {user_id}")
+    logger.info(f"🆔 [Backend] Assistant ID: {assistant_id}")
+    
     try:
+        # Import here to avoid circular dependency
+        from supabase import create_client
+        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..encryption import decrypt_api_key
+        
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
+            )
+        
+        # Initialize Supabase client
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        
+        # Fetch assistant configuration from database
+        logger.info(f"🔍 [Backend] Fetching assistant configuration for {assistant_id}")
+        response = supabase.table("assistants").select("*").eq("id", assistant_id).execute()
+        
+        if not response.data or len(response.data) == 0:
+            logger.error(f"❌ [Backend] Assistant {assistant_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assistant not found"
+            )
+        
+        assistant = response.data[0]
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+        
+        # Verify the assistant belongs to the user
+        if assistant.get("supabase_user_id") != user_id:
+            logger.error(f"❌ [Backend] User {user_id} does not own assistant {assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to use this assistant"
+            )
+        
+        # Decrypt the API key
+        encrypted_key = assistant.get("openai_key", "")
+        if not encrypted_key or not isinstance(encrypted_key, str):
+            logger.error(f"❌ [Backend] No API key found for assistant {assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key not configured for this assistant"
+            )
+        
+        try:
+            api_key = decrypt_api_key(encrypted_key)
+        except Exception as decrypt_error:
+            logger.error(f"❌ [Backend] Failed to decrypt API key: {decrypt_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to decrypt API key"
+            )
+        
+        if not api_key:
+            logger.error(f"❌ [Backend] Decrypted API key is empty for assistant {assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key not configured for this assistant"
+            )
+        
+        logger.info(f"🔑 [Backend] API key retrieved and decrypted successfully")
+        
         audio_bytes = await file.read()
-        text = await transcribe_blob(audio_bytes)
+        logger.info(f"📊 [Backend] Audio bytes read: {len(audio_bytes)} bytes")
+        
+        text = await transcribe_blob(audio_bytes, api_key)
+        if text:
+            logger.info(f"✅ [Backend] Transcription successful: {text[:100]}...")
+        else:
+            logger.info(f"✅ [Backend] Transcription successful but empty")
+        
         if not text:
+            logger.error("❌ [Backend] Transcription returned empty text")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Unable to transcribe audio"
@@ -193,7 +339,7 @@ async def transcribe_audio(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"Transcription failed: {exc}")
+        logger.error(f"❌ [Backend] Transcription failed: {exc}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Transcription failed: {str(exc)}"

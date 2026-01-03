@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import json
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, cast
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,13 @@ async def run_model_turn(
         raise ValueError("OpenAI API key is required")
     
     try:
-        # Initialize OpenAI client
-        client = AsyncOpenAI(api_key=api_key)
+        # Initialize OpenAI client with explicit http_client to avoid proxy issues
+        import httpx
+        http_client = httpx.AsyncClient()
+        client = AsyncOpenAI(api_key=api_key, http_client=http_client)
         
         # Build messages for the conversation
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": prompt_instruction},
             {"role": "user", "content": user_message}
         ]
@@ -89,7 +92,10 @@ async def run_model_turn(
         response_id = response.id
         
         logger.info(f"✅ [ConversationService] OpenAI response received, ID: {response_id}")
-        logger.info(f"📝 [ConversationService] Response preview: {assistant_message[:100] if assistant_message else 'None'}...")
+        if assistant_message:
+            logger.info(f"📝 [ConversationService] Response preview: {assistant_message[:100]}...")
+        else:
+            logger.info(f"📝 [ConversationService] Response preview: None...")
         
         # Parse the response into a payload
         if json_schema and assistant_message:
@@ -109,10 +115,54 @@ async def run_model_turn(
         raise
 
 
-async def transcribe_blob(audio_bytes: bytes) -> Optional[str]:
+async def transcribe_blob(audio_bytes: bytes, api_key: str) -> Optional[str]:
+    """
+    Transcribe audio using OpenAI Whisper API.
+    
+    Args:
+        audio_bytes: Audio file bytes
+        api_key: OpenAI API key
+        
+    Returns:
+        Transcribed text or None if transcription fails
+    """
     logger.info("🔧 [ConversationService] transcribe_blob called")
     logger.info(f"📊 [ConversationService] audio_bytes length: {len(audio_bytes)}")
-    logger.warning("⚠️ [ConversationService] transcribe_blob is stubbed - returning empty string")
+    logger.info(f"🔑 [ConversationService] API key present: {bool(api_key)}")
     
-    #return await transcribe_audio(audio_bytes)
-    return ""
+    if not api_key:
+        logger.error("❌ [ConversationService] No API key provided for transcription")
+        raise ValueError("OpenAI API key is required for transcription")
+    
+    if not audio_bytes:
+        logger.error("❌ [ConversationService] No audio data provided")
+        raise ValueError("Audio data is required")
+    
+    try:
+        # Initialize OpenAI client with explicit http_client to avoid proxy issues
+        import httpx
+        http_client = httpx.AsyncClient()
+        client = AsyncOpenAI(api_key=api_key, http_client=http_client)
+        
+        # Create a file-like object from bytes
+        from io import BytesIO
+        audio_file = BytesIO(audio_bytes)
+        audio_file.name = "audio.webm"  # Give it a name with extension
+        
+        logger.info("🎤 [ConversationService] Calling OpenAI Whisper API...")
+        
+        # Call Whisper API
+        transcription = await client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            language="en"
+        )
+        
+        text = transcription.text
+        logger.info(f"✅ [ConversationService] Transcription successful: {text[:100]}...")
+        
+        return text
+        
+    except Exception as e:
+        logger.error(f"❌ [ConversationService] Transcription failed: {e}", exc_info=True)
+        raise

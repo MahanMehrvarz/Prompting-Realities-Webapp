@@ -55,11 +55,7 @@ async function apiFetch<T>(
 export type ChatRequest = {
   previous_response_id: string | null;
   user_message: string;
-  assistant_config: {
-    prompt_instruction: string;
-    json_schema: Record<string, any> | null;
-    api_key: string;
-  };
+  assistant_id: string;  // Backend will fetch config from database
 };
 
 export type ChatResponse = {
@@ -90,6 +86,15 @@ export type MqttResponse = {
 
 export type TranscriptionResponse = {
   text: string;
+};
+
+export type UpdateApiKeyRequest = {
+  assistant_id: string;
+  api_key: string;
+};
+
+export type GetApiKeyResponse = {
+  api_key: string;
 };
 
 // API methods
@@ -134,13 +139,16 @@ export const backendApi = {
 
   /**
    * Transcribe audio file using OpenAI Whisper API.
+   * Backend fetches assistant config and API key from database.
    */
   async transcribe(
     file: File,
-    token?: string
+    assistantId: string,
+    token: string
   ): Promise<TranscriptionResponse> {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("assistant_id", assistantId);
 
     const response = await fetch(`${API_BASE}/ai/transcribe`, {
       method: "POST",
@@ -155,5 +163,38 @@ export const backendApi = {
     }
 
     return response.json() as Promise<TranscriptionResponse>;
+  },
+
+  /**
+   * Update an assistant's OpenAI API key (encrypted in database).
+   */
+  async updateApiKey(
+    request: UpdateApiKeyRequest,
+    token: string
+  ): Promise<{ success: boolean; message: string }> {
+    return apiFetch<{ success: boolean; message: string }>(
+      "/assistants/update-api-key",
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify(request),
+      }
+    );
+  },
+
+  /**
+   * Retrieve and decrypt an assistant's OpenAI API key.
+   */
+  async getApiKey(
+    assistantId: string,
+    token: string
+  ): Promise<GetApiKeyResponse> {
+    return apiFetch<GetApiKeyResponse>(
+      `/assistants/get-api-key/${assistantId}`,
+      token,
+      {
+        method: "GET",
+      }
+    );
   },
 };
