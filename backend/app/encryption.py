@@ -20,6 +20,9 @@ def _get_fernet() -> Fernet:
     Generate a Fernet cipher from the encryption secret.
     Uses PBKDF2 to derive a proper key from the secret.
     """
+    if not ENCRYPTION_SECRET:
+        raise RuntimeError("ENCRYPTION_SECRET is not set")
+    
     # Use a fixed salt for deterministic key derivation
     # In production, you might want to use a configurable salt
     salt = b"prompting_realities_salt_v1"

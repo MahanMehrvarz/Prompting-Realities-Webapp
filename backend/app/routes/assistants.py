@@ -41,6 +41,12 @@ async def update_api_key(
         from supabase import create_client
         from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
         
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
+            )
+        
         # Initialize Supabase client
         supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
         
@@ -54,7 +60,13 @@ async def update_api_key(
             )
         
         assistant = response.data[0]
-        if assistant["supabase_user_id"] != user_id:
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+        
+        if assistant.get("supabase_user_id") != user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to update this assistant"
@@ -96,6 +108,12 @@ async def get_api_key(
         from supabase import create_client
         from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
         
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
+            )
+        
         # Initialize Supabase client
         supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -110,7 +128,13 @@ async def get_api_key(
             )
         
         assistant = response.data[0]
-        if assistant["supabase_user_id"] != user_id:
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+        
+        if assistant.get("supabase_user_id") != user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to access this assistant"
@@ -118,7 +142,7 @@ async def get_api_key(
         
         # Decrypt the API key
         encrypted_key = assistant.get("openai_key", "")
-        if not encrypted_key:
+        if not encrypted_key or not isinstance(encrypted_key, str):
             return GetApiKeyResponse(api_key="")
         
         decrypted_key = decrypt_api_key(encrypted_key)

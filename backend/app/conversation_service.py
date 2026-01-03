@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import json
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, cast
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ async def run_model_turn(
         client = AsyncOpenAI(api_key=api_key, http_client=http_client)
         
         # Build messages for the conversation
-        messages = [
+        messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": prompt_instruction},
             {"role": "user", "content": user_message}
         ]
@@ -91,7 +92,10 @@ async def run_model_turn(
         response_id = response.id
         
         logger.info(f"✅ [ConversationService] OpenAI response received, ID: {response_id}")
-        logger.info(f"📝 [ConversationService] Response preview: {assistant_message[:100] if assistant_message else 'None'}...")
+        if assistant_message:
+            logger.info(f"📝 [ConversationService] Response preview: {assistant_message[:100]}...")
+        else:
+            logger.info(f"📝 [ConversationService] Response preview: None...")
         
         # Parse the response into a payload
         if json_schema and assistant_message:
