@@ -22,8 +22,8 @@ class UpdateApiKeyRequest(BaseModel):
 
 
 class GetApiKeyResponse(BaseModel):
-    """Response containing decrypted API key."""
-    api_key: str
+    """Response indicating if API key exists."""
+    has_api_key: bool
 
 
 @router.post("/update-api-key")
@@ -140,15 +140,12 @@ async def get_api_key(
                 detail="You don't have permission to access this assistant"
             )
         
-        # Decrypt the API key
+        # Check if API key exists
         encrypted_key = assistant.get("openai_key", "")
-        if not encrypted_key or not isinstance(encrypted_key, str):
-            return GetApiKeyResponse(api_key="")
+        has_key = bool(encrypted_key and isinstance(encrypted_key, str) and len(encrypted_key.strip()) > 0)
         
-        decrypted_key = decrypt_api_key(encrypted_key)
-        
-        logger.info(f"✅ [Backend] API key retrieved successfully for assistant {assistant_id}")
-        return GetApiKeyResponse(api_key=decrypted_key)
+        logger.info(f"✅ [Backend] API key check completed for assistant {assistant_id}: {has_key}")
+        return GetApiKeyResponse(has_api_key=has_key)
         
     except HTTPException:
         raise

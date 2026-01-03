@@ -28,6 +28,7 @@ class ChatResponse(BaseModel):
     """Response from OpenAI chat."""
     payload: Dict[str, Any] | None
     response_id: str | None
+    display_text: str | None
 
 
 class MqttPublishRequest(BaseModel):
@@ -154,7 +155,7 @@ async def chat_with_openai(
             logger.info(f"📜 [Backend] Conversation history length: {len(request.conversation_history)}")
         logger.info("🤖 [Backend] Calling run_model_turn...")
         
-        payload, response_id = await run_model_turn(
+        payload, response_id, display_text = await run_model_turn(
             request.previous_response_id,
             request.user_message,
             api_key,
@@ -163,8 +164,9 @@ async def chat_with_openai(
             request.conversation_history
         )
         logger.info(f"✅ [Backend] run_model_turn completed: payload={payload}, response_id={response_id}")
+        logger.info(f"📝 [Backend] Display text extracted: {display_text[:100] if display_text else 'None'}...")
         
-        response = ChatResponse(payload=payload, response_id=response_id)
+        response = ChatResponse(payload=payload, response_id=response_id, display_text=display_text)
         logger.info(f"📤 [Backend] Sending response back to frontend")
         return response
     except HTTPException:
