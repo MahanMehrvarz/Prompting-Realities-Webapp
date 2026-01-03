@@ -16,7 +16,8 @@ async def run_model_turn(
     user_message: str,
     api_key: str,
     prompt_instruction: str = "You are a helpful assistant.",
-    json_schema: Optional[Dict[str, Any]] = None
+    json_schema: Optional[Dict[str, Any]] = None,
+    conversation_history: Optional[list[dict[str, str]]] = None
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Call OpenAI API to generate a response.
@@ -27,6 +28,7 @@ async def run_model_turn(
         api_key: OpenAI API key
         prompt_instruction: System prompt for the assistant
         json_schema: Optional JSON schema for structured output
+        conversation_history: Optional list of previous messages in the conversation
         
     Returns:
         Tuple of (payload dict, response_id string)
@@ -37,6 +39,9 @@ async def run_model_turn(
     logger.info(f"📋 [ConversationService] prompt_instruction: {prompt_instruction[:50]}...")
     logger.info(f"🔑 [ConversationService] API key present: {bool(api_key)}")
     logger.info(f"📊 [ConversationService] JSON schema provided: {bool(json_schema)}")
+    logger.info(f"📜 [ConversationService] Conversation history provided: {bool(conversation_history)}")
+    if conversation_history:
+        logger.info(f"📜 [ConversationService] Conversation history length: {len(conversation_history)}")
     
     if not api_key:
         logger.error("❌ [ConversationService] No API key provided")
@@ -50,9 +55,20 @@ async def run_model_turn(
         
         # Build messages for the conversation
         messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": prompt_instruction},
-            {"role": "user", "content": user_message}
+            {"role": "system", "content": prompt_instruction}
         ]
+        
+        # Add conversation history if provided
+        if conversation_history:
+            for msg in conversation_history:
+                if msg.get("role") in ["user", "assistant"] and msg.get("content"):
+                    messages.append({
+                        "role": msg["role"],  # type: ignore
+                        "content": msg["content"]
+                    })
+        
+        # Add the current user message
+        messages.append({"role": "user", "content": user_message})
         
         logger.info("🤖 [ConversationService] Calling OpenAI API...")
         

@@ -169,12 +169,21 @@ export default function AssistantChatPage() {
         throw new Error("Failed to fetch assistant configuration");
       }
       
+      // Build conversation history from current messages (excluding the optimistic message we just added)
+      const conversationHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      
       console.log("🤖 [Frontend] Calling backend AI API...");
+      console.log("📜 [Frontend] Sending conversation history with", conversationHistory.length, "messages");
+      
       const aiResponse = await backendApi.chat(
         {
-          previous_response_id: null, // TODO: Track conversation history
+          previous_response_id: null,
           user_message: trimmed,
           assistant_id: assistantId,  // Backend will fetch config and API key
+          conversation_history: conversationHistory,  // Send full conversation history
         },
         token ?? ""
       );

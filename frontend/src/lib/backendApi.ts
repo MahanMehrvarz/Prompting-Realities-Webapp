@@ -56,6 +56,7 @@ export type ChatRequest = {
   previous_response_id: string | null;
   user_message: string;
   assistant_id: string;  // Backend will fetch config from database
+  conversation_history?: Array<{ role: string; content: string }>;  // Optional conversation history
 };
 
 export type ChatResponse = {
