@@ -169,24 +169,12 @@ export default function AssistantChatPage() {
         throw new Error("Failed to fetch assistant configuration");
       }
       
-      // Get API key from localStorage
-      const API_KEY_STORAGE_PREFIX = "pr-openai-api-key-";
-      const storedApiKey = window.localStorage.getItem(`${API_KEY_STORAGE_PREFIX}${assistantId}`);
-      
-      if (!storedApiKey) {
-        throw new Error("API key not found. Please configure the assistant first.");
-      }
-      
       console.log("🤖 [Frontend] Calling backend AI API...");
       const aiResponse = await backendApi.chat(
         {
           previous_response_id: null, // TODO: Track conversation history
           user_message: trimmed,
-          assistant_config: {
-            prompt_instruction: assistantData.prompt_instruction || "You are a helpful assistant.",
-            json_schema: assistantData.json_schema || null,
-            api_key: storedApiKey,
-          },
+          assistant_id: assistantId,  // Backend will fetch config and API key
         },
         token ?? ""
       );

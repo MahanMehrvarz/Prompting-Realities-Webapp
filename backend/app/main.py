@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import ai
+from .routes import ai, assistants
 from .mqtt_manager import mqtt_manager
 
 
@@ -30,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(ai.router)
+app.include_router(assistants.router)
 
 
 @app.get("/health")

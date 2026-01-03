@@ -49,3 +49,4 @@
 - [X] Add button redirecting to dashboard
 - [X] Show loading until all information is loaded
 - [ ] Fix message responses sometimes not being parsed in the chat
+- [ ] Ensure flow of conversation

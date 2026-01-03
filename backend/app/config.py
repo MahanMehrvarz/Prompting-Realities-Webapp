@@ -24,6 +24,7 @@ def _env(key: str, default: str | None = None) -> str:
 # Supabase configuration for JWT validation
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_JWT_SECRET:
     raise RuntimeError("SUPABASE_URL and SUPABASE_JWT_SECRET environment variables are required")

@@ -42,8 +42,10 @@ async def run_model_turn(
         raise ValueError("OpenAI API key is required")
     
     try:
-        # Initialize OpenAI client
-        client = AsyncOpenAI(api_key=api_key)
+        # Initialize OpenAI client with explicit http_client to avoid proxy issues
+        import httpx
+        http_client = httpx.AsyncClient()
+        client = AsyncOpenAI(api_key=api_key, http_client=http_client)
         
         # Build messages for the conversation
         messages = [
@@ -133,8 +135,10 @@ async def transcribe_blob(audio_bytes: bytes, api_key: str) -> Optional[str]:
         raise ValueError("Audio data is required")
     
     try:
-        # Initialize OpenAI client
-        client = AsyncOpenAI(api_key=api_key)
+        # Initialize OpenAI client with explicit http_client to avoid proxy issues
+        import httpx
+        http_client = httpx.AsyncClient()
+        client = AsyncOpenAI(api_key=api_key, http_client=http_client)
         
         # Create a file-like object from bytes
         from io import BytesIO
@@ -146,7 +150,8 @@ async def transcribe_blob(audio_bytes: bytes, api_key: str) -> Optional[str]:
         # Call Whisper API
         transcription = await client.audio.transcriptions.create(
             model="whisper-1",
-            file=audio_file
+            file=audio_file,
+            language="en"
         )
         
         text = transcription.text
