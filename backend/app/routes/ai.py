@@ -21,12 +21,14 @@ class ChatRequest(BaseModel):
     previous_response_id: str | None = None
     user_message: str
     assistant_id: str  # ID of the assistant to get config from database
+    conversation_history: list[dict[str, str]] | None = None  # List of previous messages
 
 
 class ChatResponse(BaseModel):
     """Response from OpenAI chat."""
     payload: Dict[str, Any] | None
     response_id: str | None
+    display_text: str | None
 
 
 class MqttPublishRequest(BaseModel):
@@ -148,18 +150,23 @@ async def chat_with_openai(
         
         logger.info(f"📋 [Backend] Prompt instruction: {prompt_instruction[:50]}...")
         logger.info(f"📊 [Backend] JSON schema present: {json_schema is not None}")
+        logger.info(f"💬 [Backend] Conversation history present: {bool(request.conversation_history)}")
+        if request.conversation_history:
+            logger.info(f"📜 [Backend] Conversation history length: {len(request.conversation_history)}")
         logger.info("🤖 [Backend] Calling run_model_turn...")
         
-        payload, response_id = await run_model_turn(
+        payload, response_id, display_text = await run_model_turn(
             request.previous_response_id,
             request.user_message,
             api_key,
             prompt_instruction,
-            json_schema
+            json_schema,
+            request.conversation_history
         )
         logger.info(f"✅ [Backend] run_model_turn completed: payload={payload}, response_id={response_id}")
+        logger.info(f"📝 [Backend] Display text extracted: {display_text[:100] if display_text else 'None'}...")
         
-        response = ChatResponse(payload=payload, response_id=response_id)
+        response = ChatResponse(payload=payload, response_id=response_id, display_text=display_text)
         logger.info(f"📤 [Backend] Sending response back to frontend")
         return response
     except HTTPException:

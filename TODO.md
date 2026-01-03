@@ -45,8 +45,8 @@
 
 ## Other
 - [X] Ask for confirmation before deleting a session
-- [ ] Check QR code functionality (probably broken from introduction of JWT)
+- [X] Check QR code functionality (probably broken from introduction of JWT)
 - [X] Add button redirecting to dashboard
 - [X] Show loading until all information is loaded
-- [ ] Fix message responses sometimes not being parsed in the chat
-- [ ] Ensure flow of conversation
+- [X] Fix message responses sometimes not being parsed in the chat
+- [X] Ensure flow of conversation

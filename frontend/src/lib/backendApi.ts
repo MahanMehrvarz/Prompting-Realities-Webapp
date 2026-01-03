@@ -56,11 +56,13 @@ export type ChatRequest = {
   previous_response_id: string | null;
   user_message: string;
   assistant_id: string;  // Backend will fetch config from database
+  conversation_history?: Array<{ role: string; content: string }>;  // Optional conversation history
 };
 
 export type ChatResponse = {
   payload: Record<string, any> | null;
   response_id: string | null;
+  display_text: string | null;
 };
 
 export type MqttPublishRequest = {
@@ -94,7 +96,7 @@ export type UpdateApiKeyRequest = {
 };
 
 export type GetApiKeyResponse = {
-  api_key: string;
+  has_api_key: boolean;
 };
 
 // API methods

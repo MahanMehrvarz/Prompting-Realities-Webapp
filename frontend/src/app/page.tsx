@@ -228,6 +228,7 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [redirectPath, setRedirectPath] = useState<string | null>(null);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
@@ -245,6 +246,15 @@ export default function Home() {
 
   useEffect(() => {
     setHydrated(true);
+    
+    // Check for redirect parameter in URL
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get("redirect");
+      if (redirect) {
+        setRedirectPath(redirect);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -327,15 +337,17 @@ export default function Home() {
       const formatted = await Promise.all(records.map(async (record) => {
         const assistant = formatAssistant(record);
         
-        // Load API key from database (encrypted)
-        if (authToken) {
+        // Check if API key exists in database (encrypted) - use current authToken from state
+        const currentToken = authToken || window.localStorage.getItem(TOKEN_STORAGE_KEY);
+        if (currentToken) {
           try {
-            const apiKeyResponse = await backendApi.getApiKey(assistant.id, authToken);
-            if (apiKeyResponse.api_key) {
-              assistant.apiKey = apiKeyResponse.api_key;
+            const apiKeyResponse = await backendApi.getApiKey(assistant.id, currentToken);
+            if (apiKeyResponse.has_api_key) {
+              // Set a placeholder to indicate API key exists
+              assistant.apiKey = "••••••••••••••••••••••••••••••••••••••••••••••••••";
             }
           } catch (error) {
-            console.error(`Failed to fetch API key for assistant ${assistant.id}`, error);
+            console.error(`Failed to check API key for assistant ${assistant.id}`, error);
           }
         }
         
@@ -386,8 +398,10 @@ export default function Home() {
               mqttPort: existingAssistant.mqttPort,
               mqttUser: existingAssistant.mqttUser,
               mqttTopic: existingAssistant.mqttTopic,
-              // Keep localStorage values (MQTT password)
+              // Keep localStorage values (MQTT password) and preserve API key from backend
               mqttPass: existingAssistant.mqttPass,
+              // Use the newly fetched API key from backend (newAssistant already has it)
+              apiKey: newAssistant.apiKey,
             };
           }
           return newAssistant;
@@ -473,6 +487,11 @@ export default function Home() {
           }
           
           fetchAssistants();
+          
+          // Redirect to intended destination if present
+          if (redirectPath) {
+            window.location.href = redirectPath;
+          }
         } else {
           setAuthError("Please check your email to confirm your account.");
         }
@@ -502,6 +521,11 @@ export default function Home() {
           }
           
           fetchAssistants();
+          
+          // Redirect to intended destination if present
+          if (redirectPath) {
+            window.location.href = redirectPath;
+          }
         }
       }
     } catch (error) {
@@ -1040,6 +1064,11 @@ export default function Home() {
           <h1 className="text-2xl font-semibold text-[var(--ink-dark)]">
             {authMode === "login" ? "Sign in" : "Create account"}
           </h1>
+          {redirectPath && (
+            <p className="text-sm text-[var(--ink-muted)]">
+              Sign in to access the chat session
+            </p>
+          )}
           {authError && <p className="text-sm text-red-600">{authError}</p>}
           <div className="space-y-3">
             <input

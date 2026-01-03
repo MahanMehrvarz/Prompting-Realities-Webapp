@@ -65,28 +65,53 @@ export default function AssistantChatPage() {
 
   // Load messages only once when component mounts or sessionId changes
   useEffect(() => {
-    if ((!token && !shareToken) || !sessionId) return;
+    if (!sessionId) return;
+    
+    // Wait for hydration and token check to complete
+    if (!hydrated) return;
+    
+    // Always require authentication, even with shareToken (for security/RLS)
+    if (!token) {
+      console.log("No authentication found, redirecting to login...");
+      const currentPath = window.location.pathname + window.location.search;
+      window.location.href = `/?redirect=${encodeURIComponent(currentPath)}`;
+      return;
+    }
     
     let isMounted = true;
     
     const load = async () => {
       setLoading(true);
+      console.log("Loading chat history with token:", !!token, "shareToken:", !!shareToken);
       try {
         // Check session status
         const session = await sessionService.get(sessionId);
+        console.log("Session retrieved:", session);
         if (isMounted) {
           setSessionActive(session.active);
         }
         
+        // Validate share token if using shared access
+        if (shareToken && session.share_token !== shareToken) {
+          throw new Error("Invalid share token");
+        }
+        
         // Load ALL messages for this session, regardless of thread_id
         const records = await messageService.listBySession(sessionId);
+        console.log("Messages loaded:", records.length);
         if (isMounted) {
           const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
           setMessages(mappedMessages);
         }
       } catch (err) {
         if (isMounted) {
-          setError("Unable to load chat history.");
+          console.error("Error loading chat history:", err);
+          const errorMessage = err instanceof Error ? err.message : "Unable to load chat history.";
+          if (errorMessage.includes("Invalid share token")) {
+            setError("Session link is invalid or expired. Ask the host for a new link.");
+          } else {
+            setError("Unable to load chat history.");
+          }
         }
       } finally {
         if (isMounted) {
@@ -100,7 +125,7 @@ export default function AssistantChatPage() {
     return () => {
       isMounted = false;
     };
-  }, [sessionId]);
+  }, [sessionId, token, shareToken, hydrated]);
 
   const title = useMemo(() => {
     if (assistantName) return assistantName;
@@ -169,14 +194,30 @@ export default function AssistantChatPage() {
         throw new Error("Failed to fetch assistant configuration");
       }
       
+      // Build conversation history from current messages (excluding the optimistic message we just added)
+      const conversationHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+      
       console.log("🤖 [Frontend] Calling backend AI API...");
+      console.log("📜 [Frontend] Sending conversation history with", conversationHistory.length, "messages");
+      
+      // Use token if available, otherwise redirect to login
+      if (!token) {
+        const currentPath = window.location.pathname + window.location.search;
+        router.push(`/?redirect=${encodeURIComponent(currentPath)}`);
+        throw new Error("Authentication required to send messages. Redirecting to login...");
+      }
+      
       const aiResponse = await backendApi.chat(
         {
-          previous_response_id: null, // TODO: Track conversation history
+          previous_response_id: null,
           user_message: trimmed,
           assistant_id: assistantId,  // Backend will fetch config and API key
+          conversation_history: conversationHistory,  // Send full conversation history
         },
-        token ?? ""
+        token
       );
       console.log("✅ [Frontend] Backend response received:", aiResponse);
       
@@ -187,6 +228,8 @@ export default function AssistantChatPage() {
       if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
         console.log("📡 [Frontend] Publishing to MQTT...");
         const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
+        // MQTT password is stored in localStorage, which won't be available on other devices
+        // This is expected - MQTT will only work on the device where it was configured
         const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`);
         
         mqttPublishAttempted = true;
@@ -201,7 +244,7 @@ export default function AssistantChatPage() {
               username: assistantData.mqtt_user || null,
               password: storedMqttPass || null,
             },
-            token ?? undefined
+            token
           );
           
           if (mqttResult.success) {
@@ -220,24 +263,11 @@ export default function AssistantChatPage() {
       }
       
       // Save complete conversation turn (user + assistant) in a single entry
-      console.log("� [Frontend] Saving conversation turn to database...");
+      console.log("💾 [Frontend] Saving conversation turn to database...");
       
-      // Extract the text response from the payload
-      let responseText = null;
-      if (aiResponse.payload) {
-        // Try to extract text from common fields
-        const possibleFields = ["answer", "response", "text", "content", "message"];
-        for (const field of possibleFields) {
-          if (typeof aiResponse.payload[field] === "string") {
-            responseText = aiResponse.payload[field];
-            break;
-          }
-        }
-        // If no common field found, stringify the whole payload
-        if (!responseText) {
-          responseText = JSON.stringify(aiResponse.payload);
-        }
-      }
+      // Use the display_text extracted by the backend
+      const responseText = aiResponse.display_text || null;
+      console.log("📝 [Frontend] Using display_text from backend:", responseText?.substring(0, 100));
 
       // Only save mqtt_payload if MQTT publish was successful
       const conversationMessage = await messageService.create({
@@ -245,7 +275,7 @@ export default function AssistantChatPage() {
         assistant_id: assistantId,
         user_text: trimmed, // Store user's message
         assistant_payload: aiResponse.payload, // Store as actual JSON object
-        response_text: responseText, // Store just the text response
+        response_text: responseText, // Store the extracted text from backend
         mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? aiResponse.payload : null, // Only store if MQTT publish succeeded
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
@@ -264,8 +294,8 @@ export default function AssistantChatPage() {
       const errorMessage = err instanceof Error ? err.message : "Unable to send message.";
       if (errorMessage.includes("Session is not running") || errorMessage.includes("not running") || errorMessage.includes("not active")) {
         setError("This session has stopped. The host needs to start a new run.");
-      } else if (errorMessage.includes("Not authorized")) {
-        setError("Session link is invalid or expired. Ask the host for a new link.");
+      } else if (errorMessage.includes("Not authorized") || errorMessage.includes("Authentication required")) {
+        setError("You need to log in to send messages. Viewing history works without login.");
       } else {
         setError(errorMessage);
       }
@@ -346,11 +376,12 @@ export default function AssistantChatPage() {
     return null;
   }
 
-  if (!token && !shareToken) {
+  // Redirect to login if no authentication (always require auth for security)
+  if (!token) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-transparent px-4 py-6 text-[var(--foreground)]">
         <p className="card-panel px-5 py-4 text-center">
-          This session link is invalid or expired. Ask the host to start a new run.
+          Redirecting to login...
         </p>
       </div>
     );
@@ -538,66 +569,6 @@ export default function AssistantChatPage() {
   );
 }
 
-function normalizeAssistantText(text?: string | null): string {
-  if (!text) return "";
-  const trimmed = text.trim();
-  
-  // Try to parse as JSON first
-  try {
-    const parsed = JSON.parse(trimmed);
-    
-    // If it's an object, extract text from common fields
-    if (typeof parsed === "object" && parsed !== null) {
-      // Try common field names for the actual response text
-      const possibleFields = ["answer", "response", "text", "content", "message"];
-      
-      for (const field of possibleFields) {
-        if (typeof parsed[field] === "string") {
-          return parsed[field];
-        }
-      }
-      
-      // If no common field found, return the whole JSON as formatted string
-      return JSON.stringify(parsed, null, 2);
-    }
-    
-    // If it's a string, return it
-    if (typeof parsed === "string") {
-      return parsed;
-    }
-  } catch {
-    // Not valid JSON, continue with original logic
-  }
-  
-  // Fallback to original fragment-based parsing
-  const fragments: string[] = [];
-  let depth = 0;
-  let buffer = "";
-  for (const char of trimmed) {
-    if (char === "{") depth++;
-    if (depth > 0) buffer += char;
-    if (char === "}") {
-      depth--;
-      if (depth === 0 && buffer) {
-        fragments.push(buffer);
-        buffer = "";
-      }
-    }
-  }
-  if (fragments.length === 0) return trimmed;
-  const responses: string[] = [];
-  for (const fragment of fragments) {
-    try {
-      const parsed = JSON.parse(fragment);
-      if (typeof parsed?.response === "string") {
-        responses.push(parsed.response);
-      }
-    } catch {
-      responses.push(fragment);
-    }
-  }
-  return responses.join("\n\n");
-}
 
 function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -615,12 +586,20 @@ function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
   // If there's an assistant response, add it
   if (message.response_text || message.assistant_payload) {
     // Check if MQTT publish failed: assistant_payload exists but mqtt_payload is null
-    const mqttFailed = message.assistant_payload !== null && message.mqtt_payload === null;
+    // IMPORTANT: Only flag as failed if assistant_payload is not null (meaning MQTT was attempted)
+    // If assistant_payload is null, MQTT was never attempted, so don't show warning
+    const mqttFailed = 
+      message.assistant_payload !== null && 
+      message.assistant_payload !== undefined &&
+      (message.mqtt_payload === null || message.mqtt_payload === undefined);
+    
+    // Use response_text directly - backend now handles extraction
+    const content = message.response_text || JSON.stringify(message.assistant_payload, null, 2);
     
     messages.push({
       id: `${message.id}-assistant`,
       role: "assistant",
-      content: normalizeAssistantText(message.response_text),
+      content: content,
       timestamp: message.created_at,
       mqttFailed: mqttFailed,
     });
