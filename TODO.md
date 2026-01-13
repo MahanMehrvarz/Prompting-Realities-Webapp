@@ -2,8 +2,8 @@
 - [X] Implement 3rd-party authentication  
 - [ ] Evaluate passwordless authentication (login link preferred if easy)
 - [ ] Fix CORS issues
-- [ ] Ensure chat link security
-- [ ] Enforce single active session per LLM Thing  
+- [X] Ensure chat link security
+- [X] Enforce single active session per LLM Thing  
   - If a new device opens the link, terminate the previous session  
   - Later: show an error or modal saying *“A new session is active”*
 
