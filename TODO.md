@@ -1,11 +1,14 @@
 ## Authentication & Security
 - [X] Implement 3rd-party authentication  
-- [ ] Evaluate passwordless authentication (login link preferred if easy)
+- [ ] Implement passwordless / single sign-in authentication (login link preferred if easy)
 - [ ] Fix CORS issues
 - [X] Ensure chat link security
-- [X] Enforce single active session per LLM Thing  
+- [ ] Enforce single active session per LLM Thing  
   - If a new device opens the link, terminate the previous session  
-  - Later: show an error or modal saying *“A new session is active”*
+  - [ ] If a new user tries to join the same chat, show message: “There can only be 1 active session”
+  - Later: show an error or modal saying “A new session is active”
+- [ ] Stop all LLMs on logout  
+  - Optional: stop chat on inactivity
 
 ## Database & Backend Configuration
 - [X] Finalize DB configuration
@@ -18,11 +21,17 @@
 - [X] Make MQTT connection persistent
 - [X] Differentiate between user connections in MQTT server
 - [X] Warn user when message is not being sent to MQTT broker
+- [ ] Add “Test MQTT connection” button
+- [ ] Store and send only "MQTT_value"
 
 ## Database Schema
 - [X] Create table for users
 - [X] Create table for LLM Things
 - [X] Create table for LLM API responses
+
+## JSON Schema
+- [ ] Add placeholder JSON schema
+- [ ] Validate schema keys and show message if missing:  “Include at least `answer` and `MQTT_value` in your schema”
 
 ## Data Retention & Lifecycle
 - [X] Ensure all chat history always remains accessible via the link
@@ -42,11 +51,13 @@
 
 ## Input & Interaction
 - [X] Implement microphone input
+- [ ] Clicking on “Open chat” automatically opens it in a new tab
 
-## Other
+## Other / UI & UX
 - [X] Ask for confirmation before deleting a session
 - [X] Check QR code functionality (probably broken from introduction of JWT)
 - [X] Add button redirecting to dashboard
 - [X] Show loading until all information is loaded
 - [X] Fix message responses sometimes not being parsed in the chat
 - [X] Ensure flow of conversation
+- [ ] Move “Remove LLM” button to a better spot
