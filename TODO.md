@@ -47,7 +47,7 @@
   - Explore more readable alternatives
 
 ## Performance & Reliability
-- [ ] Set up load testing
+- [X] Set up load testing
 
 ## Input & Interaction
 - [X] Implement microphone input

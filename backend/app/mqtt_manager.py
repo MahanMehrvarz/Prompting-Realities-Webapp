@@ -91,23 +91,69 @@ class MqttConnectionManager:
             loop = asyncio.get_event_loop()
 
             def _connect():
+                import time
+                import socket
                 try:
+                    # Set socket timeout to prevent hanging on connect
+                    client._client_id = client._client_id  # Ensure client is initialized
                     client.connect(host, port, keepalive=60)
                     client.loop_start()  # Start background network loop
+                    # Wait for connection to establish with timeout
+                    timeout = 2.0
+                    start_time = time.time()
+                    while not client.is_connected():
+                        if time.time() - start_time > timeout:
+                            logger.error(f"Connection timeout to {host}:{port}")
+                            client.loop_stop()
+                            return False
+                        time.sleep(0.1)
                     return True
+                except socket.timeout:
+                    logger.error(f"Socket timeout connecting to {host}:{port}")
+                    try:
+                        client.loop_stop()
+                    except:
+                        pass
+                    return False
+                except socket.error as exc:
+                    logger.error(f"Socket error connecting to {host}:{port} - {exc}")
+                    try:
+                        client.loop_stop()
+                    except:
+                        pass
+                    return False
                 except Exception as exc:
                     logger.error(f"Failed to connect to {host}:{port} - {exc}")
+                    try:
+                        client.loop_stop()
+                    except:
+                        pass
                     return False
 
             try:
-                success = await loop.run_in_executor(None, _connect)
+                # Use asyncio.wait_for to enforce timeout at the executor level
+                success = await asyncio.wait_for(
+                    loop.run_in_executor(None, _connect),
+                    timeout=3.0
+                )
                 if success:
                     self._connections[connection_key] = client
                     return client
                 else:
                     return None
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout while connecting to {host}:{port}")
+                try:
+                    client.loop_stop()
+                except:
+                    pass
+                return None
             except Exception as exc:
                 logger.error(f"Exception while connecting to {host}:{port} - {exc}")
+                try:
+                    client.loop_stop()
+                except:
+                    pass
                 return None
 
     async def publish(
