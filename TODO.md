@@ -27,7 +27,7 @@
 ## Data Retention & Lifecycle
 - [X] Ensure all chat history always remains accessible via the link
 - [X] If an LLM Thing is deleted, keep its data in the database
-- [ ] Later: add a first-use modal explaining that log data is kept for research purposes  
+- [X] Later: add a first-use modal explaining that log data is kept for research purposes  
   - Logs are unbounded to the user’s email address
 
 ## Export & Data Access
