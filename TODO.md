@@ -60,4 +60,4 @@
 - [X] Show loading until all information is loaded
 - [X] Fix message responses sometimes not being parsed in the chat
 - [X] Ensure flow of conversation
-- [ ] Move “Remove LLM” button to a better spot
+- [X] Move “Remove LLM” button to a better spot

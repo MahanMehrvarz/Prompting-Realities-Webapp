@@ -1312,11 +1312,22 @@ export default function Home() {
         {selectedAssistant && (
           <>
           <section className="card-panel space-y-4 p-6">
-            <div>
-              <p className="text-sm font-semibold text-[var(--foreground)]">LLM thing overview</p>
-              <p className="text-xs text-[var(--ink-muted)]">
-                Rename the LLM thing, manage sessions, and check MQTT connection info.
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[var(--foreground)]">LLM thing overview</p>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  Rename the LLM thing, manage sessions, and check MQTT connection info.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                disabled={selectedAssistant.status === "running"}
+                title={selectedAssistant.status === "running" ? "Stop your LLM before deleting it" : ""}
+                className="flex items-center gap-2 text-xs font-semibold text-[#8b1400] underline decoration-dotted underline-offset-4 transition hover:text-[#c51c00] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[#8b1400]"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove LLM thing
+              </button>
             </div>
             <div className="flex flex-wrap items-center gap-4">
               <div className="panel-strip mt-1 inline-flex flex-1 min-w-[240px] flex-wrap items-center gap-3 px-5 py-2 text-sm uppercase">
@@ -1626,13 +1637,15 @@ export default function Home() {
             >
               Save
             </button>
-            <button
+            {/*
+             <button
               type="button"
               onClick={() => selectedAssistant && refreshChatHistory(selectedAssistant.id)}
               className="text-xs font-semibold text-[var(--ink-muted)] underline"
             >
               Refresh history
-            </button>
+            </button> 
+            */}
             <button
               type="button"
               onClick={() => selectedAssistant && handleDownloadCsv()}
@@ -1640,13 +1653,6 @@ export default function Home() {
               className="flex items-center gap-2 text-xs font-semibold text-[var(--ink-dark)] transition disabled:opacity-40"
             >
               <Download className="h-3.5 w-3.5" /> Download CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDeleteModal(true)}
-              className="flex items-center gap-2 text-xs font-semibold text-[#8b1400] underline decoration-dotted underline-offset-4 transition hover:text-[#c51c00]"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Remove LLM thing
             </button>
           </div>
 
