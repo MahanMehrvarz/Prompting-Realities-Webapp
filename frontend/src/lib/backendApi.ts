@@ -66,12 +66,9 @@ export type ChatResponse = {
 };
 
 export type MqttPublishRequest = {
-  host: string;
-  port: number;
-  topic: string;
+  assistant_id: string;  // Backend will fetch MQTT config from database
   payload: Record<string, any>;
-  username?: string | null;
-  password?: string | null;
+  session_id?: string | null;
 };
 
 export type MqttTestRequest = {

@@ -33,12 +33,8 @@ class ChatResponse(BaseModel):
 
 class MqttPublishRequest(BaseModel):
     """Request to publish to MQTT broker."""
-    host: str
-    port: int
-    topic: str
+    assistant_id: str  # Fetch MQTT config from database
     payload: Dict[str, Any]
-    username: str | None = None
-    password: str | None = None
     session_id: str | None = None
 
 
@@ -188,42 +184,88 @@ async def publish_to_mqtt(
 ):
     """
     Publish a payload to an MQTT broker.
+    Fetches MQTT configuration from the database using assistant_id.
     This is a server-side operation since browsers cannot connect to MQTT directly.
     Allows anonymous access.
     """
-    # Get user email if authenticated, otherwise use "anonymous"
-    user_email = "anonymous"
-    if user_id:
-        try:
-            from supabase import create_client
-            from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-            
-            if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
-                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    logger.info("📡 [Backend] /ai/mqtt/publish endpoint called")
+    logger.info(f"🔑 [Backend] User ID: {user_id} (anonymous: {user_id is None})")
+    logger.info(f"🆔 [Backend] Assistant ID: {request.assistant_id}")
+    logger.info(f"🆔 [Backend] Session ID: {request.session_id}")
+    logger.info(f"📦 [Backend] Payload: {request.payload}")
+    
+    try:
+        # Import here to avoid circular dependency
+        from supabase import create_client
+        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..encryption import decrypt_api_key
+        
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
+            )
+        
+        # Initialize Supabase client
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        
+        # Fetch assistant configuration from database
+        logger.info(f"🔍 [Backend] Fetching assistant configuration for {request.assistant_id}")
+        response = supabase.table("assistants").select("*").eq("id", request.assistant_id).execute()
+        
+        if not response.data or len(response.data) == 0:
+            logger.error(f"❌ [Backend] Assistant {request.assistant_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assistant not found"
+            )
+        
+        assistant = response.data[0]
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+        
+        # Extract MQTT configuration with type casting
+        mqtt_host = str(assistant.get("mqtt_host", "")) if assistant.get("mqtt_host") else None
+        mqtt_port_raw = assistant.get("mqtt_port", 1883)
+        mqtt_port = int(mqtt_port_raw) if isinstance(mqtt_port_raw, (int, str)) else 1883
+        mqtt_topic = str(assistant.get("mqtt_topic", "")) if assistant.get("mqtt_topic") else None
+        mqtt_user = str(assistant.get("mqtt_user")) if assistant.get("mqtt_user") else None
+        mqtt_pass = str(assistant.get("mqtt_pass")) if assistant.get("mqtt_pass") else None
+        
+        if not mqtt_host or not mqtt_topic:
+            logger.error(f"❌ [Backend] MQTT configuration incomplete for assistant {request.assistant_id}")
+            return MqttResponse(
+                success=False,
+                message="MQTT configuration is incomplete (missing host or topic)"
+            )
+        
+        # Get user email if authenticated, otherwise use "anonymous"
+        user_email = "anonymous"
+        if user_id:
+            try:
                 user_response = supabase.auth.admin.get_user_by_id(user_id)
                 if user_response and user_response.user:
                     user_email = user_response.user.email or "anonymous"
-        except Exception as e:
-            logger.warning(f"Failed to get user email: {e}")
-    
-    logger.info("📡 [Backend] /ai/mqtt/publish endpoint called")
-    logger.info(f"📧 [Backend] User Email: {user_email} (anonymous: {user_id is None})")
-    logger.info(f"🆔 [Backend] Session ID: {request.session_id}")
-    logger.info(f"🌐 [Backend] MQTT Host: {request.host}:{request.port}")
-    logger.info(f"📋 [Backend] MQTT Topic: {request.topic}")
-    logger.info(f"📦 [Backend] Payload: {request.payload}")
-    logger.info(f"👤 [Backend] Username: {request.username}")
-    logger.info(f"🔐 [Backend] Password present: {bool(request.password)}")
-    
-    try:
+            except Exception as e:
+                logger.warning(f"Failed to get user email: {e}")
+        
+        logger.info(f"📧 [Backend] User Email: {user_email}")
+        logger.info(f"🌐 [Backend] MQTT Host: {mqtt_host}:{mqtt_port}")
+        logger.info(f"📋 [Backend] MQTT Topic: {mqtt_topic}")
+        logger.info(f"👤 [Backend] MQTT Username: {mqtt_user}")
+        logger.info(f"🔐 [Backend] MQTT Password present: {bool(mqtt_pass)}")
+        
         logger.info("🚀 [Backend] Calling publish_payload...")
         success = await publish_payload(
-            host=request.host,
-            port=request.port,
-            topic=request.topic,
+            host=mqtt_host,
+            port=mqtt_port,
+            topic=mqtt_topic,
             payload=request.payload,
-            username=request.username,
-            password=request.password,
+            username=mqtt_user,
+            password=mqtt_pass,
             user_email=user_email,
             session_id=request.session_id,
         )
@@ -233,6 +275,8 @@ async def publish_to_mqtt(
             success=success,
             message="Published successfully" if success else "Failed to publish"
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"❌ [Backend] MQTT publish failed: {exc}", exc_info=True)
         return MqttResponse(success=False, message=str(exc))

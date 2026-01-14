@@ -606,7 +606,6 @@ export default function Home() {
     }
     
     try {
-      // Don't save MQTT password to database - it's stored in localStorage only
       await assistantService.update(assistantId, {
         name: assistant.name,
         prompt_instruction: assistant.promptInstruction,
@@ -614,6 +613,7 @@ export default function Home() {
         mqtt_host: assistant.mqttHost,
         mqtt_port: Number(assistant.mqttPort),
         mqtt_user: assistant.mqttUser || null,
+        mqtt_pass: assistant.mqttPass || null,
         mqtt_topic: assistant.mqttTopic,
       });
       
@@ -647,6 +647,7 @@ export default function Home() {
         mqtt_topic: "topic/default",
         mqtt_port: 1883,
         mqtt_user: null,
+        mqtt_pass: null,
       });
       const formatted = formatAssistant(record);
       setAssistants((prev) => [...prev, formatted]);

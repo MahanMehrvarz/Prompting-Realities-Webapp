@@ -368,10 +368,6 @@ export default function AssistantChatPage() {
       
       if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
         console.log("📡 [Frontend] Publishing to MQTT...");
-        const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
-        // MQTT password is stored in localStorage, which won't be available on other devices
-        // This is expected - MQTT will only work on the device where it was configured
-        const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`);
         
         mqttPublishAttempted = true;
         
@@ -387,12 +383,9 @@ export default function AssistantChatPage() {
         try {
           const mqttResult = await backendApi.publishMqtt(
             {
-              host: assistantData.mqtt_host,
-              port: assistantData.mqtt_port || 1883,
-              topic: assistantData.mqtt_topic,
+              assistant_id: assistantId,
               payload: aiResponse.payload,
-              username: assistantData.mqtt_user || null,
-              password: storedMqttPass || null,
+              session_id: sessionId,
             },
             token || undefined
           );
