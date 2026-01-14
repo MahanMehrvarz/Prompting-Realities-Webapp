@@ -64,15 +64,16 @@ class TranscriptionResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_openai(
     request: ChatRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
     """
     Call OpenAI API - fetches assistant config and API key from database.
     Frontend is responsible for storing the response in Supabase.
+    Allows anonymous access (user_id can be None).
     """
     logger.info("🚀 [Backend] /ai/chat endpoint called")
     logger.info(f"📝 [Backend] User message: {request.user_message}")
-    logger.info(f"🔑 [Backend] User ID: {user_id}")
+    logger.info(f"🔑 [Backend] User ID: {user_id} (anonymous: {user_id is None})")
     logger.info(f"🆔 [Backend] Assistant ID: {request.assistant_id}")
     
     try:
@@ -108,8 +109,9 @@ async def chat_with_openai(
                 detail="Invalid assistant data"
             )
         
-        # Verify the assistant belongs to the user
-        if assistant.get("supabase_user_id") != user_id:
+        # Skip ownership verification for anonymous users
+        # Anonymous users can use any assistant (you may want to add additional checks here)
+        if user_id and assistant.get("supabase_user_id") != user_id:
             logger.error(f"❌ [Backend] User {user_id} does not own assistant {request.assistant_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -182,14 +184,30 @@ async def chat_with_openai(
 @router.post("/mqtt/publish", response_model=MqttResponse)
 async def publish_to_mqtt(
     request: MqttPublishRequest,
-    user_email: str = Depends(get_current_user_email),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
     """
     Publish a payload to an MQTT broker.
     This is a server-side operation since browsers cannot connect to MQTT directly.
+    Allows anonymous access.
     """
+    # Get user email if authenticated, otherwise use "anonymous"
+    user_email = "anonymous"
+    if user_id:
+        try:
+            from supabase import create_client
+            from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+            
+            if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                user_response = supabase.auth.admin.get_user_by_id(user_id)
+                if user_response and user_response.user:
+                    user_email = user_response.user.email or "anonymous"
+        except Exception as e:
+            logger.warning(f"Failed to get user email: {e}")
+    
     logger.info("📡 [Backend] /ai/mqtt/publish endpoint called")
-    logger.info(f"📧 [Backend] User Email: {user_email}")
+    logger.info(f"📧 [Backend] User Email: {user_email} (anonymous: {user_id is None})")
     logger.info(f"🆔 [Backend] Session ID: {request.session_id}")
     logger.info(f"🌐 [Backend] MQTT Host: {request.host}:{request.port}")
     logger.info(f"📋 [Backend] MQTT Topic: {request.topic}")
@@ -248,15 +266,16 @@ async def test_mqtt(
 async def transcribe_audio(
     file: UploadFile = File(...),
     assistant_id: str = Form(...),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str | None = Depends(maybe_current_user_id),
 ):
     """
     Transcribe audio file using OpenAI Whisper API.
     Fetches assistant config and API key from database (like chat endpoint).
+    Allows anonymous access.
     """
     logger.info("🎤 [Backend] /ai/transcribe endpoint called")
     logger.info(f"📁 [Backend] File: {file.filename}, Content-Type: {file.content_type}")
-    logger.info(f"🔑 [Backend] User ID: {user_id}")
+    logger.info(f"🔑 [Backend] User ID: {user_id} (anonymous: {user_id is None})")
     logger.info(f"🆔 [Backend] Assistant ID: {assistant_id}")
     
     try:
@@ -292,8 +311,8 @@ async def transcribe_audio(
                 detail="Invalid assistant data"
             )
         
-        # Verify the assistant belongs to the user
-        if assistant.get("supabase_user_id") != user_id:
+        # Skip ownership verification for anonymous users
+        if user_id and assistant.get("supabase_user_id") != user_id:
             logger.error(f"❌ [Backend] User {user_id} does not own assistant {assistant_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -112,7 +112,7 @@ export const backendApi = {
    * Call OpenAI API with the provided configuration.
    * Frontend is responsible for storing the response in Supabase.
    */
-  async chat(request: ChatRequest, token: string): Promise<ChatResponse> {
+  async chat(request: ChatRequest, token?: string): Promise<ChatResponse> {
     return apiFetch<ChatResponse>("/ai/chat", token, {
       method: "POST",
       body: JSON.stringify(request),
@@ -153,7 +153,7 @@ export const backendApi = {
   async transcribe(
     file: File,
     assistantId: string,
-    token: string
+    token?: string
   ): Promise<TranscriptionResponse> {
     const formData = new FormData();
     formData.append("file", file);
