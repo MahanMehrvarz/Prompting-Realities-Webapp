@@ -1690,7 +1690,7 @@ export default function Home() {
                           if (selectedAssistant) {
                             const saved = await saveAssistantNow(selectedAssistant.id, true);
                             if (saved) {
-                              window.location.href = sessionPath;
+                              window.open(sessionPath, '_blank');
                             }
                           }
                         }}

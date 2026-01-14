@@ -51,7 +51,7 @@
 
 ## Input & Interaction
 - [X] Implement microphone input
-- [ ] Clicking on “Open chat” automatically opens it in a new tab
+- [X] Clicking on “Open chat” automatically opens it in a new tab
 
 ## Other / UI & UX
 - [X] Ask for confirmation before deleting a session
