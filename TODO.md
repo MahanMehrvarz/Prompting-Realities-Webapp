@@ -23,7 +23,7 @@
 - [X] Warn user when message is not being sent to MQTT broker
 - [X] Add “Test MQTT connection” button
 - [X] Store and send only "MQTT_value"
-- [ ] MQTT doesn't send messages from anonymous sessions
+- [X] MQTT doesn't send messages from anonymous sessions
 
 ## Database Schema
 - [X] Create table for users
