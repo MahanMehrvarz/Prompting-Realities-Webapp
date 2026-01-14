@@ -52,6 +52,7 @@
 ## Input & Interaction
 - [X] Implement microphone input
 - [X] Clicking on “Open chat” automatically opens it in a new tab
+- [ ] Add "refresh messages" button in chat that clears all existing messages
 
 ## Other / UI & UX
 - [X] Ask for confirmation before deleting a session

@@ -50,6 +50,7 @@ export type ChatMessage = {
   assistant_payload: Record<string, any> | null;
   response_text: string | null;
   mqtt_payload: Record<string, any> | null;
+  device_id: string | null;
   created_at: string;
 };
 
@@ -174,7 +175,7 @@ export const messageService = {
     return data as ChatMessage;
   },
 
-  async listBySession(sessionId: string, threadId?: string) {
+  async listBySession(sessionId: string, threadId?: string, deviceId?: string) {
     let query = supabaseClient
       .from("chat_messages")
       .select("*")
@@ -183,6 +184,11 @@ export const messageService = {
     // Only filter by thread_id if provided
     if (threadId) {
       query = query.eq("thread_id", threadId);
+    }
+    
+    // Filter by device_id for anonymous users
+    if (deviceId) {
+      query = query.eq("device_id", deviceId);
     }
     
     const { data, error } = await query.order("created_at", { ascending: true });

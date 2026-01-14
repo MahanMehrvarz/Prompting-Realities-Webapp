@@ -52,7 +52,20 @@ export default function AssistantChatPage() {
   const recordedChunks = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const presenceChannelRef = useRef<RealtimeChannel | null>(null);
-  const deviceIdRef = useRef<string>(crypto.randomUUID());
+  const deviceIdRef = useRef<string>("");
+  
+  // Initialize device ID from localStorage or create new one
+  useEffect(() => {
+    if (hydrated) {
+      const DEVICE_ID_KEY = "pr-device-id";
+      let storedDeviceId = window.localStorage.getItem(DEVICE_ID_KEY);
+      if (!storedDeviceId) {
+        storedDeviceId = crypto.randomUUID();
+        window.localStorage.setItem(DEVICE_ID_KEY, storedDeviceId);
+      }
+      deviceIdRef.current = storedDeviceId;
+    }
+  }, [hydrated]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -205,12 +218,22 @@ export default function AssistantChatPage() {
           throw new Error("Invalid share token");
         }
         
-        // Load ALL messages for this session, regardless of thread_id
-        const { data: records, error: messagesError } = await supabase
+        // For anonymous users, only load messages for this device
+        // For authenticated users, load all messages
+        const { data: { user } } = await supabase.auth.getUser();
+        const isAuthenticated = !!user;
+        
+        let query = supabase
           .from("chat_messages")
           .select("*")
-          .eq("session_id", sessionId)
-          .order("created_at", { ascending: true });
+          .eq("session_id", sessionId);
+        
+        // Anonymous users only see their own device's messages
+        if (!isAuthenticated && deviceIdRef.current) {
+          query = query.eq("device_id", deviceIdRef.current);
+        }
+        
+        const { data: records, error: messagesError } = await query.order("created_at", { ascending: true });
         
         console.log("Messages query result:", { count: records?.length || 0, messagesError });
         
@@ -398,6 +421,7 @@ export default function AssistantChatPage() {
 
       // Only save mqtt_payload if MQTT publish was successful
       // mqtt_payload now stores only the MQTT_value field, not the entire payload
+      // For anonymous users, save device_id; for authenticated users, leave it null
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
@@ -405,12 +429,18 @@ export default function AssistantChatPage() {
         assistant_payload: aiResponse.payload, // Store as actual JSON object
         response_text: responseText, // Store the extracted text from backend
         mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? mqttValueToSave : null, // Only store MQTT_value if MQTT publish succeeded
+        device_id: user ? null : deviceIdRef.current, // Anonymous users get device_id, authenticated users get null
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       
-      // Reload all messages for this session (all threads)
+      // Reload messages for this session
+      // For anonymous users, only reload their device's messages
       console.log("🔄 [Frontend] Reloading messages from database...");
-      const records = await messageService.listBySession(sessionId);
+      const records = await messageService.listBySession(
+        sessionId,
+        undefined, // threadId
+        user ? undefined : deviceIdRef.current // deviceId for anonymous users only
+      );
       const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
       
       setMessages(mappedMessages);
