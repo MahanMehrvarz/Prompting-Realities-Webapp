@@ -259,6 +259,8 @@ export default function Home() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdminStatus, setCheckingAdminStatus] = useState(true);
+  const [testingMqtt, setTestingMqtt] = useState(false);
+  const [mqttTestResult, setMqttTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     setHydrated(true);
@@ -1028,6 +1030,39 @@ export default function Home() {
     refreshChatHistory(selectedAssistant.id);
   };
 
+  const handleTestMqttConnection = async () => {
+    if (!selectedAssistant || !authToken) return;
+    
+    setTestingMqtt(true);
+    setMqttTestResult(null);
+    
+    try {
+      const result = await backendApi.testMqtt({
+        host: selectedAssistant.mqttHost,
+        port: Number(selectedAssistant.mqttPort),
+        username: selectedAssistant.mqttUser || null,
+        password: selectedAssistant.mqttPass || null,
+      }, authToken);
+      
+      setMqttTestResult({
+        success: result.success,
+        message: result.success 
+          ? `Successfully connected to ${selectedAssistant.mqttHost}:${selectedAssistant.mqttPort}` 
+          : result.message || "Connection failed"
+      });
+    } catch (error) {
+      console.error("MQTT test failed", error);
+      setMqttTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : "Connection test failed"
+      });
+    } finally {
+      setTestingMqtt(false);
+      // Clear the result after 5 seconds
+      setTimeout(() => setMqttTestResult(null), 5000);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setAuthToken(null);
@@ -1340,7 +1375,31 @@ export default function Home() {
                 <p className="text-xs text-[var(--ink-muted)]">
                   {selectedAssistant.mqttTopic || "Topic not set"}
                 </p>
-                <p className="text-xs text-[var(--ink-muted)]">Connection telemetry coming soon</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestMqttConnection}
+                    disabled={testingMqtt || !selectedAssistant.mqttHost || !selectedAssistant.mqttPort}
+                    className="flex items-center gap-2 rounded-full border-[2px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-3 py-1.5 text-xs font-semibold text-[var(--card-fill)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    {testingMqtt ? "Testing..." : "Test MQTT connection"}
+                  </button>
+                  {mqttTestResult && (
+                    <div className={`flex items-center gap-1.5 rounded-lg border-[2px] px-2.5 py-1 text-xs ${
+                      mqttTestResult.success 
+                        ? "border-[#00d692] bg-[#e6fff5] text-[#013022]" 
+                        : "border-[#ff6b6b] bg-[#ffe6e6] text-[#4a0000]"
+                    }`}>
+                      {mqttTestResult.success ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                      ) : (
+                        <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                      )}
+                      <span className="font-medium">{mqttTestResult.success ? "Connected" : "Failed"}</span>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="rounded-[20px] border-[2px] border-[var(--card-shell)] bg-white px-4 py-3 shadow-[5px_5px_0_var(--card-shell)]">
                 <p className="text-xs uppercase tracking-[0.4em] text-[#0b321e]">Assistant replies</p>

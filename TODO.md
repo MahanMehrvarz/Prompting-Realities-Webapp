@@ -21,7 +21,7 @@
 - [X] Make MQTT connection persistent
 - [X] Differentiate between user connections in MQTT server
 - [X] Warn user when message is not being sent to MQTT broker
-- [ ] Add “Test MQTT connection” button
+- [X] Add “Test MQTT connection” button
 - [X] Store and send only "MQTT_value"
 
 ## Database Schema
