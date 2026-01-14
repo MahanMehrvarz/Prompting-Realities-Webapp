@@ -161,12 +161,28 @@ const configSections: {
 ];
 
 
+const DEFAULT_JSON_SCHEMA = {
+  "type": "object",
+  "required": [
+    "answer",
+    "MQTT_value"
+  ],
+  "properties": {
+    "answer": {
+      "type": "string"
+    },
+    "MQTT_value": {
+      "type": "string"
+    }
+  }
+};
+
 const formatAssistant = (record: DbAssistant): Assistant => ({
   id: record.id,
   name: record.name,
   promptInstruction: record.prompt_instruction ?? "",
   jsonSchema: record.json_schema ?? null,
-  jsonSchemaText: record.json_schema ? JSON.stringify(record.json_schema, null, 2) : "",
+  jsonSchemaText: record.json_schema ? JSON.stringify(record.json_schema, null, 2) : JSON.stringify(DEFAULT_JSON_SCHEMA, null, 2),
   mqttHost: record.mqtt_host ?? "",
   mqttPort: String(record.mqtt_port ?? 1883),
   mqttUser: record.mqtt_user ?? undefined,
@@ -1409,16 +1425,36 @@ export default function Home() {
                 )}
                 {activeConfigSection === "schema" && (
                   <div className="flex flex-col gap-3">
-                    <label className="text-sm font-semibold text-[var(--foreground)]">
-                      Response JSON schema
-                    </label>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-semibold text-[var(--foreground)]">
+                        Response JSON schema
+                      </label>
+                      <div className="flex items-center gap-2 rounded-full border-[2px] border-[#ffb347] bg-[#fff0dc] px-3 py-1 text-xs text-[#4a2100]">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        <span>Make sure to always include at least `answer` and `MQTT_value` in your JSON schema</span>
+                      </div>
+                    </div>
                     <textarea
                       value={selectedAssistant.jsonSchemaText}
                       onChange={(event) =>
                         handleFieldChange(selectedAssistant.id, "jsonSchemaText", event.target.value)
                       }
                       rows={12}
-                      placeholder="Paste the schema that downstream systems expect."
+                      placeholder={`{
+  "type": "object",
+  "required": [
+    "answer",
+    "MQTT_value"
+  ],
+  "properties": {
+    "answer": {
+      "type": "string"
+    },
+    "MQTT_value": {
+      "type": "string"
+    }
+  }
+}`}
                       className="min-h-[260px] w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 p-4 font-mono text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)]"
                     />
                     <p className="text-xs text-[var(--ink-muted)]">

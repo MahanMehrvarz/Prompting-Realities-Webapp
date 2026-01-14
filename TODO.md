@@ -30,8 +30,8 @@
 - [X] Create table for LLM API responses
 
 ## JSON Schema
-- [ ] Add placeholder JSON schema
-- [ ] Validate schema keys and show message if missing:  “Include at least `answer` and `MQTT_value` in your schema”
+- [X] Add placeholder JSON schema
+- [X] Validate schema keys and show message if missing:  “Include at least `answer` and `MQTT_value` in your schema”
 
 ## Data Retention & Lifecycle
 - [X] Ensure all chat history always remains accessible via the link
