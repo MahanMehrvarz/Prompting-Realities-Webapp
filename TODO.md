@@ -22,7 +22,7 @@
 - [X] Differentiate between user connections in MQTT server
 - [X] Warn user when message is not being sent to MQTT broker
 - [ ] Add “Test MQTT connection” button
-- [ ] Store and send only "MQTT_value"
+- [X] Store and send only "MQTT_value"
 
 ## Database Schema
 - [X] Create table for users

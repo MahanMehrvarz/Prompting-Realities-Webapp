@@ -224,6 +224,7 @@ export default function AssistantChatPage() {
       // Publish to MQTT if we have a payload
       let mqttPublishSuccess = false;
       let mqttPublishAttempted = false;
+      let mqttValueToSave = null;
       
       if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
         console.log("📡 [Frontend] Publishing to MQTT...");
@@ -233,6 +234,15 @@ export default function AssistantChatPage() {
         const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistantId}`);
         
         mqttPublishAttempted = true;
+        
+        // Extract MQTT_value from payload if present
+        const mqttValue = aiResponse.payload.MQTT_value;
+        if (mqttValue !== undefined && mqttValue !== null) {
+          console.log("📤 [Frontend] Extracted MQTT_value from payload:", mqttValue);
+          mqttValueToSave = mqttValue;
+        } else {
+          console.log("⚠️ [Frontend] No MQTT_value field found in payload");
+        }
         
         try {
           const mqttResult = await backendApi.publishMqtt(
@@ -270,13 +280,14 @@ export default function AssistantChatPage() {
       console.log("📝 [Frontend] Using display_text from backend:", responseText?.substring(0, 100));
 
       // Only save mqtt_payload if MQTT publish was successful
+      // mqtt_payload now stores only the MQTT_value field, not the entire payload
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
         user_text: trimmed, // Store user's message
         assistant_payload: aiResponse.payload, // Store as actual JSON object
         response_text: responseText, // Store the extracted text from backend
-        mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? aiResponse.payload : null, // Only store if MQTT publish succeeded
+        mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? mqttValueToSave : null, // Only store MQTT_value if MQTT publish succeeded
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       

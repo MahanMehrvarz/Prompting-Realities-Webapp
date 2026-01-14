@@ -167,13 +167,32 @@ class MqttConnectionManager:
         user_email: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> bool:
-        """Publish a message using a persistent connection."""
+        """Publish a message using a persistent connection.
+        
+        Extracts the MQTT_value field from the payload if present, otherwise sends the entire payload.
+        """
         client = await self.get_or_create_connection(host, port, username, password, user_email, session_id)
         if not client:
             logger.error(f"Failed to get MQTT connection for {host}:{port}")
             return False
 
-        payload_text = json.dumps(payload)
+        # Extract MQTT_value if present, otherwise use entire payload
+        mqtt_value = payload.get("MQTT_value")
+        if mqtt_value is not None:
+            logger.info(f"📤 Extracted MQTT_value field from payload: {mqtt_value}")
+            payload_to_send = mqtt_value
+        else:
+            logger.info(f"⚠️ No MQTT_value field found in payload, sending entire payload")
+            payload_to_send = payload
+        
+        # Convert to JSON string if it's a dict, otherwise convert to string
+        if isinstance(payload_to_send, dict):
+            payload_text = json.dumps(payload_to_send)
+        elif isinstance(payload_to_send, str):
+            payload_text = payload_to_send
+        else:
+            payload_text = str(payload_to_send)
+        
         loop = asyncio.get_event_loop()
 
         def _publish():
