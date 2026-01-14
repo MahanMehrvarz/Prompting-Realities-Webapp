@@ -1064,11 +1064,25 @@ export default function Home() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setAuthToken(null);
-    setUserEmail(null);
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    window.localStorage.removeItem("pr-auth-email");
+    try {
+      // Call backend to cleanup LLM resources before logging out
+      if (authToken) {
+        try {
+          const logoutResponse = await backendApi.logout(authToken);
+          console.log(`🧹 Cleaned up ${logoutResponse.sessions_stopped} sessions and ${logoutResponse.mqtt_connections_closed} MQTT connections`);
+        } catch (error) {
+          console.error("Failed to cleanup LLM resources on logout:", error);
+          // Continue with logout even if cleanup fails
+        }
+      }
+    } finally {
+      // Always sign out from Supabase and clear local state
+      await supabase.auth.signOut();
+      setAuthToken(null);
+      setUserEmail(null);
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem("pr-auth-email");
+    }
   };
 
   const handleDeleteAssistant = async () => {

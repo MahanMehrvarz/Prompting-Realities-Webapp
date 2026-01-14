@@ -99,6 +99,13 @@ export type GetApiKeyResponse = {
   has_api_key: boolean;
 };
 
+export type LogoutResponse = {
+  success: boolean;
+  message: string;
+  sessions_stopped: number;
+  mqtt_connections_closed: number;
+};
+
 // API methods
 export const backendApi = {
   /**
@@ -198,5 +205,15 @@ export const backendApi = {
         method: "GET",
       }
     );
+  },
+
+  /**
+   * Clean up all LLM resources when a user logs out.
+   * Stops all active sessions and disconnects MQTT connections.
+   */
+  async logout(token: string): Promise<LogoutResponse> {
+    return apiFetch<LogoutResponse>("/auth/logout", token, {
+      method: "POST",
+    });
   },
 };

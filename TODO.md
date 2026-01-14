@@ -7,7 +7,7 @@
   - If a new device opens the link, terminate the previous session  
   - [ ] If a new user tries to join the same chat, show message: “There can only be 1 active session”
   - Later: show an error or modal saying “A new session is active”
-- [ ] Stop all LLMs on logout  
+- [X] Stop all LLMs on logout  
   - Optional: stop chat on inactivity
 
 ## Database & Backend Configuration
