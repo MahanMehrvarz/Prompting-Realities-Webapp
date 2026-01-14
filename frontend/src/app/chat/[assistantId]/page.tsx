@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2 } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   sessionService,
@@ -10,6 +10,7 @@ import {
   type ChatMessage as DbChatMessage,
 } from "@/lib/supabaseClient";
 import { backendApi } from "@/lib/backendApi";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 
@@ -42,10 +43,14 @@ export default function AssistantChatPage() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState<boolean | null>(null);
+  const [activeViewers, setActiveViewers] = useState<number>(0);
+  const [viewersList, setViewersList] = useState<any[]>([]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const presenceChannelRef = useRef<RealtimeChannel | null>(null);
+  const deviceIdRef = useRef<string>(crypto.randomUUID());
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -62,6 +67,73 @@ export default function AssistantChatPage() {
       setToken(stored);
     }
   }, []);
+
+  // Presence tracking with Supabase Realtime
+  useEffect(() => {
+    if (!sessionId || !hydrated) return;
+
+    const setupPresence = async () => {
+      try {
+        // Get user info
+        const { data: { user } } = await supabase.auth.getUser();
+        const userEmail = user?.email || "anonymous";
+
+        // Create presence channel for this session
+        const channelName = `session:${sessionId}`;
+        const channel = supabase.channel(channelName, {
+          config: {
+            presence: {
+              key: deviceIdRef.current, // Unique key per tab/device
+            },
+          },
+        });
+
+        // Track presence state changes
+        channel
+          .on("presence", { event: "sync" }, () => {
+            const state = channel.presenceState();
+            const viewers = Object.values(state).flat();
+            setActiveViewers(viewers.length);
+            setViewersList(viewers);
+            console.log("👥 Active viewers:", viewers.length, viewers);
+          })
+          .on("presence", { event: "join" }, ({ key, newPresences }) => {
+            console.log("👋 Viewer joined:", key, newPresences);
+          })
+          .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
+            console.log("👋 Viewer left:", key, leftPresences);
+          });
+
+        // Subscribe and track presence
+        await channel.subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            // Track this viewer's presence
+            await channel.track({
+              user_email: userEmail,
+              device_id: deviceIdRef.current,
+              joined_at: new Date().toISOString(),
+            });
+            console.log("✅ Presence tracking started for session:", sessionId);
+          }
+        });
+
+        presenceChannelRef.current = channel;
+      } catch (error) {
+        console.error("❌ Error setting up presence:", error);
+      }
+    };
+
+    setupPresence();
+
+    // Cleanup: unsubscribe from presence when component unmounts
+    return () => {
+      if (presenceChannelRef.current) {
+        presenceChannelRef.current.untrack();
+        presenceChannelRef.current.unsubscribe();
+        console.log("🔌 Presence tracking stopped");
+      }
+    };
+  }, [sessionId, hydrated]);
 
   // Load messages only once when component mounts or sessionId changes
   useEffect(() => {
@@ -413,9 +485,20 @@ export default function AssistantChatPage() {
       {/* Fixed Header - Compact on mobile */}
       <header className="flex-shrink-0 border-b-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
         <div className="mx-auto max-w-3xl flex items-center justify-between">
-          <div>
+          <div className="flex-1">
             <h1 className="text-lg font-bold text-[var(--ink-dark)] sm:text-xl">{title}</h1>
-            <p className="text-xs text-[var(--ink-muted)] sm:text-sm">Session {sessionId}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-[var(--ink-muted)] sm:text-sm">Session {sessionId}</p>
+              {activeViewers > 0 && (
+                <div 
+                  className="flex items-center gap-1 text-xs text-[var(--ink-muted)] bg-[var(--card-shell)]/30 px-2 py-0.5 rounded-full"
+                  title={viewersList.map((v: any) => v.user_email || "Anonymous").join(", ")}
+                >
+                  <Users className="h-3 w-3" />
+                  <span>{activeViewers} viewing</span>
+                </div>
+              )}
+            </div>
           </div>
           <button
             onClick={handleBackToDashboard}
