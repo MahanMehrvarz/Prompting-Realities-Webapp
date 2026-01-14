@@ -3,9 +3,9 @@
 - [ ] Implement passwordless / single sign-in authentication (login link preferred if easy)
 - [ ] Fix CORS issues
 - [X] Ensure chat link security
-- [ ] Enforce single active session per LLM Thing  
+- [X] Enforce single active session per LLM Thing  
   - If a new device opens the link, terminate the previous session  
-  - [ ] If a new user tries to join the same chat, show message: “There can only be 1 active session”
+  - [X] If a new user tries to join the same chat, show message: “There can only be 1 active session”
   - Later: show an error or modal saying “A new session is active”
 - [X] Stop all LLMs on logout  
   - Optional: stop chat on inactivity

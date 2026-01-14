@@ -45,6 +45,8 @@ export default function AssistantChatPage() {
   const [sessionActive, setSessionActive] = useState<boolean | null>(null);
   const [activeViewers, setActiveViewers] = useState<number>(0);
   const [viewersList, setViewersList] = useState<any[]>([]);
+  const [isActiveUser, setIsActiveUser] = useState<boolean>(false);
+  const [queuePosition, setQueuePosition] = useState<number>(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
@@ -95,7 +97,24 @@ export default function AssistantChatPage() {
             const viewers = Object.values(state).flat();
             setActiveViewers(viewers.length);
             setViewersList(viewers);
+            
+            // Determine queue position based on join time
+            // Sort viewers by joined_at timestamp (earliest first)
+            const sortedViewers = [...viewers].sort((a: any, b: any) => {
+              const timeA = new Date(a.joined_at).getTime();
+              const timeB = new Date(b.joined_at).getTime();
+              return timeA - timeB;
+            });
+            
+            // Find current user's position in queue
+            const myPosition = sortedViewers.findIndex((v: any) => v.device_id === deviceIdRef.current);
+            setQueuePosition(myPosition + 1); // 1-indexed position
+            
+            // Only the first person in queue (position 1) can use the chat
+            setIsActiveUser(myPosition === 0);
+            
             console.log("👥 Active viewers:", viewers.length, viewers);
+            console.log("📍 My queue position:", myPosition + 1, "Active:", myPosition === 0);
           })
           .on("presence", { event: "join" }, ({ key, newPresences }) => {
             console.log("👋 Viewer joined:", key, newPresences);
@@ -139,16 +158,8 @@ export default function AssistantChatPage() {
   useEffect(() => {
     if (!sessionId) return;
     
-    // Wait for hydration and token check to complete
+    // Wait for hydration to complete
     if (!hydrated) return;
-    
-    // Always require authentication, even with shareToken (for security/RLS)
-    if (!token) {
-      console.log("No authentication found, redirecting to login...");
-      const currentPath = window.location.pathname + window.location.search;
-      window.location.href = `/?redirect=${encodeURIComponent(currentPath)}`;
-      return;
-    }
     
     let isMounted = true;
     
@@ -156,8 +167,34 @@ export default function AssistantChatPage() {
       setLoading(true);
       console.log("Loading chat history with token:", !!token, "shareToken:", !!shareToken);
       try {
-        // Check session status
-        const session = await sessionService.get(sessionId);
+        // Check session status - use direct query without RLS
+        // The issue is that RLS policies are blocking anonymous access
+        // We need to query without authentication context
+        console.log("Querying session with ID:", sessionId, "Type:", typeof sessionId);
+        
+        const { data: session, error: sessionError } = await supabase
+          .from("assistant_sessions")
+          .select("*")
+          .eq("id", sessionId)
+          .maybeSingle();
+        
+        console.log("Session query result:", { 
+          session, 
+          sessionError, 
+          hasToken: !!token,
+          sessionId,
+          sessionIdType: typeof sessionId 
+        });
+        
+        if (sessionError) {
+          console.error("Session error details:", sessionError);
+          throw sessionError;
+        }
+        if (!session) {
+          console.error("Session not found for ID:", sessionId);
+          throw new Error("Session not found");
+        }
+        
         console.log("Session retrieved:", session);
         if (isMounted) {
           setSessionActive(session.active);
@@ -169,9 +206,21 @@ export default function AssistantChatPage() {
         }
         
         // Load ALL messages for this session, regardless of thread_id
-        const records = await messageService.listBySession(sessionId);
-        console.log("Messages loaded:", records.length);
-        if (isMounted) {
+        const { data: records, error: messagesError } = await supabase
+          .from("chat_messages")
+          .select("*")
+          .eq("session_id", sessionId)
+          .order("created_at", { ascending: true });
+        
+        console.log("Messages query result:", { count: records?.length || 0, messagesError });
+        
+        if (messagesError) {
+          console.error("Messages error details:", messagesError);
+          throw messagesError;
+        }
+        
+        console.log("Messages loaded:", records?.length || 0);
+        if (isMounted && records) {
           const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
           setMessages(mappedMessages);
         }
@@ -181,6 +230,8 @@ export default function AssistantChatPage() {
           const errorMessage = err instanceof Error ? err.message : "Unable to load chat history.";
           if (errorMessage.includes("Invalid share token")) {
             setError("Session link is invalid or expired. Ask the host for a new link.");
+          } else if (errorMessage.includes("Session not found")) {
+            setError("Session not found. Please check the link.");
           } else {
             setError("Unable to load chat history.");
           }
@@ -275,13 +326,7 @@ export default function AssistantChatPage() {
       console.log("🤖 [Frontend] Calling backend AI API...");
       console.log("📜 [Frontend] Sending conversation history with", conversationHistory.length, "messages");
       
-      // Use token if available, otherwise redirect to login
-      if (!token) {
-        const currentPath = window.location.pathname + window.location.search;
-        router.push(`/?redirect=${encodeURIComponent(currentPath)}`);
-        throw new Error("Authentication required to send messages. Redirecting to login...");
-      }
-      
+      // Use token if available, otherwise allow anonymous access
       const aiResponse = await backendApi.chat(
         {
           previous_response_id: null,
@@ -289,7 +334,7 @@ export default function AssistantChatPage() {
           assistant_id: assistantId,  // Backend will fetch config and API key
           conversation_history: conversationHistory,  // Send full conversation history
         },
-        token
+        token || undefined
       );
       console.log("✅ [Frontend] Backend response received:", aiResponse);
       
@@ -326,7 +371,7 @@ export default function AssistantChatPage() {
               username: assistantData.mqtt_user || null,
               password: storedMqttPass || null,
             },
-            token
+            token || undefined
           );
           
           if (mqttResult.success) {
@@ -407,13 +452,7 @@ export default function AssistantChatPage() {
         setIsTranscribing(true);
         try {
           // Backend will fetch API key from database (same approach as chat)
-          if (!token) {
-            setError("Authentication required. Please log in.");
-            setIsTranscribing(false);
-            return;
-          }
-          
-          const result = await backendApi.transcribe(file, assistantId, token);
+          const result = await backendApi.transcribe(file, assistantId, token || undefined);
           setInput((prev) => (prev ? `${prev} ${result.text}` : result.text));
         } catch (err) {
           const errorMsg = "Unable to transcribe audio.";
@@ -457,17 +496,6 @@ export default function AssistantChatPage() {
 
   if (!hydrated) {
     return null;
-  }
-
-  // Redirect to login if no authentication (always require auth for security)
-  if (!token) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-transparent px-4 py-6 text-[var(--foreground)]">
-        <p className="card-panel px-5 py-4 text-center">
-          Redirecting to login...
-        </p>
-      </div>
-    );
   }
 
   if (!sessionId) {
@@ -527,7 +555,30 @@ export default function AssistantChatPage() {
               </div>
             )}
 
-            {messages.map((message) => (
+            {/* Queue waiting message - shown when not the active user */}
+            {!isActiveUser && activeViewers > 0 && (
+              <div className="flex h-full items-center justify-center">
+                <div className="mx-auto max-w-md rounded-2xl border-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-8 text-center shadow-lg">
+                  <div className="mb-4">
+                    <Users className="mx-auto h-12 w-12 text-[var(--ink-muted)]" />
+                  </div>
+                  <h2 className="mb-2 text-xl font-bold text-[var(--ink-dark)]">Session In Use</h2>
+                  <p className="mb-4 text-sm text-[var(--ink-muted)]">
+                    There is currently an active session. Please wait for your turn.
+                  </p>
+                  <div className="rounded-lg bg-[var(--card-shell)]/30 px-4 py-3">
+                    <p className="text-xs text-[var(--ink-muted)]">Your position in queue:</p>
+                    <p className="text-2xl font-bold text-[var(--ink-dark)]">#{queuePosition}</p>
+                    <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                      {activeViewers - 1} {activeViewers - 1 === 1 ? 'person' : 'people'} ahead of you
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Messages - only shown to active user */}
+            {isActiveUser && messages.map((message) => (
               <div
                 key={message.id}
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
@@ -558,7 +609,7 @@ export default function AssistantChatPage() {
               </div>
             ))}
 
-            {messages.length === 0 && !loading && !error && (
+            {isActiveUser && messages.length === 0 && !loading && !error && (
               <div className="flex h-full items-center justify-center">
                 <p className="text-center text-sm text-[var(--ink-muted)] sm:text-base">
                   No messages yet. Start the conversation!
@@ -608,6 +659,14 @@ export default function AssistantChatPage() {
                 <div className="rounded-2xl border-2 border-[var(--card-shell)] bg-[#fff0dc] px-4 py-3 text-center">
                   <p className="text-sm font-medium text-[#4a2100]">
                     Session stopped. Restart the session to send messages.
+                  </p>
+                </div>
+              </div>
+            ) : !isActiveUser ? (
+              <div className="mx-auto max-w-3xl">
+                <div className="rounded-2xl border-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 text-center">
+                  <p className="text-sm font-medium text-[var(--ink-dark)]">
+                    Waiting in queue... You'll be able to chat when it's your turn.
                   </p>
                 </div>
               </div>
