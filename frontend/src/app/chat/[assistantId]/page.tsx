@@ -50,6 +50,7 @@ export default function AssistantChatPage() {
   const [isActiveUser, setIsActiveUser] = useState<boolean>(false);
   const [queuePosition, setQueuePosition] = useState<number>(0);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [isAiResponding, setIsAiResponding] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
@@ -70,10 +71,10 @@ export default function AssistantChatPage() {
     }
   }, [hydrated]);
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change or AI starts responding
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isAiResponding]);
 
   useEffect(() => {
     setHydrated(true);
@@ -361,6 +362,7 @@ export default function AssistantChatPage() {
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimisticMessage]);
+    setIsAiResponding(true);
     
     try {
       // Get session info
@@ -534,6 +536,8 @@ export default function AssistantChatPage() {
       } else {
         setError(errorMessage);
       }
+    } finally {
+      setIsAiResponding(false);
     }
   };
 
@@ -737,6 +741,23 @@ export default function AssistantChatPage() {
                 </div>
               </div>
             ))}
+
+            {/* Typing indicator - shown when AI is responding */}
+            {isActiveUser && isAiResponding && (
+              <div className="flex justify-start">
+                <div className="flex flex-col gap-1 max-w-[85%] sm:max-w-[75%]">
+                  <div className="rounded-2xl px-3 py-2 sm:px-4 sm:py-3 bg-[var(--ink-muted)] text-[var(--card-fill)]">
+                    <div className="flex items-center gap-1">
+                      <div className="flex gap-1">
+                        <span className="w-2 h-2 bg-[var(--card-fill)] rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1.4s' }}></span>
+                        <span className="w-2 h-2 bg-[var(--card-fill)] rounded-full animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1.4s' }}></span>
+                        <span className="w-2 h-2 bg-[var(--card-fill)] rounded-full animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1.4s' }}></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {isActiveUser && messages.length === 0 && !loading && !error && (
               <div className="flex h-full items-center justify-center">
