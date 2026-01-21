@@ -65,3 +65,7 @@
 - [X] Ensure flow of conversation
 - [X] Move “Remove LLM” button to a better spot
 - [ ] Specify API model in config file
+
+## Deployment
+- [ ] Remove logging in frontend
+- [ ] Replace redirect links in supabase
