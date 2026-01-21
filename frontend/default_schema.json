@@ -1,0 +1,29 @@
+{
+  "name": "New LLM Thing",
+  "schema": {
+    "type": "object",
+    "required": [
+      "answer",
+      "MQTT_value"
+    ],
+    "properties": {
+      "answer": {
+        "type": "string"
+      },
+      "MQTT_value": {
+        "type": "object",
+        "required": [
+            "answer"
+        ],
+        "properties": {
+            "answer": {
+                "type": "string"
+            }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "strict": true
+}

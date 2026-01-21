@@ -172,9 +172,19 @@ const DEFAULT_JSON_SCHEMA = {
       "type": "string"
     },
     "MQTT_value": {
-      "type": "string"
+      "type": "object",
+      "required": [
+        "answer"
+      ],
+      "properties": {
+        "answer": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 };
 
 const formatAssistant = (record: DbAssistant): Assistant => ({

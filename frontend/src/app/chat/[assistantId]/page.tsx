@@ -450,7 +450,14 @@ export default function AssistantChatPage() {
         
         try {
           // Send the values object to MQTT broker
-          const mqttPayload = mqttValue;
+          // Ensure mqttPayload is always an object, never null/undefined/empty string
+          let mqttPayload = mqttValue;
+          
+          // If mqttPayload is not a valid object, wrap it in an object
+          if (mqttPayload === null || mqttPayload === undefined || mqttPayload === "" || typeof mqttPayload !== "object") {
+            console.log("⚠️ [Frontend] Invalid MQTT payload, wrapping in object:", mqttPayload);
+            mqttPayload = { value: mqttPayload };
+          }
           
           const mqttResult = await backendApi.publishMqtt(
             {

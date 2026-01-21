@@ -146,6 +146,12 @@ async def run_model_turn(
             if "schema" in json_schema and "name" in json_schema:
                 # This is already a wrapped schema format from the database
                 schema_name = json_schema.get("name", "assistant_response")
+                # Validate and sanitize the schema name to match OpenAI's pattern ^[a-zA-Z0-9_-]+$
+                # Remove any characters that don't match the pattern
+                import re
+                schema_name = re.sub(r'[^a-zA-Z0-9_-]', '_', schema_name)
+                if not schema_name:
+                    schema_name = "assistant_response"
                 strict_mode = json_schema.get("strict", True)
                 actual_schema = json_schema.get("schema", {})
                 logger.info(f"📊 [ConversationService] Using wrapped schema format: name={schema_name}, strict={strict_mode}")
