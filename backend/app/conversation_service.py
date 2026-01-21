@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import json
+import asyncio
 from typing import Optional, Tuple, Dict, Any, cast
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
 logger = logging.getLogger(__name__)
@@ -61,16 +62,34 @@ def extract_display_text_from_payload(payload: Optional[Dict[str, Any]]) -> Opti
     return json.dumps(payload, indent=2)
 
 
+def _extract_assistant_text(response: Any) -> str:
+    """Flatten the Responses API output into a raw text/JSON string.
+
+    The Responses API returns a different structure than Chat Completions.
+    This extracts the text content from the nested output structure.
+    """
+    chunks: list[str] = []
+    for item in getattr(response, "output", []):
+        if getattr(item, "type", None) != "message":
+            continue
+        for content in getattr(item, "content", []):
+            if getattr(content, "type", None) == "output_text":
+                text = getattr(content, "text", "")
+                if text:
+                    chunks.append(text)
+    return "".join(chunks).strip()
+
+
 async def run_model_turn(
     previous_response_id: Optional[str],
     user_message: str,
     api_key: str,
     prompt_instruction: str = "You are a helpful assistant.",
     json_schema: Optional[Dict[str, Any]] = None,
-    conversation_history: Optional[list[dict[str, str]]] = None
+    model: str = "gpt-4o-mini",
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
-    Call OpenAI API to generate a response.
+    Call OpenAI API to generate a response using Responses API.
     
     Args:
         previous_response_id: ID of the previous response (for conversation continuity)
@@ -78,7 +97,7 @@ async def run_model_turn(
         api_key: OpenAI API key
         prompt_instruction: System prompt for the assistant
         json_schema: Optional JSON schema for structured output
-        conversation_history: Optional list of previous messages in the conversation
+        model: Model to use (default: gpt-4o-mini)
         
     Returns:
         Tuple of (payload dict, response_id string, display_text string)
@@ -89,106 +108,105 @@ async def run_model_turn(
     logger.info(f"📋 [ConversationService] prompt_instruction: {prompt_instruction[:50]}...")
     logger.info(f"🔑 [ConversationService] API key present: {bool(api_key)}")
     logger.info(f"📊 [ConversationService] JSON schema provided: {bool(json_schema)}")
-    logger.info(f"📜 [ConversationService] Conversation history provided: {bool(conversation_history)}")
-    if conversation_history:
-        logger.info(f"📜 [ConversationService] Conversation history length: {len(conversation_history)}")
+    logger.info(f"🤖 [ConversationService] Model: {model}")
     
     if not api_key:
         logger.error("❌ [ConversationService] No API key provided")
         raise ValueError("OpenAI API key is required")
     
     try:
-        # Initialize OpenAI client with explicit http_client to avoid proxy issues
-        import httpx
-        http_client = httpx.AsyncClient()
-        client = AsyncOpenAI(api_key=api_key, http_client=http_client)
-        
-        # Build messages for the conversation
-        messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": prompt_instruction}
+        # Initialize sync OpenAI client (responses.create uses sync API)
+        sync_client = OpenAI(api_key=api_key)
+
+        # Build input for Responses API
+        request_input = [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": user_message}],
+            }
         ]
-        
-        # Add conversation history if provided
-        if conversation_history:
-            for msg in conversation_history:
-                if msg.get("role") in ["user", "assistant"] and msg.get("content"):
-                    messages.append({
-                        "role": msg["role"],  # type: ignore
-                        "content": msg["content"]
-                    })
-        
-        # Add the current user message
-        messages.append({"role": "user", "content": user_message})
-        
-        logger.info("🤖 [ConversationService] Calling OpenAI API...")
-        
-        # Make the API call
-        if json_schema and isinstance(json_schema, dict) and json_schema.get("type") == "object":
-            # Use structured output if schema is provided
+
+        # Build optional kwargs
+        kwargs: Dict[str, Any] = {}
+
+        # Pass previous_response_id if we have conversation context
+        if previous_response_id:
+            kwargs["previous_response_id"] = previous_response_id
+            logger.info(f"📜 [ConversationService] Using previous_response_id: {previous_response_id}")
+
+        # Pass system instructions
+        if prompt_instruction:
+            kwargs["instructions"] = prompt_instruction
+
+        # Configure JSON schema output format if provided
+        if json_schema and isinstance(json_schema, dict):
             logger.info("📊 [ConversationService] Using structured output with JSON schema")
-            logger.info(f"📊 [ConversationService] Schema details: {json_schema}")
             
-            # Use non-strict mode to let OpenAI handle the schema validation
-            response = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "assistant_response",
-                        "strict": False,  # Non-strict mode is more flexible
-                        "schema": json_schema
-                    }
-                }
-            )
-        else:
-            # Regular text response
-            if json_schema:
-                logger.warning(f"⚠️ [ConversationService] Invalid JSON schema provided (type: {type(json_schema)}, value: {json_schema}), falling back to regular text response")
+            # Check if this is a wrapped schema (has name, strict, schema keys) or a direct schema
+            if "schema" in json_schema and "name" in json_schema:
+                # This is already a wrapped schema format from the database
+                schema_name = json_schema.get("name", "assistant_response")
+                strict_mode = json_schema.get("strict", True)
+                actual_schema = json_schema.get("schema", {})
+                logger.info(f"📊 [ConversationService] Using wrapped schema format: name={schema_name}, strict={strict_mode}")
             else:
-                logger.info("💬 [ConversationService] No JSON schema provided, using regular text response")
+                # This is a direct schema, wrap it
+                schema_name = "assistant_response"
+                strict_mode = True
+                actual_schema = json_schema
+                logger.info(f"📊 [ConversationService] Using direct schema format, wrapping with strict={strict_mode}")
             
-            response = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages
-            )
-        
-        # Extract the response
-        assistant_message = response.choices[0].message.content
-        response_id = response.id
-        
-        logger.info(f"✅ [ConversationService] OpenAI response received, ID: {response_id}")
-        if assistant_message:
-            logger.info(f"📝 [ConversationService] Response preview: {assistant_message[:100]}...")
-        else:
-            logger.info(f"📝 [ConversationService] Response preview: None...")
-        
-        # Parse the response into a payload
-        if json_schema and assistant_message:
+            kwargs["text"] = {
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "schema": actual_schema,
+                    "strict": strict_mode,
+                }
+            }
+
+        logger.info("🤖 [ConversationService] Calling OpenAI Responses API...")
+
+        # Make the API call (wrap sync call in asyncio.to_thread)
+        response = await asyncio.to_thread(
+            sync_client.responses.create,
+            model=model,
+            input=request_input,
+            **kwargs,
+        )
+
+        # Extract response text using helper
+        assistant_text = _extract_assistant_text(response)
+        response_id = getattr(response, "id", None)
+
+        logger.info(f"✅ [ConversationService] Response received, ID: {response_id}")
+        if assistant_text:
+            logger.info(f"📝 [ConversationService] Response preview: {assistant_text[:100]}...")
+
+        # Parse JSON if schema was provided
+        if json_schema and assistant_text:
             try:
-                payload = json.loads(assistant_message)
+                payload = json.loads(assistant_text)
                 logger.info("✅ [ConversationService] Successfully parsed JSON response")
-                logger.info(f"📦 [ConversationService] Parsed payload: {payload}")
             except json.JSONDecodeError as e:
-                logger.warning(f"⚠️ [ConversationService] Failed to parse JSON response: {e}")
-                logger.warning(f"📝 [ConversationService] Raw assistant_message: {assistant_message}")
-                payload = {"response": assistant_message}
+                logger.warning(f"⚠️ [ConversationService] Failed to parse JSON: {e}")
+                payload = {"response": assistant_text}
         else:
-            logger.info(f"💬 [ConversationService] No JSON schema or no assistant message, wrapping in response object")
-            logger.info(f"📊 [ConversationService] json_schema present: {bool(json_schema)}")
-            logger.info(f"📝 [ConversationService] assistant_message present: {bool(assistant_message)}")
-            payload = {"response": assistant_message}
-        
-        # Extract display text from the payload
+            payload = {"response": assistant_text}
+
+        # Extract display text
         display_text = extract_display_text_from_payload(payload)
-        logger.info(f"📝 [ConversationService] Extracted display text: {display_text[:100] if display_text else 'None'}...")
-        logger.info(f"📤 [ConversationService] Final payload being returned: {payload}")
-        
+
         return payload, response_id, display_text
-        
+
     except Exception as e:
         logger.error(f"❌ [ConversationService] Error calling OpenAI API: {e}", exc_info=True)
-        raise
+        # On error, return the same previous_response_id so frontend can retry
+        return (
+            {"response": "An error occurred while processing your request"},
+            previous_response_id,  # Return same ID on error for retry
+            "An error occurred while processing your request",
+        )
 
 
 async def transcribe_blob(audio_bytes: bytes, api_key: str) -> Optional[str]:

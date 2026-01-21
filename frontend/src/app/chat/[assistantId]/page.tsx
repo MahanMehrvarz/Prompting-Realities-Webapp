@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
 import {
   sessionService,
   messageService,
@@ -43,10 +44,12 @@ export default function AssistantChatPage() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState<boolean | null>(null);
+  const [lastResponseId, setLastResponseId] = useState<string | null>(null);
   const [activeViewers, setActiveViewers] = useState<number>(0);
   const [viewersList, setViewersList] = useState<any[]>([]);
   const [isActiveUser, setIsActiveUser] = useState<boolean>(false);
   const [queuePosition, setQueuePosition] = useState<number>(0);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
@@ -211,6 +214,12 @@ export default function AssistantChatPage() {
         console.log("Session retrieved:", session);
         if (isMounted) {
           setSessionActive(session.active);
+          
+          // Load existing response_id for conversation continuity
+          if (session.last_response_id) {
+            setLastResponseId(session.last_response_id);
+            console.log("📜 [Frontend] Loaded existing response_id:", session.last_response_id);
+          }
         }
         
         // Validate share token if using shared access
@@ -285,6 +294,24 @@ export default function AssistantChatPage() {
     router.push("/");
   };
 
+  const handleResetConversation = () => {
+    setShowResetModal(true);
+  };
+
+  const confirmResetConversation = () => {
+    console.log("🔄 [Frontend] Resetting conversation (local messages only)");
+    // Clear local messages state (does NOT delete from database)
+    setMessages([]);
+    // Reset the conversation flow by clearing the response_id
+    setLastResponseId(null);
+    console.log("✅ [Frontend] Conversation reset complete");
+    setShowResetModal(false);
+  };
+
+  const cancelResetConversation = () => {
+    setShowResetModal(false);
+  };
+
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     console.log("🚀 [Frontend] handleSend triggered");
@@ -340,25 +367,26 @@ export default function AssistantChatPage() {
         throw new Error("Failed to fetch assistant configuration");
       }
       
-      // Build conversation history from current messages (excluding the optimistic message we just added)
-      const conversationHistory = messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
-      
       console.log("🤖 [Frontend] Calling backend AI API...");
-      console.log("📜 [Frontend] Sending conversation history with", conversationHistory.length, "messages");
+      console.log("📜 [Frontend] Using previous_response_id:", lastResponseId);
       
-      // Use token if available, otherwise allow anonymous access
+      // Use Responses API with previous_response_id for context
       const aiResponse = await backendApi.chat(
         {
-          previous_response_id: null,
+          previous_response_id: lastResponseId,  // Pass context ID
           user_message: trimmed,
-          assistant_id: assistantId,  // Backend will fetch config and API key
-          conversation_history: conversationHistory,  // Send full conversation history
+          assistant_id: assistantId,
+          session_id: sessionId,  // For persisting response_id in backend
         },
         token || undefined
       );
+      
+      // Save response_id for next turn
+      if (aiResponse.response_id) {
+        setLastResponseId(aiResponse.response_id);
+        console.log("💾 [Frontend] Saved response_id for next turn:", aiResponse.response_id);
+      }
+      
       console.log("✅ [Frontend] Backend response received:", aiResponse);
       
       // Publish to MQTT if we have a payload
@@ -371,20 +399,24 @@ export default function AssistantChatPage() {
         
         mqttPublishAttempted = true;
         
-        // Extract MQTT_value from payload if present
-        const mqttValue = aiResponse.payload.MQTT_value;
+        // Extract the values object to save to database
+        // If payload has a "values" field, use that; otherwise use the full payload
+        const mqttValue = aiResponse.payload.values || aiResponse.payload;
         if (mqttValue !== undefined && mqttValue !== null) {
-          console.log("📤 [Frontend] Extracted MQTT_value from payload:", mqttValue);
+          console.log("📤 [Frontend] Extracted values for MQTT:", mqttValue);
           mqttValueToSave = mqttValue;
         } else {
-          console.log("⚠️ [Frontend] No MQTT_value field found in payload");
+          console.log("⚠️ [Frontend] No values found in payload");
         }
         
         try {
+          // Send the values object to MQTT broker
+          const mqttPayload = mqttValue;
+          
           const mqttResult = await backendApi.publishMqtt(
             {
               assistant_id: assistantId,
-              payload: aiResponse.payload,
+              payload: mqttPayload,
               session_id: sessionId,
             },
             token || undefined

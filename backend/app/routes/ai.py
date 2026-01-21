@@ -18,10 +18,10 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 class ChatRequest(BaseModel):
     """Request to chat with OpenAI."""
-    previous_response_id: str | None = None
+    previous_response_id: str | None = None  # OpenAI Responses API context ID
     user_message: str
     assistant_id: str  # ID of the assistant to get config from database
-    conversation_history: list[dict[str, str]] | None = None  # List of previous messages
+    session_id: str | None = None  # Session ID for persisting response_id
 
 
 class ChatResponse(BaseModel):
@@ -148,9 +148,6 @@ async def chat_with_openai(
         
         logger.info(f"📋 [Backend] Prompt instruction: {prompt_instruction[:50]}...")
         logger.info(f"📊 [Backend] JSON schema present: {json_schema is not None}")
-        logger.info(f"💬 [Backend] Conversation history present: {bool(request.conversation_history)}")
-        if request.conversation_history:
-            logger.info(f"📜 [Backend] Conversation history length: {len(request.conversation_history)}")
         logger.info("🤖 [Backend] Calling run_model_turn...")
         
         payload, response_id, display_text = await run_model_turn(
@@ -159,8 +156,19 @@ async def chat_with_openai(
             api_key,
             prompt_instruction,
             json_schema,
-            request.conversation_history
+            model="gpt-4o-mini",  # Or fetch from assistant config if you add model column
         )
+        
+        # Persist the response_id in the session for conversation continuity
+        if request.session_id and response_id:
+            try:
+                supabase.table("assistant_sessions").update({
+                    "last_response_id": response_id
+                }).eq("id", request.session_id).execute()
+                logger.info(f"💾 [Backend] Saved response_id {response_id} to session {request.session_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ [Backend] Failed to save response_id: {e}")
+        
         logger.info(f"✅ [Backend] run_model_turn completed: payload={payload}, response_id={response_id}")
         logger.info(f"📝 [Backend] Display text extracted: {display_text[:100] if display_text else 'None'}...")
         
