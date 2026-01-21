@@ -1,6 +1,6 @@
 ## Authentication & Security
 - [X] Implement 3rd-party authentication  
-- [ ] Implement passwordless / single sign-in authentication (login link preferred if easy)
+- [X] Implement passwordless / single sign-in authentication (login link preferred if easy)
 - [ ] Fix CORS issues
 - [X] Ensure chat link security
 - [X] Enforce single active session per LLM Thing  
@@ -46,6 +46,7 @@
   - MQTT message history
 - [X] Use JSON as a baseline format  
   - Explore more readable alternatives
+- [ ] Differentiate between chats that were reset and chats from different devices/accounts
 
 ## Performance & Reliability
 - [X] Set up load testing

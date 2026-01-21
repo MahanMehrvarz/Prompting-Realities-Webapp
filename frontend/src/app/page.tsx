@@ -239,11 +239,9 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
+  const [authSuccess, setAuthSuccess] = useState(false);
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
@@ -476,78 +474,32 @@ export default function Home() {
   const sessionUrl = sessionPath ? `${runtimeOrigin}${sessionPath}` : "";
   const readyBadge = selectedAssistant ? assistantStatusBadge(selectedAssistant) : null;
 
-  const handleAuthSubmit = async (mode: "login" | "signup") => {
+  const handleAuthSubmit = async () => {
     setAuthError(null);
+    setAuthSuccess(false);
+    
+    if (!authEmail || !authEmail.includes('@')) {
+      setAuthError("Please enter a valid email address.");
+      return;
+    }
+    
     try {
-      if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email: authEmail,
-          password: authPassword,
-        });
-        if (error) throw error;
-        if (data.session) {
-          setAuthToken(data.session.access_token);
-          setUserEmail(authEmail);
-          window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
-          window.localStorage.setItem("pr-auth-email", authEmail);
-          
-          // Check admin status after signup
-          try {
-            const { data: adminData } = await supabase
-              .from("admin_emails")
-              .select("email")
-              .eq("email", authEmail)
-              .maybeSingle();
-            
-            setIsAdmin(!!adminData);
-          } catch (error) {
-            console.error("Error checking admin status:", error);
-          }
-          
-          fetchAssistants();
-          
-          // Redirect to intended destination if present
-          if (redirectPath) {
-            window.location.href = redirectPath;
-          }
-        } else {
-          setAuthError("Please check your email to confirm your account.");
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: authEmail,
-          password: authPassword,
-        });
-        if (error) throw error;
-        if (data.session) {
-          setAuthToken(data.session.access_token);
-          setUserEmail(authEmail);
-          window.localStorage.setItem(TOKEN_STORAGE_KEY, data.session.access_token);
-          window.localStorage.setItem("pr-auth-email", authEmail);
-          
-          // Check admin status after login
-          try {
-            const { data: adminData } = await supabase
-              .from("admin_emails")
-              .select("email")
-              .eq("email", authEmail)
-              .maybeSingle();
-            
-            setIsAdmin(!!adminData);
-          } catch (error) {
-            console.error("Error checking admin status:", error);
-          }
-          
-          fetchAssistants();
-          
-          // Redirect to intended destination if present
-          if (redirectPath) {
-            window.location.href = redirectPath;
-          }
-        }
-      }
+      const { error } = await supabase.auth.signInWithOtp({
+        email: authEmail,
+        options: {
+          emailRedirectTo: redirectPath 
+            ? `${window.location.origin}${redirectPath}`
+            : window.location.origin,
+        },
+      });
+      
+      if (error) throw error;
+      
+      setAuthSuccess(true);
+      setAuthError(null);
     } catch (error) {
-      setAuthError("Unable to authenticate. Check your credentials.");
+      console.error("Magic link error:", error);
+      setAuthError("Unable to send magic link. Please check your email address and try again.");
     }
   };
 
@@ -1128,53 +1080,50 @@ export default function Home() {
             Prompting Realities
           </p>
           <h1 className="text-2xl font-semibold text-[var(--ink-dark)]">
-            {authMode === "login" ? "Sign in" : "Create account"}
+            Sign in with email
           </h1>
           {redirectPath && (
             <p className="text-sm text-[var(--ink-muted)]">
               Sign in to access the chat session
             </p>
           )}
-          {authError && <p className="text-sm text-red-600">{authError}</p>}
+          {authError && (
+            <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#ff6b6b] bg-[#ffe6e6] px-4 py-3 text-sm text-[#4a0000]">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+          {authSuccess && (
+            <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              <span>Magic link sent! Check your email to sign in.</span>
+            </div>
+          )}
           <div className="space-y-3">
             <input
               type="email"
               placeholder="email@example.com"
               value={authEmail}
               onChange={(event) => setAuthEmail(event.target.value)}
-              className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)]"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  handleAuthSubmit();
+                }
+              }}
+              disabled={authSuccess}
+              className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                placeholder="Password"
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 pr-12 text-sm text-[var(--foreground)]"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] transition hover:text-[var(--foreground)]"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
-            </div>
             <button
               type="button"
-              onClick={() => handleAuthSubmit(authMode)}
-              className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)]"
+              onClick={handleAuthSubmit}
+              disabled={authSuccess || !authEmail}
+              className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {authMode === "login" ? "Sign in" : "Create account"}
+              {authSuccess ? "Magic link sent" : "Send magic link"}
             </button>
-            <button
-              type="button"
-              className="text-sm text-[var(--ink-muted)] underline"
-              onClick={() => setAuthMode(authMode === "login" ? "signup" : "login")}
-            >
-              {authMode === "login" ? "Need an account?" : "Already registered?"}
-            </button>
+            <p className="text-xs text-[var(--ink-muted)] text-center">
+              We'll send you a magic link to sign in without a password.
+            </p>
           </div>
         </div>
       </div>
