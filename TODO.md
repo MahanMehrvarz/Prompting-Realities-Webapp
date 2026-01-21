@@ -53,7 +53,7 @@
 ## Input & Interaction
 - [X] Implement microphone input
 - [X] Clicking on “Open chat” automatically opens it in a new tab
-- [ ] Add "refresh messages" button in chat that clears all existing messages
+- [X] Add "refresh messages" button in chat that clears all existing messages
 
 ## Other / UI & UX
 - [X] Ask for confirmation before deleting a session
@@ -63,3 +63,4 @@
 - [X] Fix message responses sometimes not being parsed in the chat
 - [X] Ensure flow of conversation
 - [X] Move “Remove LLM” button to a better spot
+- [ ] Specify API model in config file

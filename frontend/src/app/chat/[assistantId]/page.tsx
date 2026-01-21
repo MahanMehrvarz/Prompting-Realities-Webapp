@@ -253,7 +253,22 @@ export default function AssistantChatPage() {
         
         console.log("Messages loaded:", records?.length || 0);
         if (isMounted && records) {
-          const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
+          // Check if there's a reset timestamp for this session
+          const resetKey = `chat-reset-${sessionId}`;
+          const resetTimestamp = window.localStorage.getItem(resetKey);
+          
+          let filteredRecords = records;
+          if (resetTimestamp) {
+            // Filter out messages created before the reset timestamp
+            const resetDate = new Date(resetTimestamp);
+            filteredRecords = records.filter((record) => {
+              const messageDate = new Date(record.created_at);
+              return messageDate > resetDate;
+            });
+            console.log(`🔄 [Frontend] Filtered messages: ${records.length} -> ${filteredRecords.length} (reset at ${resetTimestamp})`);
+          }
+          
+          const mappedMessages = filteredRecords.flatMap((record) => mapMessageRecord(record));
           setMessages(mappedMessages);
         }
       } catch (err) {
@@ -304,6 +319,15 @@ export default function AssistantChatPage() {
     setMessages([]);
     // Reset the conversation flow by clearing the response_id
     setLastResponseId(null);
+    
+    // Store the reset timestamp in localStorage to persist across page reloads
+    // This allows us to filter out old messages when loading from database
+    if (sessionId && hydrated) {
+      const resetKey = `chat-reset-${sessionId}`;
+      window.localStorage.setItem(resetKey, new Date().toISOString());
+      console.log("💾 [Frontend] Stored reset timestamp in localStorage");
+    }
+    
     console.log("✅ [Frontend] Conversation reset complete");
     setShowResetModal(false);
   };
@@ -458,18 +482,33 @@ export default function AssistantChatPage() {
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       
-      // Reload messages for this session
-      // For anonymous users, only reload their device's messages
-      console.log("🔄 [Frontend] Reloading messages from database...");
-      const records = await messageService.listBySession(
-        sessionId,
-        undefined, // threadId
-        user ? undefined : deviceIdRef.current // deviceId for anonymous users only
-      );
-      const mappedMessages = records.flatMap((record) => mapMessageRecord(record));
+      // After saving, add the new messages to the existing state instead of reloading from DB
+      // This prevents old messages from reappearing after a reset
+      console.log("✅ [Frontend] Conversation turn saved, updating local state");
       
-      setMessages(mappedMessages);
-      console.log("✅ [Frontend] Messages reloaded, count:", records.length);
+      // Create the new message objects to add to state
+      const newUserMessage: ChatMessage = {
+        id: `${conversationMessage.id}-user`,
+        role: "user",
+        content: trimmed,
+        timestamp: conversationMessage.created_at,
+      };
+      
+      const newAssistantMessage: ChatMessage = {
+        id: `${conversationMessage.id}-assistant`,
+        role: "assistant",
+        content: responseText || JSON.stringify(aiResponse.payload, null, 2),
+        timestamp: conversationMessage.created_at,
+        mqttFailed: mqttPublishAttempted && !mqttPublishSuccess,
+      };
+      
+      // Update messages by replacing the temp message with the real ones
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((msg) => msg.id !== tempId);
+        return [...withoutTemp, newUserMessage, newAssistantMessage];
+      });
+      
+      console.log("✅ [Frontend] Messages updated in local state");
       setError(null);
     } catch (err) {
       console.error("❌ [Frontend] Error in handleSend:", err);
@@ -565,6 +604,18 @@ export default function AssistantChatPage() {
 
   return (
     <div className="flex h-screen flex-col bg-transparent text-[var(--foreground)]">
+      {/* Reset Conversation Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showResetModal}
+        title="Reset Conversation"
+        message="Are you sure you want to reset this conversation? This will clear all messages from your view and start a fresh conversation."
+        confirmLabel="Reset"
+        cancelLabel="Cancel"
+        onConfirm={confirmResetConversation}
+        onCancel={cancelResetConversation}
+        variant="warning"
+      />
+
       {/* Fixed Header - Compact on mobile */}
       <header className="flex-shrink-0 border-b-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
         <div className="mx-auto max-w-3xl flex items-center justify-between">
@@ -583,14 +634,24 @@ export default function AssistantChatPage() {
               )}
             </div>
           </div>
-          <button
-            onClick={handleBackToDashboard}
-            className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
-            title="Return to Dashboard"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span className="hidden sm:inline">Dashboard</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleResetConversation}
+              className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
+              title="Reset Conversation"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span className="hidden sm:inline">Reset</span>
+            </button>
+            <button
+              onClick={handleBackToDashboard}
+              className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
+              title="Return to Dashboard"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">Dashboard</span>
+            </button>
+          </div>
         </div>
       </header>
 
