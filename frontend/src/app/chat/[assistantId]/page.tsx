@@ -423,14 +423,27 @@ export default function AssistantChatPage() {
         
         mqttPublishAttempted = true;
         
-        // Extract the values object to save to database
-        // If payload has a "values" field, use that; otherwise use the full payload
-        const mqttValue = aiResponse.payload.values || aiResponse.payload;
-        if (mqttValue !== undefined && mqttValue !== null) {
+        // Extract the MQTT value to save to database
+        // Check keys in order: MQTT_value, MQTT_values, values
+        let mqttValue = null;
+        if (aiResponse.payload.MQTT_value !== undefined && aiResponse.payload.MQTT_value !== null) {
+          mqttValue = aiResponse.payload.MQTT_value;
+          console.log("📤 [Frontend] Extracted MQTT_value for MQTT:", mqttValue);
+        } else if (aiResponse.payload.MQTT_values !== undefined && aiResponse.payload.MQTT_values !== null) {
+          mqttValue = aiResponse.payload.MQTT_values;
+          console.log("📤 [Frontend] Extracted MQTT_values for MQTT:", mqttValue);
+        } else if (aiResponse.payload.values !== undefined && aiResponse.payload.values !== null) {
+          mqttValue = aiResponse.payload.values;
           console.log("📤 [Frontend] Extracted values for MQTT:", mqttValue);
+        } else {
+          mqttValue = aiResponse.payload;
+          console.log("📤 [Frontend] Using full payload for MQTT:", mqttValue);
+        }
+        
+        if (mqttValue !== undefined && mqttValue !== null) {
           mqttValueToSave = mqttValue;
         } else {
-          console.log("⚠️ [Frontend] No values found in payload");
+          console.log("⚠️ [Frontend] No MQTT value found in payload");
         }
         
         try {
