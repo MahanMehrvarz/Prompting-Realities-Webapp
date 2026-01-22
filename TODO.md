@@ -69,3 +69,4 @@
 ## Deployment
 - [ ] Remove logging in frontend
 - [ ] Replace redirect links in supabase
+- [ ] Migrate supbabase
