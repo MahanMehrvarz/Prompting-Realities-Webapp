@@ -71,6 +71,6 @@
 - [ ] Replace redirect links in supabase
 - [ ] Migrate supbabase
 
-##B uglist
+## Buglist
 - [ ] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
 - [ ] each new conversation (new device) should have a seperate conversation. the history of conversation is the same across devices for each LLM instance
