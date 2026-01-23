@@ -9,6 +9,7 @@
   - Later: show an error or modal saying “A new session is active”
 - [X] Stop all LLMs on logout  
   - Optional: stop chat on inactivity
+- [ ] Differentiate conversation IDs when anonymous chat is opened
 
 ## Database & Backend Configuration
 - [X] Finalize DB configuration
