@@ -9,7 +9,6 @@
   - Later: show an error or modal saying “A new session is active”
 - [X] Stop all LLMs on logout  
   - Optional: stop chat on inactivity
-- [ ] Differentiate conversation IDs when anonymous chat is opened
 
 ## Database & Backend Configuration
 - [X] Finalize DB configuration
@@ -71,3 +70,7 @@
 - [ ] Remove logging in frontend
 - [ ] Replace redirect links in supabase
 - [ ] Migrate supbabase
+
+##B uglist
+- [ ] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
+- [ ] each new conversation (new device) should have a seperate conversation. the history of conversation is the same across devices for each LLM instance
