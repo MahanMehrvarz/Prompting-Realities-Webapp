@@ -73,4 +73,5 @@
 
 ## Buglist
 - [ ] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
-- [ ] each new conversation (new device) should have a seperate conversation. the history of conversation is the same across devices for each LLM instance
+- [ ] Each new conversation (new device) should have a seperate conversation. the history of conversation is the same across devices for each LLM instance.
+- [ ] let's check if render turns of the backend if no traffic is showing up...
