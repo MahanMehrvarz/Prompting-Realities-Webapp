@@ -1,7 +1,7 @@
 ## Authentication & Security
 - [X] Implement 3rd-party authentication  
 - [X] Implement passwordless / single sign-in authentication (login link preferred if easy)
-- [ ] Fix CORS issues
+- [X] Fix CORS issues
 - [X] Ensure chat link security
 - [X] Enforce single active session per LLM Thing  
   - If a new device opens the link, terminate the previous session  
@@ -69,9 +69,11 @@
 ## Deployment
 - [X] Remove logging in frontend
 - [ ] Replace redirect links in supabase
-- [ ] Migrate supbabase
+- [X] Migrate supbabase
+- [ ] Move login with password to "hidden" subdomain
 
 ## Buglist
-- [ ] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
+- [X] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
 - [X] Each new conversation (new device) should have a seperate conversation. the history of conversation is the same across devices for each LLM instance.
-- [ ] let's check if render turns of the backend if no traffic is showing up.
+- [X] let's check if render turns of the backend if no traffic is showing up.
+- [ ] A logged user can't use the link shared by another logged account
