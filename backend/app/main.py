@@ -35,5 +35,6 @@ app.include_router(auth.router)
 
 
 @app.get("/health")
+@app.head("/health")
 def health_check():
     return {"status": "ok"}
