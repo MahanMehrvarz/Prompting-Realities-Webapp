@@ -67,7 +67,7 @@
 - [ ] Specify API model in config file
 
 ## Deployment
-- [ ] Remove logging in frontend
+- [X] Remove logging in frontend
 - [ ] Replace redirect links in supabase
 - [ ] Migrate supbabase
 
