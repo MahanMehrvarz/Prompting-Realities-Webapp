@@ -250,6 +250,8 @@ export default function Home() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"magic-link" | "password">("magic-link");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState(false);
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
@@ -493,23 +495,45 @@ export default function Home() {
       return;
     }
     
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: authEmail,
-        options: {
-          emailRedirectTo: redirectPath 
-            ? `${window.location.origin}${redirectPath}`
-            : window.location.origin,
-        },
-      });
+    if (authMode === "password") {
+      if (!authPassword || authPassword.length < 6) {
+        setAuthError("Password must be at least 6 characters long.");
+        return;
+      }
       
-      if (error) throw error;
-      
-      setAuthSuccess(true);
-      setAuthError(null);
-    } catch (error) {
-      console.error("Magic link error:", error);
-      setAuthError("Unable to send magic link. Please check your email address and try again.");
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        
+        if (error) throw error;
+        
+        // Password sign-in is immediate, no need to show success message
+        // The auth state change listener will handle the redirect
+      } catch (error: any) {
+        console.error("Password sign-in error:", error);
+        setAuthError(error?.message || "Invalid email or password. Please try again.");
+      }
+    } else {
+      try {
+        const { error } = await supabase.auth.signInWithOtp({
+          email: authEmail,
+          options: {
+            emailRedirectTo: redirectPath 
+              ? `${window.location.origin}${redirectPath}`
+              : window.location.origin,
+          },
+        });
+        
+        if (error) throw error;
+        
+        setAuthSuccess(true);
+        setAuthError(null);
+      } catch (error) {
+        console.error("Magic link error:", error);
+        setAuthError("Unable to send magic link. Please check your email address and try again.");
+      }
     }
   };
 
@@ -818,8 +842,8 @@ export default function Home() {
   ) => {
     const zip = new JSZip();
 
-    // Build messages CSV
-    const messageHeaders: string[] = [];
+    // Build messages CSV - grouped by thread_id
+    const messageHeaders: string[] = ["thread_id"];
     if (options.messages.timestamp) messageHeaders.push("timestamp");
     if (options.messages.assistantId) messageHeaders.push("assistant_id");
     if (options.messages.userMessage) messageHeaders.push("user_message");
@@ -831,7 +855,7 @@ export default function Home() {
 
     data.forEach(({ messages }) => {
       messages.forEach((msg: any) => {
-        const row: string[] = [];
+        const row: string[] = [msg.thread_id || "no-thread"];
         if (options.messages.timestamp) row.push(msg.created_at || "");
         if (options.messages.assistantId) row.push(msg.assistant_id || "");
         if (options.messages.userMessage) {
@@ -904,6 +928,16 @@ export default function Home() {
       return sessions.map((session: any) => {
         const sessionMessages = messages.filter((m: any) => m.session_id === session.id);
         
+        // Group messages by thread_id
+        const messagesByThread = sessionMessages.reduce((acc: any, msg: any) => {
+          const threadId = msg.thread_id || "no-thread";
+          if (!acc[threadId]) {
+            acc[threadId] = [];
+          }
+          acc[threadId].push(msg);
+          return acc;
+        }, {});
+        
         const sessionData: any = {
           session_id: session.id,
         };
@@ -914,17 +948,21 @@ export default function Home() {
         if (options.session.jsonSchema) sessionData.json_schema = assistant.json_schema;
         if (options.session.mqttTopic) sessionData.mqtt_topic = assistant.mqtt_topic;
 
-        // Add messages array to session
-        sessionData.messages = sessionMessages.map((msg: any) => {
-          const messageData: any = {};
-          if (options.messages.timestamp) messageData.timestamp = msg.created_at;
-          if (options.messages.assistantId) messageData.assistant_id = msg.assistant_id;
-          if (options.messages.userMessage) messageData.user_message = msg.user_text;
-          if (options.messages.assistantResponse) messageData.assistant_response = msg.response_text;
-          if (options.messages.jsonPayload) messageData.json_payload = msg.assistant_payload;
-          if (options.messages.mqttPayload) messageData.mqtt_payload = msg.mqtt_payload;
-          return messageData;
-        });
+        // Add threads array to session, each thread contains its messages
+        sessionData.threads = Object.entries(messagesByThread).map(([threadId, threadMessages]: [string, any]) => ({
+          thread_id: threadId,
+          message_count: threadMessages.length,
+          messages: threadMessages.map((msg: any) => {
+            const messageData: any = {};
+            if (options.messages.timestamp) messageData.timestamp = msg.created_at;
+            if (options.messages.assistantId) messageData.assistant_id = msg.assistant_id;
+            if (options.messages.userMessage) messageData.user_message = msg.user_text;
+            if (options.messages.assistantResponse) messageData.assistant_response = msg.response_text;
+            if (options.messages.jsonPayload) messageData.json_payload = msg.assistant_payload;
+            if (options.messages.mqttPayload) messageData.mqtt_payload = msg.mqtt_payload;
+            return messageData;
+          })
+        }));
 
         return sessionData;
       });
@@ -1090,7 +1128,7 @@ export default function Home() {
             Prompting Realities
           </p>
           <h1 className="text-2xl font-semibold text-[var(--ink-dark)]">
-            Sign in with email
+            Sign in
           </h1>
           {redirectPath && (
             <p className="text-sm text-[var(--ink-muted)]">
@@ -1123,16 +1161,54 @@ export default function Home() {
               disabled={authSuccess}
               className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
             />
+            {authMode === "password" && (
+              <input
+                type="password"
+                placeholder="Password"
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleAuthSubmit();
+                  }
+                }}
+                className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)]"
+              />
+            )}
             <button
               type="button"
               onClick={handleAuthSubmit}
-              disabled={authSuccess || !authEmail}
+              disabled={authSuccess || !authEmail || (authMode === "password" && !authPassword)}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {authSuccess ? "Magic link sent" : "Send magic link"}
+              {authSuccess ? "Magic link sent" : authMode === "password" ? "Sign in" : "Send magic link"}
             </button>
             <p className="text-xs text-[var(--ink-muted)] text-center">
-              We'll send you a magic link to sign in without a password.
+              {authMode === "password" ? (
+                <>
+                  Enter your email and password to sign in. Or{" "}
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("magic-link")}
+                    className="underline hover:text-[var(--foreground)]"
+                  >
+                    use magic link
+                  </button>
+                  .
+                </>
+              ) : (
+                <>
+                  We'll send you a magic link to sign in without a password. Or{" "}
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("password")}
+                    className="underline hover:text-[var(--foreground)]"
+                  >
+                    sign-in
+                  </button>{" "}
+                  through password.
+                </>
+              )}
             </p>
           </div>
         </div>

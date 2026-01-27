@@ -57,6 +57,7 @@ export type ChatRequest = {
   user_message: string;
   assistant_id: string;  // Backend will fetch config from database
   session_id?: string | null;  // Session ID for persisting response_id
+  thread_id?: string | null;  // Thread ID for isolating conversation context per user/device
 };
 
 export type ChatResponse = {

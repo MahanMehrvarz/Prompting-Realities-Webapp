@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
     user_message: str
     assistant_id: str  # ID of the assistant to get config from database
     session_id: str | None = None  # Session ID for persisting response_id
+    thread_id: str | None = None  # Thread ID for isolating conversation context per user/device
 
 
 class ChatResponse(BaseModel):
@@ -159,13 +160,38 @@ async def chat_with_openai(
             model="gpt-4o-mini",  # Or fetch from assistant config if you add model column
         )
         
-        # Persist the response_id in the session for conversation continuity
-        if request.session_id and response_id:
+        # Persist the response_id per thread (not per session) for conversation continuity
+        # This ensures each user/device has their own conversation context
+        if request.session_id and request.thread_id and response_id:
             try:
-                supabase.table("assistant_sessions").update({
-                    "last_response_id": response_id
-                }).eq("id", request.session_id).execute()
-                logger.info(f"💾 [Backend] Saved response_id {response_id} to session {request.session_id}")
+                # First, try to find existing marker for this thread
+                existing_marker = supabase.table("chat_messages").select("id").eq(
+                    "session_id", request.session_id
+                ).eq("thread_id", request.thread_id).is_("user_text", None).limit(1).execute()
+                
+                if existing_marker.data and len(existing_marker.data) > 0:
+                    # Update existing marker
+                    marker_record = existing_marker.data[0]
+                    if isinstance(marker_record, dict):
+                        marker_id = marker_record.get("id")
+                        if marker_id:
+                            supabase.table("chat_messages").update({
+                                "assistant_payload": {"_response_id_marker": response_id},
+                            }).eq("id", marker_id).execute()
+                            logger.info(f"💾 [Backend] Updated response_id {response_id} for thread {request.thread_id}")
+                else:
+                    # Insert new marker
+                    supabase.table("chat_messages").insert({
+                        "session_id": request.session_id,
+                        "assistant_id": request.assistant_id,
+                        "thread_id": request.thread_id,
+                        "user_text": None,
+                        "assistant_payload": {"_response_id_marker": response_id},
+                        "response_text": None,
+                        "mqtt_payload": None,
+                        "device_id": None,
+                    }).execute()
+                    logger.info(f"💾 [Backend] Inserted response_id {response_id} for thread {request.thread_id}")
             except Exception as e:
                 logger.warning(f"⚠️ [Backend] Failed to save response_id: {e}")
         

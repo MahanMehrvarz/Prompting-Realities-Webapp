@@ -57,10 +57,11 @@ export default function AssistantChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const presenceChannelRef = useRef<RealtimeChannel | null>(null);
   const deviceIdRef = useRef<string>("");
+  const threadIdRef = useRef<string>("");
   
-  // Initialize device ID from localStorage or create new one
+  // Initialize device ID and thread ID from localStorage or create new ones
   useEffect(() => {
-    if (hydrated) {
+    if (hydrated && sessionId) {
       const DEVICE_ID_KEY = "pr-device-id";
       let storedDeviceId = window.localStorage.getItem(DEVICE_ID_KEY);
       if (!storedDeviceId) {
@@ -68,8 +69,27 @@ export default function AssistantChatPage() {
         window.localStorage.setItem(DEVICE_ID_KEY, storedDeviceId);
       }
       deviceIdRef.current = storedDeviceId;
+      
+      // Generate thread ID synchronously to avoid race conditions
+      // Use a synchronous approach: check auth state from localStorage/session
+      const initializeThreadId = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userIdentifier = user?.id || storedDeviceId;
+        const THREAD_ID_KEY = `pr-thread-${sessionId}-${userIdentifier}`;
+        let storedThreadId = window.localStorage.getItem(THREAD_ID_KEY);
+        if (!storedThreadId) {
+          storedThreadId = crypto.randomUUID();
+          window.localStorage.setItem(THREAD_ID_KEY, storedThreadId);
+          console.log("🧵 [Frontend] Created new thread_id:", storedThreadId, "for user:", userIdentifier);
+        } else {
+          console.log("🧵 [Frontend] Using existing thread_id:", storedThreadId, "for user:", userIdentifier);
+        }
+        threadIdRef.current = storedThreadId;
+      };
+      
+      initializeThreadId();
     }
-  }, [hydrated]);
+  }, [hydrated, sessionId]);
 
   // Auto-scroll to bottom when messages change or AI starts responding
   useEffect(() => {
@@ -216,10 +236,31 @@ export default function AssistantChatPage() {
         if (isMounted) {
           setSessionActive(session.active);
           
-          // Load existing response_id for conversation continuity
-          if (session.last_response_id) {
-            setLastResponseId(session.last_response_id);
-            console.log("📜 [Frontend] Loaded existing response_id:", session.last_response_id);
+          // Load existing response_id for this specific thread (not from session)
+          // We need to query the chat_messages table for the response_id marker
+          if (threadIdRef.current) {
+            try {
+              const { data: markerMessages } = await supabase
+                .from("chat_messages")
+                .select("assistant_payload")
+                .eq("session_id", sessionId)
+                .eq("thread_id", threadIdRef.current)
+                .is("user_text", null)
+                .not("assistant_payload", "is", null)
+                .order("created_at", { ascending: false })
+                .limit(1);
+              
+              if (markerMessages && markerMessages.length > 0) {
+                const marker = markerMessages[0].assistant_payload;
+                if (marker && typeof marker === 'object' && '_response_id_marker' in marker) {
+                  const responseId = marker._response_id_marker;
+                  setLastResponseId(responseId);
+                  console.log("📜 [Frontend] Loaded existing response_id for thread:", responseId);
+                }
+              }
+            } catch (error) {
+              console.warn("⚠️ [Frontend] Failed to load response_id for thread:", error);
+            }
           }
         }
         
@@ -228,20 +269,29 @@ export default function AssistantChatPage() {
           throw new Error("Invalid share token");
         }
         
-        // For anonymous users, only load messages for this device
-        // For authenticated users, load all messages
+        // Load messages for this specific thread only
         const { data: { user } } = await supabase.auth.getUser();
-        const isAuthenticated = !!user;
+        
+        // Wait for thread ID to be initialized with a longer timeout and retry logic
+        let retries = 0;
+        const maxRetries = 20; // 2 seconds total
+        while (!threadIdRef.current && retries < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          retries++;
+        }
+        
+        if (!threadIdRef.current) {
+          console.error("❌ [Frontend] Thread ID not initialized after waiting");
+          throw new Error("Thread ID initialization failed");
+        }
+        
+        console.log("🧵 [Frontend] Loading messages for thread_id:", threadIdRef.current);
         
         let query = supabase
           .from("chat_messages")
           .select("*")
-          .eq("session_id", sessionId);
-        
-        // Anonymous users only see their own device's messages
-        if (!isAuthenticated && deviceIdRef.current) {
-          query = query.eq("device_id", deviceIdRef.current);
-        }
+          .eq("session_id", sessionId)
+          .eq("thread_id", threadIdRef.current);
         
         const { data: records, error: messagesError } = await query.order("created_at", { ascending: true });
         
@@ -395,6 +445,7 @@ export default function AssistantChatPage() {
       
       console.log("🤖 [Frontend] Calling backend AI API...");
       console.log("📜 [Frontend] Using previous_response_id:", lastResponseId);
+      console.log("🧵 [Frontend] Using thread_id:", threadIdRef.current);
       
       // Use Responses API with previous_response_id for context
       const aiResponse = await backendApi.chat(
@@ -403,6 +454,7 @@ export default function AssistantChatPage() {
           user_message: trimmed,
           assistant_id: assistantId,
           session_id: sessionId,  // For persisting response_id in backend
+          thread_id: threadIdRef.current,  // Pass thread_id for per-thread context isolation
         },
         token || undefined
       );
@@ -490,9 +542,18 @@ export default function AssistantChatPage() {
       const responseText = aiResponse.display_text || null;
       console.log("📝 [Frontend] Using display_text from backend:", responseText?.substring(0, 100));
 
+      // Ensure thread_id is initialized before saving
+      if (!threadIdRef.current) {
+        console.error("❌ [Frontend] Thread ID not initialized when trying to save message");
+        throw new Error("Thread ID not initialized");
+      }
+      
+      console.log("🧵 [Frontend] Saving message with thread_id:", threadIdRef.current);
+      
       // Only save mqtt_payload if MQTT publish was successful
       // mqtt_payload now stores only the MQTT_value field, not the entire payload
       // For anonymous users, save device_id; for authenticated users, leave it null
+      // Always save thread_id to group messages by conversation thread
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
@@ -501,6 +562,7 @@ export default function AssistantChatPage() {
         response_text: responseText, // Store the extracted text from backend
         mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? mqttValueToSave : null, // Only store MQTT_value if MQTT publish succeeded
         device_id: user ? null : deviceIdRef.current, // Anonymous users get device_id, authenticated users get null
+        thread_id: threadIdRef.current, // Always save thread_id for conversation isolation
       });
       console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       

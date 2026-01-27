@@ -52,6 +52,7 @@ export type ChatMessage = {
   response_text: string | null;
   mqtt_payload: Record<string, any> | null;
   device_id: string | null;
+  thread_id: string | null;
   created_at: string;
 };
 
@@ -174,6 +175,18 @@ export const messageService = {
 
     if (error) throw error;
     return data as ChatMessage;
+  },
+
+  async listByThread(sessionId: string, threadId: string) {
+    const { data, error } = await supabaseClient
+      .from("chat_messages")
+      .select("*")
+      .eq("session_id", sessionId)
+      .eq("thread_id", threadId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    return data as ChatMessage[];
   },
 
   async listBySession(sessionId: string, threadId?: string, deviceId?: string) {
