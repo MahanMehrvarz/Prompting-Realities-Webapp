@@ -3,6 +3,8 @@
  * These operations cannot be performed in the browser and require server-side processing.
  */
 
+import { logger } from "./logger";
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000";
 
@@ -20,9 +22,9 @@ async function apiFetch<T>(
   token?: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  console.log(`🌐 [BackendApi] Fetching ${API_BASE}${path}`);
-  console.log(`🔑 [BackendApi] Token present: ${!!token}`);
-  console.log(`📦 [BackendApi] Request options:`, options);
+  logger.log(`🌐 [BackendApi] Fetching ${API_BASE}${path}`);
+  logger.log(`🔑 [BackendApi] Token present: ${!!token}`);
+  logger.log(`📦 [BackendApi] Request options:`, options);
   
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -33,21 +35,21 @@ async function apiFetch<T>(
     },
   });
 
-  console.log(`📡 [BackendApi] Response status: ${response.status} ${response.statusText}`);
+  logger.log(`📡 [BackendApi] Response status: ${response.status} ${response.statusText}`);
 
   if (!response.ok) {
     const text = await response.text();
-    console.error(`❌ [BackendApi] Error response:`, text);
+    logger.error(`❌ [BackendApi] Error response:`, text);
     throw new Error(text || response.statusText);
   }
 
   if (response.status === 204) {
-    console.log(`✅ [BackendApi] No content response (204)`);
+    logger.log(`✅ [BackendApi] No content response (204)`);
     return undefined as T;
   }
 
   const data = await response.json();
-  console.log(`✅ [BackendApi] Response data:`, data);
+  logger.log(`✅ [BackendApi] Response data:`, data);
   return data;
 }
 

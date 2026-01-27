@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import QRCode from "react-qr-code";
+import { logger } from "@/lib/logger";
 import {
   Activity,
   AlertCircle,
@@ -307,7 +308,7 @@ export default function Home() {
             
             setIsAdmin(!!adminData);
           } catch (error) {
-            console.error("Error checking admin status:", error);
+            logger.error("Error checking admin status:", error);
           }
         }
         setCheckingAdminStatus(false);
@@ -375,7 +376,7 @@ export default function Home() {
               assistant.apiKey = "••••••••••••••••••••••••••••••••••••••••••••••••••";
             }
           } catch (error) {
-            console.error(`Failed to check API key for assistant ${assistant.id}`, error);
+            logger.error(`Failed to check API key for assistant ${assistant.id}`, error);
           }
         }
         
@@ -401,7 +402,7 @@ export default function Home() {
             }
           }
         } catch (error) {
-          console.error(`Failed to fetch session for assistant ${assistant.id}`, error);
+          logger.error(`Failed to fetch session for assistant ${assistant.id}`, error);
         }
         
         return assistant;
@@ -443,7 +444,7 @@ export default function Home() {
         return formatted[0]?.id ?? null;
       });
     } catch (error) {
-      console.error("Unable to fetch assistants", error);
+      logger.error("Unable to fetch assistants", error);
     } finally {
       setLoadingAssistants(false);
       setInitialLoadComplete(true);
@@ -512,7 +513,7 @@ export default function Home() {
         // Password sign-in is immediate, no need to show success message
         // The auth state change listener will handle the redirect
       } catch (error: any) {
-        console.error("Password sign-in error:", error);
+        logger.error("Password sign-in error:", error);
         setAuthError(error?.message || "Invalid email or password. Please try again.");
       }
     } else {
@@ -531,7 +532,7 @@ export default function Home() {
         setAuthSuccess(true);
         setAuthError(null);
       } catch (error) {
-        console.error("Magic link error:", error);
+        logger.error("Magic link error:", error);
         setAuthError("Unable to send magic link. Please check your email address and try again.");
       }
     }
@@ -561,7 +562,7 @@ export default function Home() {
           api_key: value,
         }, authToken);
       } catch (error) {
-        console.error("Failed to save API key", error);
+        logger.error("Failed to save API key", error);
       }
     }
     
@@ -613,7 +614,7 @@ export default function Home() {
       setTimeout(() => setSaveSuccess(false), 2000);
       return true;
     } catch (error) {
-      console.error("Failed to save assistant", error);
+      logger.error("Failed to save assistant", error);
       setSaveError("Failed to save configuration. Please try again.");
       return false;
     }
@@ -639,7 +640,7 @@ export default function Home() {
       setAssistants((prev) => [...prev, formatted]);
       setSelectedAssistantId(record.id);
     } catch (error) {
-      console.error("Failed to create assistant", error);
+      logger.error("Failed to create assistant", error);
     }
   };
 
@@ -690,7 +691,7 @@ export default function Home() {
       }));
       await refreshChatHistory(selectedAssistant.id);
     } catch (error) {
-      console.error("Unable to start assistant", error);
+      logger.error("Unable to start assistant", error);
     }
   };
 
@@ -711,7 +712,7 @@ export default function Home() {
         lastShareToken: assistant.shareToken ?? assistant.lastShareToken,
       }));
     } catch (error) {
-      console.error("Unable to stop assistant", error);
+      logger.error("Unable to stop assistant", error);
     }
   };
 
@@ -748,7 +749,7 @@ export default function Home() {
         lastShareToken: item.shareToken ?? item.lastShareToken,
       }));
     } catch (error) {
-      console.error("Unable to load chat history", error);
+      logger.error("Unable to load chat history", error);
     } finally {
       setLoadingMqttLog(false);
     }
@@ -788,7 +789,7 @@ export default function Home() {
           return;
         }
       } catch (error) {
-        console.error("Error verifying admin status:", error);
+        logger.error("Error verifying admin status:", error);
         alert("Failed to verify admin permissions. Please try again.");
         return;
       }
@@ -831,7 +832,7 @@ export default function Home() {
         await exportAsJSON(sessionsWithMessages, options);
       }
     } catch (error) {
-      console.error("Export failed:", error);
+      logger.error("Export failed:", error);
       alert("Failed to export data. Please try again.");
     }
   };
@@ -1021,7 +1022,7 @@ export default function Home() {
           setTimeout(() => setCopiedAssistantId(null), 2000);
         }
       } catch (fallbackError) {
-        console.error("Unable to copy session link", fallbackError);
+        logger.error("Unable to copy session link", fallbackError);
       }
     }
   };
@@ -1052,7 +1053,7 @@ export default function Home() {
           : result.message || "Connection failed"
       });
     } catch (error) {
-      console.error("MQTT test failed", error);
+      logger.error("MQTT test failed", error);
       setMqttTestResult({
         success: false,
         message: error instanceof Error ? error.message : "Connection test failed"
@@ -1070,9 +1071,9 @@ export default function Home() {
       if (authToken) {
         try {
           const logoutResponse = await backendApi.logout(authToken);
-          console.log(`🧹 Cleaned up ${logoutResponse.sessions_stopped} sessions and ${logoutResponse.mqtt_connections_closed} MQTT connections`);
+          logger.log(`🧹 Cleaned up ${logoutResponse.sessions_stopped} sessions and ${logoutResponse.mqtt_connections_closed} MQTT connections`);
         } catch (error) {
-          console.error("Failed to cleanup LLM resources on logout:", error);
+          logger.error("Failed to cleanup LLM resources on logout:", error);
           // Continue with logout even if cleanup fails
         }
       }
@@ -1110,7 +1111,7 @@ export default function Home() {
         return prev;
       });
     } catch (error) {
-      console.error("Failed to remove assistant", error);
+      logger.error("Failed to remove assistant", error);
     }
   };
 

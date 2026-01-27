@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import {
   sessionService,
@@ -80,9 +81,9 @@ export default function AssistantChatPage() {
         if (!storedThreadId) {
           storedThreadId = crypto.randomUUID();
           window.localStorage.setItem(THREAD_ID_KEY, storedThreadId);
-          console.log("🧵 [Frontend] Created new thread_id:", storedThreadId, "for user:", userIdentifier);
+          logger.log("🧵 [Frontend] Created new thread_id:", storedThreadId, "for user:", userIdentifier);
         } else {
-          console.log("🧵 [Frontend] Using existing thread_id:", storedThreadId, "for user:", userIdentifier);
+          logger.log("🧵 [Frontend] Using existing thread_id:", storedThreadId, "for user:", userIdentifier);
         }
         threadIdRef.current = storedThreadId;
       };
@@ -150,14 +151,14 @@ export default function AssistantChatPage() {
             // Only the first person in queue (position 1) can use the chat
             setIsActiveUser(myPosition === 0);
             
-            console.log("👥 Active viewers:", viewers.length, viewers);
-            console.log("📍 My queue position:", myPosition + 1, "Active:", myPosition === 0);
+            logger.log("👥 Active viewers:", viewers.length, viewers);
+            logger.log("📍 My queue position:", myPosition + 1, "Active:", myPosition === 0);
           })
           .on("presence", { event: "join" }, ({ key, newPresences }) => {
-            console.log("👋 Viewer joined:", key, newPresences);
+            logger.log("👋 Viewer joined:", key, newPresences);
           })
           .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
-            console.log("👋 Viewer left:", key, leftPresences);
+            logger.log("👋 Viewer left:", key, leftPresences);
           });
 
         // Subscribe and track presence
@@ -169,13 +170,13 @@ export default function AssistantChatPage() {
               device_id: deviceIdRef.current,
               joined_at: new Date().toISOString(),
             });
-            console.log("✅ Presence tracking started for session:", sessionId);
+            logger.log("✅ Presence tracking started for session:", sessionId);
           }
         });
 
         presenceChannelRef.current = channel;
       } catch (error) {
-        console.error("❌ Error setting up presence:", error);
+        logger.error("❌ Error setting up presence:", error);
       }
     };
 
@@ -186,7 +187,7 @@ export default function AssistantChatPage() {
       if (presenceChannelRef.current) {
         presenceChannelRef.current.untrack();
         presenceChannelRef.current.unsubscribe();
-        console.log("🔌 Presence tracking stopped");
+        logger.log("🔌 Presence tracking stopped");
       }
     };
   }, [sessionId, hydrated]);
@@ -202,12 +203,12 @@ export default function AssistantChatPage() {
     
     const load = async () => {
       setLoading(true);
-      console.log("Loading chat history with token:", !!token, "shareToken:", !!shareToken);
+      logger.log("Loading chat history with token:", !!token, "shareToken:", !!shareToken);
       try {
         // Check session status - use direct query without RLS
         // The issue is that RLS policies are blocking anonymous access
         // We need to query without authentication context
-        console.log("Querying session with ID:", sessionId, "Type:", typeof sessionId);
+        logger.log("Querying session with ID:", sessionId, "Type:", typeof sessionId);
         
         const { data: session, error: sessionError } = await supabase
           .from("assistant_sessions")
@@ -215,7 +216,7 @@ export default function AssistantChatPage() {
           .eq("id", sessionId)
           .maybeSingle();
         
-        console.log("Session query result:", { 
+        logger.log("Session query result:", { 
           session, 
           sessionError, 
           hasToken: !!token,
@@ -224,15 +225,15 @@ export default function AssistantChatPage() {
         });
         
         if (sessionError) {
-          console.error("Session error details:", sessionError);
+          logger.error("Session error details:", sessionError);
           throw sessionError;
         }
         if (!session) {
-          console.error("Session not found for ID:", sessionId);
+          logger.error("Session not found for ID:", sessionId);
           throw new Error("Session not found");
         }
         
-        console.log("Session retrieved:", session);
+        logger.log("Session retrieved:", session);
         if (isMounted) {
           setSessionActive(session.active);
           
@@ -255,11 +256,11 @@ export default function AssistantChatPage() {
                 if (marker && typeof marker === 'object' && '_response_id_marker' in marker) {
                   const responseId = marker._response_id_marker;
                   setLastResponseId(responseId);
-                  console.log("📜 [Frontend] Loaded existing response_id for thread:", responseId);
+                  logger.log("📜 [Frontend] Loaded existing response_id for thread:", responseId);
                 }
               }
             } catch (error) {
-              console.warn("⚠️ [Frontend] Failed to load response_id for thread:", error);
+              logger.warn("⚠️ [Frontend] Failed to load response_id for thread:", error);
             }
           }
         }
@@ -281,11 +282,11 @@ export default function AssistantChatPage() {
         }
         
         if (!threadIdRef.current) {
-          console.error("❌ [Frontend] Thread ID not initialized after waiting");
+          logger.error("❌ [Frontend] Thread ID not initialized after waiting");
           throw new Error("Thread ID initialization failed");
         }
         
-        console.log("🧵 [Frontend] Loading messages for thread_id:", threadIdRef.current);
+        logger.log("🧵 [Frontend] Loading messages for thread_id:", threadIdRef.current);
         
         let query = supabase
           .from("chat_messages")
@@ -295,14 +296,14 @@ export default function AssistantChatPage() {
         
         const { data: records, error: messagesError } = await query.order("created_at", { ascending: true });
         
-        console.log("Messages query result:", { count: records?.length || 0, messagesError });
+        logger.log("Messages query result:", { count: records?.length || 0, messagesError });
         
         if (messagesError) {
-          console.error("Messages error details:", messagesError);
+          logger.error("Messages error details:", messagesError);
           throw messagesError;
         }
         
-        console.log("Messages loaded:", records?.length || 0);
+        logger.log("Messages loaded:", records?.length || 0);
         if (isMounted && records) {
           // Check if there's a reset timestamp for this session
           const resetKey = `chat-reset-${sessionId}`;
@@ -316,7 +317,7 @@ export default function AssistantChatPage() {
               const messageDate = new Date(record.created_at);
               return messageDate > resetDate;
             });
-            console.log(`🔄 [Frontend] Filtered messages: ${records.length} -> ${filteredRecords.length} (reset at ${resetTimestamp})`);
+            logger.log(`🔄 [Frontend] Filtered messages: ${records.length} -> ${filteredRecords.length} (reset at ${resetTimestamp})`);
           }
           
           const mappedMessages = filteredRecords.flatMap((record) => mapMessageRecord(record));
@@ -324,7 +325,7 @@ export default function AssistantChatPage() {
         }
       } catch (err) {
         if (isMounted) {
-          console.error("Error loading chat history:", err);
+          logger.error("Error loading chat history:", err);
           const errorMessage = err instanceof Error ? err.message : "Unable to load chat history.";
           if (errorMessage.includes("Invalid share token")) {
             setError("Session link is invalid or expired. Ask the host for a new link.");
@@ -365,7 +366,7 @@ export default function AssistantChatPage() {
   };
 
   const confirmResetConversation = () => {
-    console.log("🔄 [Frontend] Resetting conversation (local messages only)");
+    logger.log("🔄 [Frontend] Resetting conversation (local messages only)");
     // Clear local messages state (does NOT delete from database)
     setMessages([]);
     // Reset the conversation flow by clearing the response_id
@@ -376,10 +377,10 @@ export default function AssistantChatPage() {
     if (sessionId && hydrated) {
       const resetKey = `chat-reset-${sessionId}`;
       window.localStorage.setItem(resetKey, new Date().toISOString());
-      console.log("💾 [Frontend] Stored reset timestamp in localStorage");
+      logger.log("💾 [Frontend] Stored reset timestamp in localStorage");
     }
     
-    console.log("✅ [Frontend] Conversation reset complete");
+    logger.log("✅ [Frontend] Conversation reset complete");
     setShowResetModal(false);
   };
 
@@ -389,20 +390,20 @@ export default function AssistantChatPage() {
 
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    console.log("🚀 [Frontend] handleSend triggered");
+    logger.log("🚀 [Frontend] handleSend triggered");
     
     if (!sessionId || (!token && !shareToken)) {
-      console.log("❌ [Frontend] Missing sessionId or token");
+      logger.log("❌ [Frontend] Missing sessionId or token");
       return;
     }
     
     const trimmed = input.trim();
     if (!trimmed) {
-      console.log("❌ [Frontend] Empty message");
+      logger.log("❌ [Frontend] Empty message");
       return;
     }
     
-    console.log("📝 [Frontend] User message:", trimmed);
+    logger.log("📝 [Frontend] User message:", trimmed);
     setInput("");
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: ChatMessage = {
@@ -416,9 +417,9 @@ export default function AssistantChatPage() {
     
     try {
       // Get session info
-      console.log("🔍 [Frontend] Fetching session info for:", sessionId);
+      logger.log("🔍 [Frontend] Fetching session info for:", sessionId);
       const session = await sessionService.get(sessionId);
-      console.log("✅ [Frontend] Session retrieved:", { active: session.active, thread_id: session.current_thread_id });
+      logger.log("✅ [Frontend] Session retrieved:", { active: session.active, thread_id: session.current_thread_id });
       
       // Check if session is active
       if (!session.active) {
@@ -432,7 +433,7 @@ export default function AssistantChatPage() {
       }
       
       // Get assistant config from database
-      console.log("🔍 [Frontend] Fetching assistant configuration...");
+      logger.log("🔍 [Frontend] Fetching assistant configuration...");
       const { data: assistantData, error: assistantError } = await supabase
         .from("assistants")
         .select("*")
@@ -443,9 +444,9 @@ export default function AssistantChatPage() {
         throw new Error("Failed to fetch assistant configuration");
       }
       
-      console.log("🤖 [Frontend] Calling backend AI API...");
-      console.log("📜 [Frontend] Using previous_response_id:", lastResponseId);
-      console.log("🧵 [Frontend] Using thread_id:", threadIdRef.current);
+      logger.log("🤖 [Frontend] Calling backend AI API...");
+      logger.log("📜 [Frontend] Using previous_response_id:", lastResponseId);
+      logger.log("🧵 [Frontend] Using thread_id:", threadIdRef.current);
       
       // Use Responses API with previous_response_id for context
       const aiResponse = await backendApi.chat(
@@ -462,10 +463,10 @@ export default function AssistantChatPage() {
       // Save response_id for next turn
       if (aiResponse.response_id) {
         setLastResponseId(aiResponse.response_id);
-        console.log("💾 [Frontend] Saved response_id for next turn:", aiResponse.response_id);
+        logger.log("💾 [Frontend] Saved response_id for next turn:", aiResponse.response_id);
       }
       
-      console.log("✅ [Frontend] Backend response received:", aiResponse);
+      logger.log("✅ [Frontend] Backend response received:", aiResponse);
       
       // Publish to MQTT if we have a payload
       let mqttPublishSuccess = false;
@@ -473,7 +474,7 @@ export default function AssistantChatPage() {
       let mqttValueToSave = null;
       
       if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
-        console.log("📡 [Frontend] Publishing to MQTT...");
+        logger.log("📡 [Frontend] Publishing to MQTT...");
         
         mqttPublishAttempted = true;
         
@@ -482,22 +483,22 @@ export default function AssistantChatPage() {
         let mqttValue = null;
         if (aiResponse.payload.MQTT_value !== undefined && aiResponse.payload.MQTT_value !== null) {
           mqttValue = aiResponse.payload.MQTT_value;
-          console.log("📤 [Frontend] Extracted MQTT_value for MQTT:", mqttValue);
+          logger.log("📤 [Frontend] Extracted MQTT_value for MQTT:", mqttValue);
         } else if (aiResponse.payload.MQTT_values !== undefined && aiResponse.payload.MQTT_values !== null) {
           mqttValue = aiResponse.payload.MQTT_values;
-          console.log("📤 [Frontend] Extracted MQTT_values for MQTT:", mqttValue);
+          logger.log("📤 [Frontend] Extracted MQTT_values for MQTT:", mqttValue);
         } else if (aiResponse.payload.values !== undefined && aiResponse.payload.values !== null) {
           mqttValue = aiResponse.payload.values;
-          console.log("📤 [Frontend] Extracted values for MQTT:", mqttValue);
+          logger.log("📤 [Frontend] Extracted values for MQTT:", mqttValue);
         } else {
           mqttValue = aiResponse.payload;
-          console.log("📤 [Frontend] Using full payload for MQTT:", mqttValue);
+          logger.log("📤 [Frontend] Using full payload for MQTT:", mqttValue);
         }
         
         if (mqttValue !== undefined && mqttValue !== null) {
           mqttValueToSave = mqttValue;
         } else {
-          console.log("⚠️ [Frontend] No MQTT value found in payload");
+          logger.log("⚠️ [Frontend] No MQTT value found in payload");
         }
         
         try {
@@ -507,7 +508,7 @@ export default function AssistantChatPage() {
           
           // If mqttPayload is not a valid object, wrap it in an object
           if (mqttPayload === null || mqttPayload === undefined || mqttPayload === "" || typeof mqttPayload !== "object") {
-            console.log("⚠️ [Frontend] Invalid MQTT payload, wrapping in object:", mqttPayload);
+            logger.log("⚠️ [Frontend] Invalid MQTT payload, wrapping in object:", mqttPayload);
             mqttPayload = { value: mqttPayload };
           }
           
@@ -521,34 +522,34 @@ export default function AssistantChatPage() {
           );
           
           if (mqttResult.success) {
-            console.log("✅ [Frontend] MQTT publish successful");
+            logger.log("✅ [Frontend] MQTT publish successful");
             mqttPublishSuccess = true;
           } else {
-            console.warn("⚠️ [Frontend] MQTT publish failed:", mqttResult.message);
+            logger.warn("⚠️ [Frontend] MQTT publish failed:", mqttResult.message);
             mqttPublishSuccess = false;
           }
         } catch (mqttError) {
-          console.error("❌ [Frontend] MQTT publish error:", mqttError);
+          logger.error("❌ [Frontend] MQTT publish error:", mqttError);
           mqttPublishSuccess = false;
         }
       } else {
-        console.log("⏭️ [Frontend] Skipping MQTT publish - missing payload or MQTT config");
+        logger.log("⏭️ [Frontend] Skipping MQTT publish - missing payload or MQTT config");
       }
       
       // Save complete conversation turn (user + assistant) in a single entry
-      console.log("💾 [Frontend] Saving conversation turn to database...");
+      logger.log("💾 [Frontend] Saving conversation turn to database...");
       
       // Use the display_text extracted by the backend
       const responseText = aiResponse.display_text || null;
-      console.log("📝 [Frontend] Using display_text from backend:", responseText?.substring(0, 100));
+      logger.log("📝 [Frontend] Using display_text from backend:", responseText?.substring(0, 100));
 
       // Ensure thread_id is initialized before saving
       if (!threadIdRef.current) {
-        console.error("❌ [Frontend] Thread ID not initialized when trying to save message");
+        logger.error("❌ [Frontend] Thread ID not initialized when trying to save message");
         throw new Error("Thread ID not initialized");
       }
       
-      console.log("🧵 [Frontend] Saving message with thread_id:", threadIdRef.current);
+      logger.log("🧵 [Frontend] Saving message with thread_id:", threadIdRef.current);
       
       // Only save mqtt_payload if MQTT publish was successful
       // mqtt_payload now stores only the MQTT_value field, not the entire payload
@@ -564,11 +565,11 @@ export default function AssistantChatPage() {
         device_id: user ? null : deviceIdRef.current, // Anonymous users get device_id, authenticated users get null
         thread_id: threadIdRef.current, // Always save thread_id for conversation isolation
       });
-      console.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
+      logger.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       
       // After saving, add the new messages to the existing state instead of reloading from DB
       // This prevents old messages from reappearing after a reset
-      console.log("✅ [Frontend] Conversation turn saved, updating local state");
+      logger.log("✅ [Frontend] Conversation turn saved, updating local state");
       
       // Create the new message objects to add to state
       const newUserMessage: ChatMessage = {
@@ -592,10 +593,10 @@ export default function AssistantChatPage() {
         return [...withoutTemp, newUserMessage, newAssistantMessage];
       });
       
-      console.log("✅ [Frontend] Messages updated in local state");
+      logger.log("✅ [Frontend] Messages updated in local state");
       setError(null);
     } catch (err) {
-      console.error("❌ [Frontend] Error in handleSend:", err);
+      logger.error("❌ [Frontend] Error in handleSend:", err);
       setMessages((prev) => prev.filter((message) => message.id !== tempId));
       const errorMessage = err instanceof Error ? err.message : "Unable to send message.";
       if (errorMessage.includes("Session is not running") || errorMessage.includes("not running") || errorMessage.includes("not active")) {
