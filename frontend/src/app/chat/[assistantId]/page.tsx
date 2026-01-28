@@ -239,6 +239,7 @@ export default function AssistantChatPage() {
           
           // Load existing response_id for this specific thread (not from session)
           // We need to query the chat_messages table for the response_id marker
+          // These marker messages should NOT be displayed in the chat UI
           if (threadIdRef.current) {
             try {
               const { data: markerMessages } = await supabase
@@ -305,22 +306,26 @@ export default function AssistantChatPage() {
         
         logger.log("Messages loaded:", records?.length || 0);
         if (isMounted && records) {
-          // Check if there's a reset timestamp for this session
-          const resetKey = `chat-reset-${sessionId}`;
-          const resetTimestamp = window.localStorage.getItem(resetKey);
+          // Filter out marker messages (messages with only assistant_payload containing _response_id_marker)
+          // These are internal tracking messages and should not be displayed
+          const displayableRecords = records.filter((record) => {
+            // If there's a user_text or response_text, it's a real message
+            if (record.user_text || record.response_text) {
+              return true;
+            }
+            // If assistant_payload exists, check if it's just a marker
+            if (record.assistant_payload && typeof record.assistant_payload === 'object') {
+              // If it only contains _response_id_marker, it's a marker message - filter it out
+              const keys = Object.keys(record.assistant_payload);
+              if (keys.length === 1 && keys[0] === '_response_id_marker') {
+                return false;
+              }
+            }
+            // Otherwise, include it
+            return true;
+          });
           
-          let filteredRecords = records;
-          if (resetTimestamp) {
-            // Filter out messages created before the reset timestamp
-            const resetDate = new Date(resetTimestamp);
-            filteredRecords = records.filter((record) => {
-              const messageDate = new Date(record.created_at);
-              return messageDate > resetDate;
-            });
-            logger.log(`🔄 [Frontend] Filtered messages: ${records.length} -> ${filteredRecords.length} (reset at ${resetTimestamp})`);
-          }
-          
-          const mappedMessages = filteredRecords.flatMap((record) => mapMessageRecord(record));
+          const mappedMessages = displayableRecords.flatMap((record) => mapMessageRecord(record));
           setMessages(mappedMessages);
         }
       } catch (err) {
@@ -365,22 +370,33 @@ export default function AssistantChatPage() {
     setShowResetModal(true);
   };
 
-  const confirmResetConversation = () => {
-    logger.log("🔄 [Frontend] Resetting conversation (local messages only)");
+  const confirmResetConversation = async () => {
+    logger.log("🔄 [Frontend] Resetting conversation - creating new thread");
+    
     // Clear local messages state (does NOT delete from database)
     setMessages([]);
+    
     // Reset the conversation flow by clearing the response_id
     setLastResponseId(null);
     
-    // Store the reset timestamp in localStorage to persist across page reloads
-    // This allows us to filter out old messages when loading from database
+    // Generate a NEW thread_id to separate conversations
+    const newThreadId = crypto.randomUUID();
+    threadIdRef.current = newThreadId;
+    
+    // Store the new thread_id in localStorage
     if (sessionId && hydrated) {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userIdentifier = user?.id || deviceIdRef.current;
+      const THREAD_ID_KEY = `pr-thread-${sessionId}-${userIdentifier}`;
+      window.localStorage.setItem(THREAD_ID_KEY, newThreadId);
+      logger.log("🧵 [Frontend] Created new thread_id after reset:", newThreadId);
+      
+      // Remove the old reset timestamp key (no longer needed with proper thread separation)
       const resetKey = `chat-reset-${sessionId}`;
-      window.localStorage.setItem(resetKey, new Date().toISOString());
-      logger.log("💾 [Frontend] Stored reset timestamp in localStorage");
+      window.localStorage.removeItem(resetKey);
     }
     
-    logger.log("✅ [Frontend] Conversation reset complete");
+    logger.log("✅ [Frontend] Conversation reset complete - new thread started");
     setShowResetModal(false);
   };
 

@@ -251,8 +251,6 @@ export default function Home() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authMode, setAuthMode] = useState<"magic-link" | "password">("magic-link");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState(false);
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
@@ -496,45 +494,23 @@ export default function Home() {
       return;
     }
     
-    if (authMode === "password") {
-      if (!authPassword || authPassword.length < 6) {
-        setAuthError("Password must be at least 6 characters long.");
-        return;
-      }
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: authEmail,
+        options: {
+          emailRedirectTo: redirectPath 
+            ? `${window.location.origin}${redirectPath}`
+            : window.location.origin,
+        },
+      });
       
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: authEmail,
-          password: authPassword,
-        });
-        
-        if (error) throw error;
-        
-        // Password sign-in is immediate, no need to show success message
-        // The auth state change listener will handle the redirect
-      } catch (error: any) {
-        logger.error("Password sign-in error:", error);
-        setAuthError(error?.message || "Invalid email or password. Please try again.");
-      }
-    } else {
-      try {
-        const { error } = await supabase.auth.signInWithOtp({
-          email: authEmail,
-          options: {
-            emailRedirectTo: redirectPath 
-              ? `${window.location.origin}${redirectPath}`
-              : window.location.origin,
-          },
-        });
-        
-        if (error) throw error;
-        
-        setAuthSuccess(true);
-        setAuthError(null);
-      } catch (error) {
-        logger.error("Magic link error:", error);
-        setAuthError("Unable to send magic link. Please check your email address and try again.");
-      }
+      if (error) throw error;
+      
+      setAuthSuccess(true);
+      setAuthError(null);
+    } catch (error) {
+      logger.error("Magic link error:", error);
+      setAuthError("Unable to send magic link. Please check your email address and try again.");
     }
   };
 
@@ -925,29 +901,47 @@ export default function Home() {
     data: any[],
     options: ExportOptions
   ) => {
-    const exportData = data.map(({ assistant, sessions, messages, userId }) => {
-      return sessions.map((session: any) => {
+    // Group data by user_id first
+    const userGroups = data.reduce((acc: any, { assistant, sessions, messages, userId }) => {
+      if (!acc[userId]) {
+        acc[userId] = {
+          user_id: userId,
+          llm_things: []
+        };
+      }
+      
+      // Find or create LLM thing entry for this user
+      let llmThing = acc[userId].llm_things.find((thing: any) => thing.assistant_id === assistant.id);
+      if (!llmThing) {
+        llmThing = {
+          assistant_id: assistant.id,
+          assistant_name: assistant.name,
+          json_schema: assistant.json_schema,
+          mqtt_topic: assistant.mqtt_topic,
+          sessions: []
+        };
+        acc[userId].llm_things.push(llmThing);
+      }
+      
+      // Add sessions to this LLM thing
+      sessions.forEach((session: any) => {
         const sessionMessages = messages.filter((m: any) => m.session_id === session.id);
         
         // Group messages by thread_id
-        const messagesByThread = sessionMessages.reduce((acc: any, msg: any) => {
+        const messagesByThread = sessionMessages.reduce((threadAcc: any, msg: any) => {
           const threadId = msg.thread_id || "no-thread";
-          if (!acc[threadId]) {
-            acc[threadId] = [];
+          if (!threadAcc[threadId]) {
+            threadAcc[threadId] = [];
           }
-          acc[threadId].push(msg);
-          return acc;
+          threadAcc[threadId].push(msg);
+          return threadAcc;
         }, {});
         
         const sessionData: any = {
           session_id: session.id,
         };
 
-        if (options.session.userEmail) sessionData.user_id = userId || "unknown";
-        if (options.session.assistantName) sessionData.assistant_name = assistant.name;
         if (options.session.numberOfMessages) sessionData.number_of_messages = sessionMessages.length;
-        if (options.session.jsonSchema) sessionData.json_schema = assistant.json_schema;
-        if (options.session.mqttTopic) sessionData.mqtt_topic = assistant.mqtt_topic;
 
         // Add threads array to session, each thread contains its messages
         sessionData.threads = Object.entries(messagesByThread).map(([threadId, threadMessages]: [string, any]) => ({
@@ -965,9 +959,14 @@ export default function Home() {
           })
         }));
 
-        return sessionData;
+        llmThing.sessions.push(sessionData);
       });
-    }).flat();
+      
+      return acc;
+    }, {});
+
+    // Convert to array format: Users -> LLM Things -> Sessions -> Threads -> Messages
+    const exportData = Object.values(userGroups);
 
     const jsonContent = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonContent], { type: "application/json" });
@@ -1162,54 +1161,16 @@ export default function Home() {
               disabled={authSuccess}
               className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            {authMode === "password" && (
-              <input
-                type="password"
-                placeholder="Password"
-                value={authPassword}
-                onChange={(event) => setAuthPassword(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    handleAuthSubmit();
-                  }
-                }}
-                className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)]"
-              />
-            )}
             <button
               type="button"
               onClick={handleAuthSubmit}
-              disabled={authSuccess || !authEmail || (authMode === "password" && !authPassword)}
+              disabled={authSuccess || !authEmail}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {authSuccess ? "Magic link sent" : authMode === "password" ? "Sign in" : "Send magic link"}
+              {authSuccess ? "Magic link sent" : "Send magic link"}
             </button>
             <p className="text-xs text-[var(--ink-muted)] text-center">
-              {authMode === "password" ? (
-                <>
-                  Enter your email and password to sign in. Or{" "}
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode("magic-link")}
-                    className="underline hover:text-[var(--foreground)]"
-                  >
-                    use magic link
-                  </button>
-                  .
-                </>
-              ) : (
-                <>
-                  We'll send you a magic link to sign in without a password. Or{" "}
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode("password")}
-                    className="underline hover:text-[var(--foreground)]"
-                  >
-                    sign-in
-                  </button>{" "}
-                  through password.
-                </>
-              )}
+              We'll send you a magic link to sign in without a password.
             </p>
           </div>
         </div>
