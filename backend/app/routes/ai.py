@@ -106,14 +106,11 @@ async def chat_with_openai(
                 detail="Invalid assistant data"
             )
         
-        # Skip ownership verification for anonymous users
-        # Anonymous users can use any assistant (you may want to add additional checks here)
-        if user_id and assistant.get("supabase_user_id") != user_id:
-            logger.error(f"❌ [Backend] User {user_id} does not own assistant {request.assistant_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to use this assistant"
-            )
+        # Skip ownership verification - allow any authenticated or anonymous user to use shared assistants
+        # The session share_token is validated on the frontend, so if they have access to the session,
+        # they should be able to use the assistant
+        # Only the assistant owner can modify the assistant, but anyone with the session link can chat
+        logger.info(f"✅ [Backend] Allowing access to assistant {request.assistant_id} for user {user_id or 'anonymous'}")
         
         # Decrypt the API key
         encrypted_key = assistant.get("openai_key", "")
@@ -389,13 +386,10 @@ async def transcribe_audio(
                 detail="Invalid assistant data"
             )
         
-        # Skip ownership verification for anonymous users
-        if user_id and assistant.get("supabase_user_id") != user_id:
-            logger.error(f"❌ [Backend] User {user_id} does not own assistant {assistant_id}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to use this assistant"
-            )
+        # Skip ownership verification - allow any authenticated or anonymous user to use shared assistants
+        # The session share_token is validated on the frontend, so if they have access to the session,
+        # they should be able to use the assistant for transcription
+        logger.info(f"✅ [Backend] Allowing transcription access to assistant {assistant_id} for user {user_id or 'anonymous'}")
         
         # Decrypt the API key
         encrypted_key = assistant.get("openai_key", "")

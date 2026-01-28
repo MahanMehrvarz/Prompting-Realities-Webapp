@@ -76,4 +76,4 @@
 - [X] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
 - [X] Each new conversation (new device) should have a seperate conversation. the history of conversation is the same across devices for each LLM instance.
 - [X] let's check if render turns of the backend if no traffic is showing up.
-- [ ] A logged user can't use the link shared by another logged account
+- [X] A logged user can't use the link shared by another logged account
