@@ -68,9 +68,9 @@
 
 ## Deployment
 - [X] Remove logging in frontend
-- [ ] Replace redirect links in supabase
+- [X] Replace redirect links in supabase
 - [X] Migrate supbabase
-- [ ] Move login with password to "hidden" subdomain
+- [X] Move login with password to "hidden" subdomain
 
 ## Buglist
 - [X] The answer and MQTT_value key should be in place at the moment it receives the previous keys (response and values)
