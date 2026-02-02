@@ -16,8 +16,6 @@ type Logo = {
   src: string;
   alt: string;
   href?: string;
-  width?: number;
-  height?: number;
 };
 
 const links: LinkItem[] = [
@@ -33,30 +31,30 @@ const collaborators: Collaborator[] = [
 ];
 
 const logos: Logo[] = [
-  { src: "/logos/aifutures-lab.svg", alt: "AI Futures Lab", width: 80, height: 48 },
-  { src: "/logos/design-united.svg", alt: "Design United", width: 60, height: 48 },
-  { src: "/logos/dutch-design-week.svg", alt: "Dutch Design Week", width: 80, height: 48 },
-  { src: "/logos/tu-delft.svg", alt: "TU Delft", width: 100, height: 40 },
+  { src: "/logos/logo-01.png", alt: "AI Futures Lab", href: "#" },
+  { src: "/logos/AIFUTURESLAB.png", alt: "Design United", href: "#" },
+  { src: "/logos/DDW.png", alt: "Dutch Design Week", href: "#" },
+  { src: "/logos/TUDelft_logo_black.png", alt: "TU Delft", href: "#" },
 ];
 
 export function Footer() {
   return (
-    <footer className="border-t-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-10 lg:px-10">
+    <footer className="border-t-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-12 lg:px-10">
       <div className="mx-auto max-w-7xl">
-        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr]">
+        <div className="grid gap-10 md:grid-cols-[1fr_1fr_2fr] lg:gap-16">
           {/* Links and Associations */}
           <div className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--ink-muted)]">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
               Links and Associations
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {links.map((link) => (
                 <li key={link.label}>
                   <a
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline"
+                    className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline decoration-2 underline-offset-2"
                   >
                     {link.label}
                   </a>
@@ -67,18 +65,18 @@ export function Footer() {
 
           {/* Collaborators */}
           <div className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--ink-muted)]">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
               Collaborators
             </h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {collaborators.map((collab) => (
                 <li key={collab.name}>
-                  {collab.href ? (
+                  {collab.href && collab.href !== "#" ? (
                     <a
                       href={collab.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline"
+                      className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline decoration-2 underline-offset-2"
                     >
                       {collab.name}
                     </a>
@@ -93,45 +91,33 @@ export function Footer() {
           </div>
 
           {/* Logos */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--ink-muted)]">
-              Partners
-            </h3>
-            <div className="flex flex-wrap items-center gap-6 lg:gap-8">
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center justify-start gap-8 lg:gap-10">
               {logos.map((logo) => (
-                <div key={logo.alt} className="flex items-center">
-                  {logo.href ? (
-                    <a
-                      href={logo.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="opacity-80 transition hover:opacity-100"
-                    >
-                      <Image
-                        src={logo.src}
-                        alt={logo.alt}
-                        width={logo.width || 80}
-                        height={logo.height || 40}
-                        className="h-auto max-h-12 w-auto object-contain"
-                      />
-                    </a>
-                  ) : (
-                    <Image
-                      src={logo.src}
-                      alt={logo.alt}
-                      width={logo.width || 80}
-                      height={logo.height || 40}
-                      className="h-auto max-h-12 w-auto object-contain opacity-80"
-                    />
-                  )}
-                </div>
+                <a
+                  key={logo.alt}
+                  href={logo.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group relative flex h-12 items-center transition-opacity hover:opacity-80"
+                  title={logo.alt}
+                >
+                  <Image
+                    src={logo.src}
+                    alt={logo.alt}
+                    width={120}
+                    height={48}
+                    className="h-10 w-auto object-contain lg:h-12"
+                    style={{ maxWidth: "120px" }}
+                  />
+                </a>
               ))}
             </div>
           </div>
         </div>
 
         {/* Bottom bar */}
-        <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t-2 border-[var(--card-shell)]/20 pt-6 sm:flex-row">
+        <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t-2 border-[var(--card-shell)]/20 pt-6 sm:flex-row">
           <p className="text-xs text-[var(--ink-muted)]">
             © {new Date().getFullYear()} Prompting Realities. All rights reserved.
           </p>
