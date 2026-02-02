@@ -1,7 +1,5 @@
 "use client";
 
-import Image from "next/image";
-
 type LinkItem = {
   label: string;
   href: string;
@@ -19,15 +17,16 @@ type Logo = {
 };
 
 const links: LinkItem[] = [
-  { label: "Project GitHub", href: "#" },
-  { label: "4TU.design United", href: "#" },
-  { label: "Dutch design week 2024", href: "#" },
+  { label: "Project GitHub", href: "https://github.com/MahanMehrvarz/PromptingRealities" },
+  { label: "4TU.design United", href: "https://www.4tu.nl/du/projects/Prompting-Realities/" },
+  { label: "Dutch design week 2024", href: "https://ddw.nl/en/programme/13171/prompting-realities" },
 ];
 
 const collaborators: Collaborator[] = [
-  { name: "Jerry de Vos", href: "#" },
-  { name: "Aadjan Van Der Helm", href: "#" },
-  { name: "Martin Havranek", href: "#" },
+  { name: "Jerry de Vos", href: "https://jerrydevos.nl/" },
+  { name: "Aadjan Van Der Helm", href: "https://mahanmehrvarz.name/promptingrealities/#" },
+  { name: "Martin Havranek" },
+  { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
 ];
 
 const logos: Logo[] = [
@@ -102,13 +101,10 @@ export function Footer() {
                   className="group relative flex h-12 items-center transition-opacity hover:opacity-80"
                   title={logo.alt}
                 >
-                  <Image
+                  <img
                     src={logo.src}
                     alt={logo.alt}
-                    width={120}
-                    height={48}
-                    className="h-10 w-auto object-contain lg:h-12"
-                    style={{ maxWidth: "120px" }}
+                    className="h-10 w-auto max-w-[120px] object-contain lg:h-12"
                   />
                 </a>
               ))}
