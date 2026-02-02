@@ -27,6 +27,7 @@ const collaborators: Collaborator[] = [
   { name: "Aadjan Van Der Helm", href: "https://mahanmehrvarz.name/promptingrealities/#" },
   { name: "Martin Havranek" },
   { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
+  { name: "Dave Murray-Rust", href: "https://dave.murray-rust.org/" },
 ];
 
 const logos: Logo[] = [
@@ -90,21 +91,21 @@ export function Footer() {
           </div>
 
           {/* Logos */}
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-start gap-8 lg:gap-10">
+          <div className="flex items-center justify-end">
+            <div className="flex items-center gap-6 lg:gap-8">
               {logos.map((logo) => (
                 <a
                   key={logo.alt}
                   href={logo.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group relative flex h-12 items-center transition-opacity hover:opacity-80"
+                  className="flex items-center justify-center transition-opacity hover:opacity-70"
                   title={logo.alt}
                 >
                   <img
                     src={logo.src}
                     alt={logo.alt}
-                    className="h-10 w-auto max-w-[120px] object-contain lg:h-12"
+                    className="h-8 w-auto object-contain lg:h-10"
                   />
                 </a>
               ))}
