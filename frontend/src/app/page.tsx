@@ -34,6 +34,7 @@ import { backendApi } from "@/lib/backendApi";
 import { SkeletonLoader } from "@/components/SkeletonLoader";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { ExportDataModal, type ExportOptions } from "@/components/ExportDataModal";
+import { Footer } from "@/components/Footer";
 import JSZip from "jszip";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
@@ -1798,6 +1799,7 @@ export default function Home() {
         )}
         </main>
       </div>
+      <Footer />
     </div>
   );
 }

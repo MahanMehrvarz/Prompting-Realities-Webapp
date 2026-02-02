@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60" fill="none">
+  <rect x="10" y="10" width="10" height="40" fill="#1d1d1d"/>
+  <rect x="25" y="10" width="10" height="40" fill="#1d1d1d"/>
+  <rect x="40" y="10" width="10" height="40" fill="#1d1d1d"/>
+  <rect x="55" y="10" width="10" height="40" fill="#1d1d1d"/>
+  <text x="80" y="35" text-anchor="middle" font-family="system-ui, sans-serif" font-size="5" fill="#1d1d1d">dutch</text>
+  <text x="80" y="42" text-anchor="middle" font-family="system-ui, sans-serif" font-size="5" fill="#1d1d1d">design</text>
+  <text x="80" y="49" text-anchor="middle" font-family="system-ui, sans-serif" font-size="5" fill="#1d1d1d">week</text>
+</svg>
