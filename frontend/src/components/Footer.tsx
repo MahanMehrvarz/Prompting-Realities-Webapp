@@ -10,6 +10,11 @@ type Collaborator = {
   href?: string;
 };
 
+type Publication = {
+  title: string;
+  href: string;
+};
+
 type Logo = {
   src: string;
   alt: string;
@@ -23,31 +28,37 @@ const links: LinkItem[] = [
 ];
 
 const collaborators: Collaborator[] = [
+  { name: "Dave Murray-Rust", href: "https://dave.murray-rust.org/" },
   { name: "Jerry de Vos", href: "https://jerrydevos.nl/" },
   { name: "Aadjan Van Der Helm", href: "https://mahanmehrvarz.name/promptingrealities/#" },
   { name: "Martin Havranek" },
   { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
-  { name: "Dave Murray-Rust", href: "https://dave.murray-rust.org/" },
+];
+
+const publications: Publication[] = [
+  { title: "Prompting Realities: Exploring the Potentials of Prompting for Tangible Artifacts (CHItaly '25)", href: "https://doi.org/10.1145/3750069.3750089" },
+  { title: "Prompting Realities: Reappropriating Tangible Artifacts Through Conversation (interactions)", href: "https://doi.org/10.1145/3742782" },
 ];
 
 const logos: Logo[] = [
-  { src: "/logos/logo-01.png", alt: "AI Futures Lab", href: "#" },
-  { src: "/logos/AIFUTURESLAB.png", alt: "Design United", href: "#" },
-  { src: "/logos/DDW.png", alt: "Dutch Design Week", href: "#" },
-  { src: "/logos/TUDelft_logo_black.png", alt: "TU Delft", href: "#" },
+  { src: "/logos/logo-01.png", alt: "AI Futures Lab" },
+  { src: "/logos/AIFUTURESLAB.png", alt: "Design United" },
+  { src: "/logos/DDW.png", alt: "Dutch Design Week" },
+  { src: "/logos/TUDelft_logo_black.png", alt: "TU Delft" },
 ];
 
 export function Footer() {
   return (
     <footer className="border-t-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-12 lg:px-10">
       <div className="mx-auto max-w-7xl">
-        <div className="grid gap-10 md:grid-cols-[1fr_1fr_2fr] lg:gap-16">
+        {/* Main content grid */}
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-12">
           {/* Links and Associations */}
           <div className="space-y-4">
             <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
               Links and Associations
             </h3>
-            <ul className="space-y-2.5">
+            <ul className="space-y-2">
               {links.map((link) => (
                 <li key={link.label}>
                   <a
@@ -68,10 +79,10 @@ export function Footer() {
             <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
               Collaborators
             </h3>
-            <ul className="space-y-2.5">
+            <ul className="space-y-2">
               {collaborators.map((collab) => (
                 <li key={collab.name}>
-                  {collab.href && collab.href !== "#" ? (
+                  {collab.href ? (
                     <a
                       href={collab.href}
                       target="_blank"
@@ -90,24 +101,41 @@ export function Footer() {
             </ul>
           </div>
 
+          {/* Publications */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
+              Publications
+            </h3>
+            <ul className="space-y-2">
+              {publications.map((pub) => (
+                <li key={pub.href}>
+                  <a
+                    href={pub.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline decoration-2 underline-offset-2"
+                  >
+                    {pub.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+
           {/* Logos */}
-          <div className="flex items-center justify-end">
-            <div className="flex items-center gap-6 lg:gap-8">
+          <div className="space-y-4">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
+              Partners
+            </h3>
+            <div className="flex flex-wrap items-center gap-5">
               {logos.map((logo) => (
-                <a
+                <img
                   key={logo.alt}
-                  href={logo.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center transition-opacity hover:opacity-70"
+                  src={logo.src}
+                  alt={logo.alt}
                   title={logo.alt}
-                >
-                  <img
-                    src={logo.src}
-                    alt={logo.alt}
-                    className="h-8 w-auto object-contain lg:h-10"
-                  />
-                </a>
+                  className="h-9 w-auto object-contain"
+                />
               ))}
             </div>
           </div>
