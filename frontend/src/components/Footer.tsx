@@ -141,40 +141,32 @@ export function Footer() {
           </div>
         </div>
 
-        {/* Contact and Workshop CTA */}
-        <div className="mt-10 grid gap-4 sm:grid-cols-2">
-          {/* Contact */}
-          <div className="flex items-center rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white/60 px-6 py-5">
-            <p className="text-sm text-[var(--ink-dark)]">
-              For questions and inquiries, please contact{" "}
+        {/* Workshop CTA */}
+        <div className="mt-10 flex justify-center">
+          <a
+            href="mailto:mahan.mehrvarz@hotmail.com?subject=Workshop%20Request%20-%20Prompting%20Realities"
+            className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-8 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
+          >
+            Request a Workshop
+          </a>
+        </div>
+
+        {/* Bottom bar */}
+        <div className="mt-8 border-t-2 border-[var(--card-shell)]/20 pt-6">
+          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+            <p className="text-xs text-[var(--ink-muted)]">
+              © {new Date().getFullYear()} Prompting Realities. All rights reserved.
+            </p>
+            <p className="text-xs text-[var(--ink-muted)]">
+              For questions and inquiries, contact{" "}
               <a
                 href="mailto:mahan.mehrvarz@hotmail.com"
-                className="font-semibold text-[var(--ink-dark)] underline decoration-2 underline-offset-2 transition hover:text-[var(--accent-green)]"
+                className="underline underline-offset-2 transition hover:text-[var(--ink-dark)]"
               >
                 Mahan Mehrvarz
               </a>
             </p>
           </div>
-
-          {/* Workshop CTA */}
-          <div className="flex items-center justify-center rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white/60 px-6 py-5">
-            <a
-              href="mailto:mahan.mehrvarz@hotmail.com?subject=Workshop%20Request%20-%20Prompting%20Realities"
-              className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-6 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
-            >
-              Request a Workshop
-            </a>
-          </div>
-        </div>
-
-        {/* Bottom bar */}
-        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t-2 border-[var(--card-shell)]/20 pt-6 sm:flex-row">
-          <p className="text-xs text-[var(--ink-muted)]">
-            © {new Date().getFullYear()} Prompting Realities. All rights reserved.
-          </p>
-          <p className="text-xs text-[var(--ink-muted)]">
-            A research project exploring AI-mediated design interactions.
-          </p>
         </div>
       </div>
     </footer>
