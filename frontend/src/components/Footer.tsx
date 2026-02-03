@@ -22,6 +22,7 @@ type Logo = {
 };
 
 const links: LinkItem[] = [
+  { label: "About Prompting Realities", href: "https://mahanmehrvarz.name/promptingrealities/" },
   { label: "Project GitHub", href: "https://github.com/MahanMehrvarz/PromptingRealities" },
   { label: "4TU.design United", href: "https://www.4tu.nl/du/projects/Prompting-Realities/" },
   { label: "Dutch design week 2024", href: "https://ddw.nl/en/programme/13171/prompting-realities" },
@@ -53,10 +54,10 @@ export function Footer() {
       <div className="mx-auto max-w-7xl">
         {/* Main content grid */}
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-12">
-          {/* Links and Associations */}
+          {/* Links */}
           <div className="space-y-4">
             <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
-              Links and Associations
+              Links
             </h3>
             <ul className="space-y-2">
               {links.map((link) => (
