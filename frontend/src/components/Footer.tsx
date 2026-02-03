@@ -30,10 +30,10 @@ const links: LinkItem[] = [
 
 const collaborators: Collaborator[] = [
   { name: "Dave Murray-Rust", href: "https://dave.murray-rust.org/" },
-  { name: "Jerry de Vos", href: "https://jerrydevos.nl/" },
+  { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
   { name: "Aadjan Van Der Helm", href: "https://mahanmehrvarz.name/promptingrealities/#" },
   { name: "Martin Havranek" },
-  { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
+  { name: "Jerry de Vos", href: "https://jerrydevos.nl/" },
 ];
 
 const publications: Publication[] = [
