@@ -72,17 +72,17 @@ export function ExportDataModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="card-panel relative max-w-lg w-full space-y-4 p-6 animate-in fade-in zoom-in-95 duration-200">
+      <div className="card-panel relative max-w-lg w-full space-y-4 p-6 pt-5 animate-in fade-in zoom-in-95 duration-200">
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-4 top-4 text-[var(--ink-muted)] transition hover:text-[var(--foreground)]"
+          className="absolute right-3 top-3 rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 text-[var(--ink-muted)] transition hover:bg-[var(--ink-dark)] hover:text-white"
           aria-label="Close modal"
         >
-          <X className="h-5 w-5" />
+          <X className="h-4 w-4" />
         </button>
 
-        <div className="flex items-center gap-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[#fff9e6] px-4 py-3">
+        <div className="flex items-center gap-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[#fff9e6] px-4 py-3 mr-8">
           <h2 className="text-lg font-semibold text-[var(--ink-dark)]">
             Export Data
           </h2>
