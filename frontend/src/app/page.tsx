@@ -637,10 +637,10 @@ export default function Home() {
         prompt_instruction: source.promptInstruction,
         json_schema: source.jsonSchema,
         mqtt_host: source.mqttHost,
-        mqtt_port: source.mqttPort,
-        mqtt_user: source.mqttUser,
+        mqtt_port: parseInt(source.mqttPort, 10) || 1883,
+        mqtt_user: source.mqttUser ?? null,
         mqtt_topic: `${source.mqttTopic}-copy`,
-        mqtt_pass: source.mqttPass,
+        mqtt_pass: source.mqttPass ?? null,
         // Note: openai_key is NOT duplicated - user must re-enter
       });
 
