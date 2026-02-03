@@ -34,6 +34,7 @@ import { backendApi } from "@/lib/backendApi";
 import { SkeletonLoader } from "@/components/SkeletonLoader";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { ExportDataModal, type ExportOptions } from "@/components/ExportDataModal";
+import { DuplicationInfoModal } from "@/components/DuplicationInfoModal";
 import { Footer } from "@/components/Footer";
 import JSZip from "jszip";
 
@@ -267,6 +268,7 @@ export default function Home() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [duplicationInfo, setDuplicationInfo] = useState<{ isOpen: boolean; assistantName: string; newTopic: string }>({ isOpen: false, assistantName: "", newTopic: "" });
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdminStatus, setCheckingAdminStatus] = useState(true);
   const [testingMqtt, setTestingMqtt] = useState(false);
@@ -630,29 +632,33 @@ export default function Home() {
       const source = assistants.find(a => a.id === sourceId);
       if (!source) return;
 
+      const newName = `${source.name} (Copy)`;
+      const newTopic = `${source.mqttTopic}-copy`;
+
       // Create duplicate with modified name and topic
+      // Note: openai_key and mqtt_pass are NOT duplicated for security
       const record = await assistantService.create({
         supabase_user_id: user.id,
-        name: `${source.name} (Copy)`,
+        name: newName,
         prompt_instruction: source.promptInstruction,
         json_schema: source.jsonSchema,
         mqtt_host: source.mqttHost,
         mqtt_port: parseInt(source.mqttPort, 10) || 1883,
         mqtt_user: source.mqttUser ?? null,
-        mqtt_topic: `${source.mqttTopic}-copy`,
-        mqtt_pass: source.mqttPass ?? null,
-        // Note: openai_key is NOT duplicated - user must re-enter
+        mqtt_topic: newTopic,
+        mqtt_pass: null,
       });
-
-      // Copy MQTT password from localStorage if it exists
-      const sourceMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${sourceId}`);
-      if (sourceMqttPass) {
-        window.localStorage.setItem(`${MQTT_PASS_STORAGE_PREFIX}${record.id}`, sourceMqttPass);
-      }
 
       const formatted = formatAssistant(record);
       setAssistants((prev) => [...prev, formatted]);
       setSelectedAssistantId(record.id);
+
+      // Show info modal about what was not copied
+      setDuplicationInfo({
+        isOpen: true,
+        assistantName: newName,
+        newTopic: newTopic,
+      });
     } catch (error) {
       logger.error("Failed to duplicate assistant", error);
     }
@@ -1239,6 +1245,12 @@ export default function Home() {
         onExport={async (options, format) => {
           await handleExportData(options, format);
         }}
+      />
+      <DuplicationInfoModal
+        isOpen={duplicationInfo.isOpen}
+        assistantName={duplicationInfo.assistantName}
+        newTopic={duplicationInfo.newTopic}
+        onClose={() => setDuplicationInfo({ isOpen: false, assistantName: "", newTopic: "" })}
       />
       <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
         <h1 className="text-5xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
