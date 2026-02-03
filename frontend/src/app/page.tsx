@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import QRCode from "react-qr-code";
 import { logger } from "@/lib/logger";
@@ -258,6 +258,7 @@ export default function Home() {
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
+  const assistantsRef = useRef<Assistant[]>([]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
   const [activeConfigSection, setActiveConfigSection] = useState<ConfigSection>("prompt");
   const [copiedAssistantId, setCopiedAssistantId] = useState<string | null>(null);
@@ -278,7 +279,7 @@ export default function Home() {
 
   useEffect(() => {
     setHydrated(true);
-    
+
     // Check for redirect parameter in URL
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -288,6 +289,11 @@ export default function Home() {
       }
     }
   }, []);
+
+  // Keep assistants ref in sync with state for use in callbacks
+  useEffect(() => {
+    assistantsRef.current = assistants;
+  }, [assistants]);
 
   useEffect(() => {
     let isMounted = true;
@@ -669,8 +675,8 @@ export default function Home() {
   const handleRunAssistant = async () => {
     if (!selectedAssistant || !authToken || !readyToRun) return;
 
-    // Check if another assistant is already running
-    const runningAssistant = assistants.find(a => a.status === "running" && a.id !== selectedAssistant.id);
+    // Check if another assistant is already running (use ref for latest state)
+    const runningAssistant = assistantsRef.current.find(a => a.status === "running" && a.id !== selectedAssistant.id);
     if (runningAssistant) {
       setRunningAssistantName(runningAssistant.name);
       setShowAlreadyRunningModal(true);
