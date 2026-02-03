@@ -621,6 +621,43 @@ export default function Home() {
     }
   };
 
+  const handleDuplicateAssistant = async (sourceId: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Find source assistant
+      const source = assistants.find(a => a.id === sourceId);
+      if (!source) return;
+
+      // Create duplicate with modified name and topic
+      const record = await assistantService.create({
+        supabase_user_id: user.id,
+        name: `${source.name} (Copy)`,
+        prompt_instruction: source.promptInstruction,
+        json_schema: source.schema,
+        mqtt_host: source.mqttHost,
+        mqtt_port: source.mqttPort,
+        mqtt_user: source.mqttUser,
+        mqtt_topic: `${source.mqttTopic}-copy`,
+        mqtt_pass: source.mqttPass,
+        // Note: openai_key is NOT duplicated - user must re-enter
+      });
+
+      // Copy MQTT password from localStorage if it exists
+      const sourceMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${sourceId}`);
+      if (sourceMqttPass) {
+        window.localStorage.setItem(`${MQTT_PASS_STORAGE_PREFIX}${record.id}`, sourceMqttPass);
+      }
+
+      const formatted = formatAssistant(record);
+      setAssistants((prev) => [...prev, formatted]);
+      setSelectedAssistantId(record.id);
+    } catch (error) {
+      logger.error("Failed to duplicate assistant", error);
+    }
+  };
+
   const handleRunAssistant = async () => {
     if (!selectedAssistant || !authToken || !readyToRun) return;
     
@@ -1282,13 +1319,24 @@ export default function Home() {
                       {badge.label}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--foreground)]/70">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--foreground)]/70">
                     <span className="rounded-full border border-[var(--card-shell)] bg-white/80 px-3 py-1 font-semibold">
                       {assistant.chatHistory.length} msgs
                     </span>
                     <span className="rounded-full border border-[var(--card-shell)] bg-white/80 px-3 py-1 font-semibold">
                       MQTT {assistant.mqttHost ? "wired" : "pending"}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDuplicateAssistant(assistant.id);
+                      }}
+                      className="ml-auto rounded-full border border-[var(--card-shell)] bg-white/80 p-1.5 transition hover:bg-[var(--ink-dark)] hover:text-[var(--card-fill)]"
+                      title="Duplicate this LLM thing"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </button>
               );
