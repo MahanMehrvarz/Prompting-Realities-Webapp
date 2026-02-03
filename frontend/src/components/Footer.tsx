@@ -72,6 +72,12 @@ export function Footer() {
                 </li>
               ))}
             </ul>
+            <a
+              href="mailto:mahan.mehrvarz@hotmail.com?subject=Workshop%20Request%20-%20Prompting%20Realities"
+              className="mt-4 inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-5 py-2 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
+            >
+              Request a Workshop
+            </a>
           </div>
 
           {/* Collaborators */}
@@ -141,18 +147,8 @@ export function Footer() {
           </div>
         </div>
 
-        {/* Workshop CTA */}
-        <div className="mt-10 flex justify-center">
-          <a
-            href="mailto:mahan.mehrvarz@hotmail.com?subject=Workshop%20Request%20-%20Prompting%20Realities"
-            className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-8 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
-          >
-            Request a Workshop
-          </a>
-        </div>
-
         {/* Bottom bar */}
-        <div className="mt-8 border-t-2 border-[var(--card-shell)]/20 pt-6">
+        <div className="mt-12 border-t-2 border-[var(--card-shell)]/20 pt-6">
           <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
             <p className="text-xs text-[var(--ink-muted)]">
               © {new Date().getFullYear()} Prompting Realities. All rights reserved.
