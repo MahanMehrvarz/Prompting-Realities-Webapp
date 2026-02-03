@@ -635,7 +635,7 @@ export default function Home() {
         supabase_user_id: user.id,
         name: `${source.name} (Copy)`,
         prompt_instruction: source.promptInstruction,
-        json_schema: source.schema,
+        json_schema: source.jsonSchema,
         mqtt_host: source.mqttHost,
         mqtt_port: source.mqttPort,
         mqtt_user: source.mqttUser,
