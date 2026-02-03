@@ -269,6 +269,8 @@ export default function Home() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [duplicationInfo, setDuplicationInfo] = useState<{ isOpen: boolean; assistantName: string; newTopic: string }>({ isOpen: false, assistantName: "", newTopic: "" });
+  const [showAlreadyRunningModal, setShowAlreadyRunningModal] = useState(false);
+  const [runningAssistantName, setRunningAssistantName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdminStatus, setCheckingAdminStatus] = useState(true);
   const [testingMqtt, setTestingMqtt] = useState(false);
@@ -666,7 +668,15 @@ export default function Home() {
 
   const handleRunAssistant = async () => {
     if (!selectedAssistant || !authToken || !readyToRun) return;
-    
+
+    // Check if another assistant is already running
+    const runningAssistant = assistants.find(a => a.status === "running" && a.id !== selectedAssistant.id);
+    if (runningAssistant) {
+      setRunningAssistantName(runningAssistant.name);
+      setShowAlreadyRunningModal(true);
+      return;
+    }
+
     // Save and validate before running
     const saved = await saveAssistantNow(selectedAssistant.id, true);
     if (!saved) return;
@@ -1251,6 +1261,16 @@ export default function Home() {
         assistantName={duplicationInfo.assistantName}
         newTopic={duplicationInfo.newTopic}
         onClose={() => setDuplicationInfo({ isOpen: false, assistantName: "", newTopic: "" })}
+      />
+      <ConfirmationModal
+        isOpen={showAlreadyRunningModal}
+        title="Another LLM is Running"
+        message={`You can only run one LLM thing at a time. Please stop "${runningAssistantName}" first before running a new one.`}
+        confirmLabel="Got it"
+        cancelLabel="Cancel"
+        variant="warning"
+        onConfirm={() => setShowAlreadyRunningModal(false)}
+        onCancel={() => setShowAlreadyRunningModal(false)}
       />
       <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
         <h1 className="text-5xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
