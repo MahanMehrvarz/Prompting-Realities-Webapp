@@ -676,8 +676,9 @@ export default function Home() {
     if (!selectedAssistant || !authToken || !readyToRun) return;
 
     // Check if another assistant is already running (use ref for latest state)
+    // Admins (those with data export access) can run multiple instances
     const runningAssistant = assistantsRef.current.find(a => a.status === "running" && a.id !== selectedAssistant.id);
-    if (runningAssistant) {
+    if (runningAssistant && !isAdmin) {
       setRunningAssistantName(runningAssistant.name);
       setShowAlreadyRunningModal(true);
       return;
