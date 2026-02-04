@@ -1190,7 +1190,7 @@ export default function Home() {
           </h1>
         </header>
         <main className="flex flex-1 items-center justify-center p-6">
-          <div className="card-panel max-w-md w-full space-y-4 p-6">
+          <div className="card-panel max-w-md w-full space-y-4 px-6 py-8">
             <p className="panel-strip inline-block px-4 py-1 text-[10px] uppercase tracking-[0.4em] text-[var(--card-fill)]">
               Account
             </p>
