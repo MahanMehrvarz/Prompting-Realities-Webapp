@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { logger } from "@/lib/logger";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Footer } from "@/components/Footer";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 
@@ -143,104 +144,120 @@ export default function HiddenLoginPage() {
 
   if (authToken) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#05c46b] p-6 text-[var(--foreground)]">
-        <div className="card-panel max-w-md w-full space-y-4 p-6">
-          <p className="text-center text-sm text-[var(--ink-muted)]">
-            Redirecting...
-          </p>
-        </div>
+      <div className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
+        <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
+          <h1 className="text-3xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
+            Prompting Realities
+          </h1>
+        </header>
+        <main className="flex flex-1 items-center justify-center p-6">
+          <div className="card-panel max-w-md w-full space-y-4 p-6">
+            <p className="text-center text-sm text-[var(--ink-muted)]">
+              Redirecting...
+            </p>
+          </div>
+        </main>
+        <Footer />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#05c46b] p-6 text-[var(--foreground)]">
-      <div className="card-panel max-w-md w-full space-y-4 p-6">
-        <p className="panel-strip inline-block px-4 py-1 text-[10px] uppercase tracking-[0.4em] text-[var(--card-fill)]">
+    <div className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
+      <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
+        <h1 className="text-3xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
           Prompting Realities
-        </p>
-        <h1 className="text-2xl font-semibold text-[var(--ink-dark)]">
-          {authMode === "signin" ? "Sign in with password" : "Create account"}
         </h1>
-        {redirectPath && (
-          <p className="text-sm text-[var(--ink-muted)]">
-            {authMode === "signin" ? "Sign in to access the chat session" : "Create an account to continue"}
+      </header>
+      <main className="flex flex-1 items-center justify-center p-6">
+        <div className="card-panel max-w-md w-full space-y-4 p-6">
+          <p className="panel-strip inline-block px-4 py-1 text-[10px] uppercase tracking-[0.4em] text-[var(--card-fill)]">
+            Account
           </p>
-        )}
-        {authError && (
-          <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#ff6b6b] bg-[#ffe6e6] px-4 py-3 text-sm text-[#4a0000]">
-            <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            <span>{authError}</span>
-          </div>
-        )}
-        {authSuccess && (
-          <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
-            <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-            <span>Account created! Please check your email to confirm your account.</span>
-          </div>
-        )}
-        <div className="space-y-3">
-          <input
-            type="email"
-            placeholder="email@example.com"
-            value={authEmail}
-            onChange={(event) => setAuthEmail(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                handleAuthSubmit();
-              }
-            }}
-            disabled={authSuccess}
-            className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          <input
-            type="password"
-            placeholder="Password (min. 6 characters)"
-            value={authPassword}
-            onChange={(event) => setAuthPassword(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                handleAuthSubmit();
-              }
-            }}
-            disabled={authSuccess}
-            className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-          <button
-            type="button"
-            onClick={handleAuthSubmit}
-            disabled={authSuccess || !authEmail || !authPassword}
-            className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {authSuccess 
-              ? "Check your email" 
-              : authMode === "signin" 
-                ? "Sign in" 
-                : "Create account"}
-          </button>
-          <div className="flex items-center justify-center gap-2 text-xs text-[var(--ink-muted)]">
-            <span>
-              {authMode === "signin" ? "Don't have an account?" : "Already have an account?"}
-            </span>
+          <h2 className="text-2xl font-semibold text-[var(--ink-dark)]">
+            {authMode === "signin" ? "Sign in with password" : "Create account"}
+          </h2>
+          {redirectPath && (
+            <p className="text-sm text-[var(--ink-muted)]">
+              {authMode === "signin" ? "Sign in to access the chat session" : "Create an account to continue"}
+            </p>
+          )}
+          {authError && (
+            <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#ff6b6b] bg-[#ffe6e6] px-4 py-3 text-sm text-[#4a0000]">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+          {authSuccess && (
+            <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              <span>Account created! Please check your email to confirm your account.</span>
+            </div>
+          )}
+          <div className="space-y-3">
+            <input
+              type="email"
+              placeholder="email@example.com"
+              value={authEmail}
+              onChange={(event) => setAuthEmail(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  handleAuthSubmit();
+                }
+              }}
+              disabled={authSuccess}
+              className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <input
+              type="password"
+              placeholder="Password (min. 6 characters)"
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  handleAuthSubmit();
+                }
+              }}
+              disabled={authSuccess}
+              className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+            />
             <button
               type="button"
-              onClick={() => {
-                setAuthMode(authMode === "signin" ? "signup" : "signin");
-                setAuthError(null);
-                setAuthSuccess(false);
-              }}
-              className="underline hover:text-[var(--foreground)]"
+              onClick={handleAuthSubmit}
+              disabled={authSuccess || !authEmail || !authPassword}
+              className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {authMode === "signin" ? "Sign up" : "Sign in"}
+              {authSuccess
+                ? "Check your email"
+                : authMode === "signin"
+                  ? "Sign in"
+                  : "Create account"}
             </button>
+            <div className="flex items-center justify-center gap-2 text-xs text-[var(--ink-muted)]">
+              <span>
+                {authMode === "signin" ? "Don't have an account?" : "Already have an account?"}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode(authMode === "signin" ? "signup" : "signin");
+                  setAuthError(null);
+                  setAuthSuccess(false);
+                }}
+                className="underline hover:text-[var(--foreground)]"
+              >
+                {authMode === "signin" ? "Sign up" : "Sign in"}
+              </button>
+            </div>
+            <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
+              <a href="/" className="underline hover:text-[var(--foreground)]">
+                Back to magic link login
+              </a>
+            </p>
           </div>
-          <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
-            <a href="/" className="underline hover:text-[var(--foreground)]">
-              Back to magic link login
-            </a>
-          </p>
         </div>
-      </div>
+      </main>
+      <Footer />
     </div>
   );
 }
