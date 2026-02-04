@@ -1183,58 +1183,71 @@ export default function Home() {
 
   if (!authToken) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#05c46b] p-6 text-[var(--foreground)]">
-        <div className="card-panel max-w-md w-full space-y-4 p-6">
-          <p className="panel-strip inline-block px-4 py-1 text-[10px] uppercase tracking-[0.4em] text-[var(--card-fill)]">
+      <div className="flex min-h-screen flex-col bg-[var(--background)] text-[var(--foreground)]">
+        <header className="flex items-center justify-between border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] px-6 py-4 shadow-[0_6px_0_var(--card-shell)]">
+          <h1 className="text-3xl font-black text-[var(--ink-dark)] uppercase tracking-[0.1em]">
             Prompting Realities
-          </p>
-          <h1 className="text-2xl font-semibold text-[var(--ink-dark)]">
-            Sign in
           </h1>
-          {redirectPath && (
-            <p className="text-sm text-[var(--ink-muted)]">
-              Sign in to access the chat session
+        </header>
+        <main className="flex flex-1 items-center justify-center p-6">
+          <div className="card-panel max-w-md w-full space-y-4 p-6">
+            <p className="panel-strip inline-block px-4 py-1 text-[10px] uppercase tracking-[0.4em] text-[var(--card-fill)]">
+              Account
             </p>
-          )}
-          {authError && (
-            <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#ff6b6b] bg-[#ffe6e6] px-4 py-3 text-sm text-[#4a0000]">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              <span>{authError}</span>
+            <h2 className="text-2xl font-semibold text-[var(--ink-dark)]">
+              Sign in
+            </h2>
+            {redirectPath && (
+              <p className="text-sm text-[var(--ink-muted)]">
+                Sign in to access the chat session
+              </p>
+            )}
+            {authError && (
+              <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#ff6b6b] bg-[#ffe6e6] px-4 py-3 text-sm text-[#4a0000]">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{authError}</span>
+              </div>
+            )}
+            {authSuccess && (
+              <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                <span>Magic link sent! Check your email to sign in.</span>
+              </div>
+            )}
+            <div className="space-y-3">
+              <input
+                type="email"
+                placeholder="email@example.com"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    handleAuthSubmit();
+                  }
+                }}
+                disabled={authSuccess}
+                className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <button
+                type="button"
+                onClick={handleAuthSubmit}
+                disabled={authSuccess || !authEmail}
+                className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {authSuccess ? "Magic link sent" : "Send magic link"}
+              </button>
+              <p className="text-xs text-[var(--ink-muted)] text-center">
+                We&apos;ll send you a magic link to sign in without a password.
+              </p>
+              <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
+                <a href="/hidden-login" className="underline hover:text-[var(--foreground)]">
+                  Sign in with password instead
+                </a>
+              </p>
             </div>
-          )}
-          {authSuccess && (
-            <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
-              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-              <span>Magic link sent! Check your email to sign in.</span>
-            </div>
-          )}
-          <div className="space-y-3">
-            <input
-              type="email"
-              placeholder="email@example.com"
-              value={authEmail}
-              onChange={(event) => setAuthEmail(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  handleAuthSubmit();
-                }
-              }}
-              disabled={authSuccess}
-              className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-sm text-[var(--foreground)] disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <button
-              type="button"
-              onClick={handleAuthSubmit}
-              disabled={authSuccess || !authEmail}
-              className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {authSuccess ? "Magic link sent" : "Send magic link"}
-            </button>
-            <p className="text-xs text-[var(--ink-muted)] text-center">
-              We'll send you a magic link to sign in without a password.
-            </p>
           </div>
-        </div>
+        </main>
+        <Footer />
       </div>
     );
   }
