@@ -1015,6 +1015,7 @@ export default function Home() {
         llmThing = {
           assistant_id: assistant.id,
           assistant_name: assistant.name,
+          current_prompt_instruction: assistant.prompt_instruction,
           json_schema: assistant.json_schema,
           mqtt_topic: assistant.mqtt_topic,
           instruction_history: options.instructionHistory?.enabled
