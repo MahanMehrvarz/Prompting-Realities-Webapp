@@ -93,14 +93,17 @@ export const assistantService = {
 
     // Record instruction history if prompt_instruction was updated
     if (updates.prompt_instruction !== undefined) {
-      await supabaseClient
+      const { error: historyError } = await supabaseClient
         .from("instruction_history")
         .insert({
           assistant_id: id,
+          assistant_name: updates.name || data.name,
           instruction_text: updates.prompt_instruction,
           saved_at: new Date().toISOString(),
         });
-      // Non-blocking: don't throw if history insert fails
+      if (historyError) {
+        console.error("Failed to record instruction history:", historyError);
+      }
     }
 
     return data as Assistant;
