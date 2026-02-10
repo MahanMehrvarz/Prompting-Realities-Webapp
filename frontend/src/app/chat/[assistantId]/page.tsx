@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
@@ -18,10 +18,12 @@ const TOKEN_STORAGE_KEY = "pr-auth-token";
 
 type ChatMessage = {
   id: string;
+  dbMessageId?: string; // The actual database ID for updating reactions
   role: "assistant" | "user";
   content: string;
   timestamp: string;
   mqttFailed?: boolean; // Flag to indicate MQTT publish failure
+  reaction?: "like" | "dislike" | null; // User reaction to assistant message
 };
 
 export default function AssistantChatPage() {
@@ -404,6 +406,33 @@ export default function AssistantChatPage() {
     setShowResetModal(false);
   };
 
+  const handleReaction = async (messageId: string, dbMessageId: string | undefined, reaction: "like" | "dislike") => {
+    if (!dbMessageId) return;
+
+    // Find current reaction
+    const currentMessage = messages.find(m => m.id === messageId);
+    const currentReaction = currentMessage?.reaction;
+
+    // Toggle: if clicking the same reaction, remove it; otherwise set the new one
+    const newReaction = currentReaction === reaction ? null : reaction;
+
+    // Optimistically update UI
+    setMessages(prev => prev.map(msg =>
+      msg.id === messageId ? { ...msg, reaction: newReaction } : msg
+    ));
+
+    try {
+      await messageService.updateReaction(dbMessageId, newReaction);
+      logger.log("✅ Reaction updated:", { messageId, reaction: newReaction });
+    } catch (error) {
+      // Revert on error
+      logger.error("❌ Failed to update reaction:", error);
+      setMessages(prev => prev.map(msg =>
+        msg.id === messageId ? { ...msg, reaction: currentReaction } : msg
+      ));
+    }
+  };
+
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     logger.log("🚀 [Frontend] handleSend triggered");
@@ -580,6 +609,7 @@ export default function AssistantChatPage() {
         mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? mqttValueToSave : null, // Only store MQTT_value if MQTT publish succeeded
         device_id: user ? null : deviceIdRef.current, // Anonymous users get device_id, authenticated users get null
         thread_id: threadIdRef.current, // Always save thread_id for conversation isolation
+        reaction: null, // No reaction initially
       });
       logger.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
       
@@ -597,10 +627,12 @@ export default function AssistantChatPage() {
       
       const newAssistantMessage: ChatMessage = {
         id: `${conversationMessage.id}-assistant`,
+        dbMessageId: conversationMessage.id,
         role: "assistant",
         content: responseText || JSON.stringify(aiResponse.payload, null, 2),
         timestamp: conversationMessage.created_at,
         mqttFailed: mqttPublishAttempted && !mqttPublishSuccess,
+        reaction: null,
       };
       
       // Update messages by replacing the temp message with the real ones
@@ -824,6 +856,33 @@ export default function AssistantChatPage() {
                       <span>MQTT publish failed</span>
                     </div>
                   )}
+                  {/* Like/Dislike buttons for assistant messages */}
+                  {message.role === "assistant" && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <button
+                        onClick={() => handleReaction(message.id, message.dbMessageId, "like")}
+                        className={`p-1.5 rounded-full transition-all ${
+                          message.reaction === "like"
+                            ? "bg-green-100 text-green-600"
+                            : "bg-transparent text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/30"
+                        }`}
+                        title="Like this response"
+                      >
+                        <ThumbsUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleReaction(message.id, message.dbMessageId, "dislike")}
+                        className={`p-1.5 rounded-full transition-all ${
+                          message.reaction === "dislike"
+                            ? "bg-red-100 text-red-600"
+                            : "bg-transparent text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/30"
+                        }`}
+                        title="Dislike this response"
+                      >
+                        <ThumbsDown className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -961,7 +1020,7 @@ export default function AssistantChatPage() {
 
 function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
   const messages: ChatMessage[] = [];
-  
+
   // If there's a user message, add it first
   if (message.user_text) {
     messages.push({
@@ -971,28 +1030,30 @@ function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
       timestamp: message.created_at,
     });
   }
-  
+
   // If there's an assistant response, add it
   if (message.response_text || message.assistant_payload) {
     // Check if MQTT publish failed: assistant_payload exists but mqtt_payload is null
     // IMPORTANT: Only flag as failed if assistant_payload is not null (meaning MQTT was attempted)
     // If assistant_payload is null, MQTT was never attempted, so don't show warning
-    const mqttFailed = 
-      message.assistant_payload !== null && 
+    const mqttFailed =
+      message.assistant_payload !== null &&
       message.assistant_payload !== undefined &&
       (message.mqtt_payload === null || message.mqtt_payload === undefined);
-    
+
     // Use response_text directly - backend now handles extraction
     const content = message.response_text || JSON.stringify(message.assistant_payload, null, 2);
-    
+
     messages.push({
       id: `${message.id}-assistant`,
+      dbMessageId: message.id, // Store the actual database ID for updating reactions
       role: "assistant",
       content: content,
       timestamp: message.created_at,
       mqttFailed: mqttFailed,
+      reaction: message.reaction,
     });
   }
-  
+
   return messages;
 }

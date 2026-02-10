@@ -53,6 +53,7 @@ export type ChatMessage = {
   mqtt_payload: Record<string, any> | null;
   device_id: string | null;
   thread_id: string | null;
+  reaction: "like" | "dislike" | null;
   created_at: string;
 };
 
@@ -248,6 +249,18 @@ export const messageService = {
 
     if (error) throw error;
     return data;
+  },
+
+  async updateReaction(messageId: string, reaction: "like" | "dislike" | null) {
+    const { data, error } = await supabaseClient
+      .from("chat_messages")
+      .update({ reaction })
+      .eq("id", messageId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data as ChatMessage;
   },
 };
 
