@@ -23,6 +23,11 @@ export interface ExportOptions {
     jsonSchema: boolean;
     mqttTopic: boolean;
   };
+  instructionHistory: {
+    enabled: boolean;
+    instructionText: boolean;
+    timestamp: boolean;
+  };
 }
 
 export function ExportDataModal({
@@ -46,6 +51,11 @@ export function ExportDataModal({
       jsonSchema: true,
       mqttTopic: true,
     },
+    instructionHistory: {
+      enabled: true,
+      instructionText: true,
+      timestamp: true,
+    },
   });
 
   const [exportFormat, setExportFormat] = useState<"csv" | "json">("csv");
@@ -53,7 +63,7 @@ export function ExportDataModal({
   if (!isOpen) return null;
 
   const handleToggle = (
-    category: "messages" | "session",
+    category: "messages" | "session" | "instructionHistory",
     field: string
   ) => {
     setOptions((prev) => ({
@@ -109,7 +119,7 @@ export function ExportDataModal({
                     CSV
                   </span>
                   <p className="text-xs text-[var(--ink-muted)]">
-                    2 files (messages + sessions) in a ZIP
+                    2-3 files (messages + sessions + history) in a ZIP
                   </p>
                 </div>
               </label>
@@ -195,6 +205,39 @@ export function ExportDataModal({
                       ]
                     }
                     onChange={() => handleToggle("session", key)}
+                    className="h-5 w-5 rounded border-[3px] border-[var(--card-shell)] text-[var(--ink-dark)] focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 cursor-pointer"
+                  />
+                  <span className="text-sm text-[var(--foreground)] group-hover:text-[var(--ink-dark)]">
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Instruction History Section */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-[var(--foreground)]">
+              Instruction History:
+            </h3>
+            <div className="space-y-2">
+              {[
+                { key: "enabled", label: "Include instruction history" },
+                { key: "instructionText", label: "Instruction text" },
+                { key: "timestamp", label: "Saved timestamp" },
+              ].map(({ key, label }) => (
+                <label
+                  key={key}
+                  className="flex items-center gap-3 cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      options.instructionHistory[
+                        key as keyof typeof options.instructionHistory
+                      ]
+                    }
+                    onChange={() => handleToggle("instructionHistory", key)}
                     className="h-5 w-5 rounded border-[3px] border-[var(--card-shell)] text-[var(--ink-dark)] focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 cursor-pointer"
                   />
                   <span className="text-sm text-[var(--foreground)] group-hover:text-[var(--ink-dark)]">

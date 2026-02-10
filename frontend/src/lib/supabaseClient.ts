@@ -90,6 +90,19 @@ export const assistantService = {
       .single();
 
     if (error) throw error;
+
+    // Record instruction history if prompt_instruction was updated
+    if (updates.prompt_instruction !== undefined) {
+      await supabaseClient
+        .from("instruction_history")
+        .insert({
+          assistant_id: id,
+          instruction_text: updates.prompt_instruction,
+          saved_at: new Date().toISOString(),
+        });
+      // Non-blocking: don't throw if history insert fails
+    }
+
     return data as Assistant;
   },
 

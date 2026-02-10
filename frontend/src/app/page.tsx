@@ -854,10 +854,22 @@ export default function Home() {
             .eq("assistant_id", assistant.id)
             .order("created_at", { ascending: true });
 
+          // Fetch instruction history if enabled
+          let instructionHistory: any[] = [];
+          if (options.instructionHistory?.enabled) {
+            const { data: historyData } = await supabase
+              .from("instruction_history")
+              .select("*")
+              .eq("assistant_id", assistant.id)
+              .order("saved_at", { ascending: true });
+            instructionHistory = historyData || [];
+          }
+
           return {
             assistant,
             sessions: sessions.data || [],
             messages: messages.data || [],
+            instructionHistory,
             userId: assistant.supabase_user_id,
           };
         })
@@ -946,6 +958,32 @@ export default function Home() {
 
     zip.file("sessions.csv", sessionRows.join("\n"));
 
+    // Build instruction history CSV (if enabled)
+    if (options.instructionHistory?.enabled) {
+      const historyHeaders: string[] = ["assistant_id", "assistant_name"];
+      if (options.instructionHistory.timestamp) historyHeaders.push("saved_at");
+      if (options.instructionHistory.instructionText) historyHeaders.push("instruction_text");
+
+      const historyRows: string[] = [historyHeaders.join(",")];
+
+      data.forEach(({ assistant, instructionHistory }) => {
+        (instructionHistory || []).forEach((record: any) => {
+          const row: string[] = [
+            assistant.id,
+            `"${assistant.name.replace(/"/g, '""')}"`,
+          ];
+          if (options.instructionHistory.timestamp) row.push(record.saved_at || "");
+          if (options.instructionHistory.instructionText) {
+            const sanitized = (record.instruction_text || "").replace(/"/g, '""').replace(/\n/g, "\\n");
+            row.push(`"${sanitized}"`);
+          }
+          historyRows.push(row.join(","));
+        });
+      });
+
+      zip.file("instruction_history.csv", historyRows.join("\n"));
+    }
+
     // Generate and download ZIP
     const blob = await zip.generateAsync({ type: "blob" });
     const url = URL.createObjectURL(blob);
@@ -963,7 +1001,7 @@ export default function Home() {
     options: ExportOptions
   ) => {
     // Group data by user_id first
-    const userGroups = data.reduce((acc: any, { assistant, sessions, messages, userId }) => {
+    const userGroups = data.reduce((acc: any, { assistant, sessions, messages, instructionHistory, userId }) => {
       if (!acc[userId]) {
         acc[userId] = {
           user_id: userId,
@@ -979,6 +1017,18 @@ export default function Home() {
           assistant_name: assistant.name,
           json_schema: assistant.json_schema,
           mqtt_topic: assistant.mqtt_topic,
+          instruction_history: options.instructionHistory?.enabled
+            ? (instructionHistory || []).map((record: any) => {
+                const historyEntry: any = {};
+                if (options.instructionHistory.timestamp) {
+                  historyEntry.saved_at = record.saved_at;
+                }
+                if (options.instructionHistory.instructionText) {
+                  historyEntry.instruction_text = record.instruction_text;
+                }
+                return historyEntry;
+              })
+            : undefined,
           sessions: []
         };
         acc[userId].llm_things.push(llmThing);
