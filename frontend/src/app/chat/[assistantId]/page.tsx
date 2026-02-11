@@ -12,6 +12,7 @@ import {
   type ChatMessage as DbChatMessage,
 } from "@/lib/supabaseClient";
 import { backendApi } from "@/lib/backendApi";
+import { getAssistantColors } from "@/lib/assistantColors";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
@@ -731,9 +732,15 @@ export default function AssistantChatPage() {
     return null;
   }
 
+  // Get assistant-specific colors for the chat interface
+  const assistantColors = getAssistantColors(assistantId);
+
   if (!sessionId) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-transparent px-4 py-6 text-[var(--foreground)]">
+      <div
+        className="flex min-h-screen items-center justify-center px-4 py-6 text-[var(--foreground)]"
+        style={{ background: assistantColors.chatBg }}
+      >
         <p className="card-panel px-5 py-4 text-center">
           Session ID missing. Launch a session from the dashboard.
         </p>
@@ -742,7 +749,10 @@ export default function AssistantChatPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-transparent text-[var(--foreground)]">
+    <div
+      className="flex h-screen flex-col text-[var(--foreground)]"
+      style={{ background: assistantColors.chatBg }}
+    >
       {/* Reset Conversation Confirmation Modal */}
       <ConfirmationModal
         isOpen={showResetModal}

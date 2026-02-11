@@ -30,6 +30,7 @@ import {
   type AssistantSession,
   type ChatMessage as DbChatMessage,
 } from "@/lib/supabaseClient";
+import { getAssistantColors } from "@/lib/assistantColors";
 import { backendApi } from "@/lib/backendApi";
 import { SkeletonLoader } from "@/components/SkeletonLoader";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
@@ -1399,6 +1400,7 @@ export default function Home() {
             assistants.map((assistant) => {
               const badge = assistantStatusBadge(assistant);
               const isSelected = assistant.id === selectedAssistant?.id;
+              const colors = getAssistantColors(assistant.id);
               return (
                 <button
                   key={assistant.id}
@@ -1409,7 +1411,10 @@ export default function Home() {
                       : "border-transparent bg-white/70 hover:border-[var(--card-shell)]/60"
                   }`}
                 >
-                  <div className="flex items-center justify-between rounded-[20px] bg-[var(--ink-dark)] px-4 py-2 text-[var(--card-fill)]">
+                  <div
+                    className="flex items-center justify-between rounded-[20px] px-4 py-2"
+                    style={{ backgroundColor: colors.accent, color: colors.accentText }}
+                  >
                     <div>
                       <p className="font-semibold">{assistant.name}</p>
                       <p className="text-xs opacity-80">
