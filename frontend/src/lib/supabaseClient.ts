@@ -47,6 +47,7 @@ export type ChatMessage = {
   id: string;
   session_id: string;
   assistant_id: string;
+  assistant_name: string | null;
   user_text: string | null;
   assistant_payload: Record<string, any> | null;
   response_text: string | null;
