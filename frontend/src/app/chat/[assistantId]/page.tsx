@@ -488,7 +488,10 @@ export default function AssistantChatPage() {
       if (assistantError || !assistantData) {
         throw new Error("Failed to fetch assistant configuration");
       }
-      
+
+      const assistantDisplayName = assistantData?.name || title;
+      logger.log("📛 [Frontend] Assistant name to save:", assistantDisplayName);
+
       logger.log("🤖 [Frontend] Calling backend AI API...");
       logger.log("📜 [Frontend] Using previous_response_id:", lastResponseId);
       logger.log("🧵 [Frontend] Using thread_id:", threadIdRef.current);
@@ -603,6 +606,7 @@ export default function AssistantChatPage() {
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
+        assistant_name: assistantDisplayName,
         user_text: trimmed, // Store user's message
         assistant_payload: aiResponse.payload, // Store as actual JSON object
         response_text: responseText, // Store the extracted text from backend
