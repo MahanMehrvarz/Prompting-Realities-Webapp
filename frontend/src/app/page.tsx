@@ -1405,10 +1405,10 @@ export default function Home() {
                 <button
                   key={assistant.id}
                   onClick={() => setSelectedAssistantId(assistant.id)}
-                  className={`rounded-[20px] border px-4 py-4 text-left transition ${
+                  className={`rounded-[20px] px-4 py-4 text-left transition ${
                     isSelected
-                      ? "border-[var(--card-shell)] bg-white"
-                      : "border-[var(--card-shell)]/30 bg-white/70 hover:border-[var(--card-shell)]/60"
+                      ? "border-[3px] border-[var(--card-shell)] bg-white shadow-[5px_5px_0_var(--shadow-deep)]"
+                      : "border border-[var(--card-shell)]/30 bg-white/70 hover:border-[var(--card-shell)]/60"
                   }`}
                 >
                   <div
