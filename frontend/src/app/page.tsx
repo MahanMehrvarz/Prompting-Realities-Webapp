@@ -1412,7 +1412,7 @@ export default function Home() {
                   }`}
                 >
                   <div
-                    className="flex items-center justify-between rounded-[20px] border-[3px] border-[var(--card-shell)] px-4 py-2"
+                    className="flex items-center justify-between rounded-[20px] px-4 py-2"
                     style={{ backgroundColor: colors.accent, color: colors.accentText }}
                   >
                     <div>
