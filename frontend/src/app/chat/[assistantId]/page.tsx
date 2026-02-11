@@ -853,7 +853,7 @@ export default function AssistantChatPage() {
                     className={`rounded-2xl px-3 py-2 sm:px-4 sm:py-3 ${
                       message.role === "user"
                         ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
-                        : "bg-[var(--ink-muted)] text-[var(--card-fill)]"
+                        : "bg-[var(--background)] text-[var(--card-fill)]"
                     }`}
                   >
                     <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
@@ -905,7 +905,7 @@ export default function AssistantChatPage() {
             {isActiveUser && isAiResponding && (
               <div className="flex justify-start">
                 <div className="flex flex-col gap-1 max-w-[85%] sm:max-w-[75%]">
-                  <div className="rounded-2xl px-3 py-2 sm:px-4 sm:py-3 bg-[var(--ink-muted)] text-[var(--card-fill)]">
+                  <div className="rounded-2xl px-3 py-2 sm:px-4 sm:py-3 bg-[var(--background)] text-[var(--card-fill)]">
                     <div className="flex items-center gap-1">
                       <div className="flex gap-1">
                         <span className="w-2 h-2 bg-[var(--card-fill)] rounded-full animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1.4s' }}></span>
