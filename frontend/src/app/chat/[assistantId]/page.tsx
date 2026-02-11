@@ -853,7 +853,7 @@ export default function AssistantChatPage() {
                     className={`rounded-2xl px-3 py-2 sm:px-4 sm:py-3 ${
                       message.role === "user"
                         ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
-                        : "bg-[var(--background)] text-[var(--card-fill)]"
+                        : "bg-[var(--background)] text-[var(--ink-dark)]"
                     }`}
                   >
                     <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
