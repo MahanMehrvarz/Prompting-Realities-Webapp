@@ -47,6 +47,7 @@ export type ChatMessage = {
   id: string;
   session_id: string;
   assistant_id: string;
+  assistant_name?: string | null;
   user_text: string | null;
   assistant_payload: Record<string, any> | null;
   response_text: string | null;
@@ -94,11 +95,15 @@ export const assistantService = {
 
     // Record instruction history if prompt_instruction was updated
     if (updates.prompt_instruction !== undefined) {
+      // Get the assistant name - prefer from returned data, fall back to updates
+      const assistantName = (data as Assistant).name || updates.name || "Unknown";
+      console.log("Recording instruction history for:", { id, assistantName, dataName: (data as any)?.name, updatesName: updates.name });
+
       const { error: historyError } = await supabaseClient
         .from("instruction_history")
         .insert({
           assistant_id: id,
-          assistant_name: updates.name || data.name,
+          assistant_name: assistantName,
           instruction_text: updates.prompt_instruction,
           saved_at: new Date().toISOString(),
         });
