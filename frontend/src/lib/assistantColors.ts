@@ -4,18 +4,21 @@
  */
 
 // Curated palette of warm, friendly hues that fit the project's visual language
-// Avoiding harsh blues and keeping within warm/earthy tones
+// Expanded for more variety while keeping colors cohesive
 const PALETTE_HUES = [
-  15,   // warm coral/red-orange
-  30,   // orange
-  45,   // amber
-  75,   // olive/yellow-green
-  140,  // soft green
-  165,  // teal
-  195,  // soft cyan
-  280,  // soft purple
-  320,  // magenta/pink
-  345,  // rose
+  8,    // deep coral
+  22,   // burnt orange
+  35,   // tangerine
+  50,   // golden amber
+  68,   // olive
+  95,   // lime green
+  145,  // forest green
+  170,  // teal
+  200,  // slate blue
+  260,  // lavender purple
+  290,  // violet
+  325,  // magenta
+  350,  // rose red
 ];
 
 /**
@@ -43,10 +46,10 @@ export function getAssistantColors(assistantId: string): {
   const hash = hashString(assistantId);
   const hue = PALETTE_HUES[hash % PALETTE_HUES.length];
 
-  // Accent color: moderately saturated, medium-dark for good contrast with white text
-  // saturation 55-65%, lightness 35-45%
-  const accentSaturation = 55 + (hash % 10);
-  const accentLightness = 38 + (hash % 8);
+  // Accent color: lighter and more saturated for good contrast with black text
+  // saturation 50-65%, lightness 55-65% for vibrant but readable backgrounds
+  const accentSaturation = 50 + (hash % 15);
+  const accentLightness = 55 + (hash % 10);
 
   // Chat background: very soft pastel, high lightness, low saturation
   // saturation 30-45%, lightness 92-96% for a barely-there tint
@@ -55,7 +58,7 @@ export function getAssistantColors(assistantId: string): {
 
   return {
     accent: `hsl(${hue}, ${accentSaturation}%, ${accentLightness}%)`,
-    accentText: '#ffffff', // White text works well on these accent colors
+    accentText: '#1b1b1b', // Dark text for better readability on lighter accent colors
     chatBg: `hsl(${hue}, ${bgSaturation}%, ${bgLightness}%)`,
   };
 }
