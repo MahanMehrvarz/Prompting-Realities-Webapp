@@ -35,7 +35,6 @@ const collaborators: Collaborator[] = [
   { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
   { name: "Aadjan Van Der Helm", href: "https://mahanmehrvarz.name/promptingrealities/#" },
   { name: "Martin Havranek" },
-  { name: "Nastaran Tahbaz", href: "https://www.nastarantahbaz.com/", highlight: true },
 ];
 
 const publications: Publication[] = [
