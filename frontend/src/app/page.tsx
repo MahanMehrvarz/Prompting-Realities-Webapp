@@ -736,6 +736,9 @@ export default function Home() {
   const handleStopAssistant = async () => {
     if (!selectedAssistant || !selectedAssistant.activeSessionId) return;
     try {
+      // Disconnect MQTT connections for this session
+      await backendApi.disconnectMqtt(selectedAssistant.activeSessionId, authToken || undefined);
+
       await sessionService.update(selectedAssistant.activeSessionId, {
         status: "stopped",
         active: false,

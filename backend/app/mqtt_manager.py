@@ -227,18 +227,45 @@ class MqttConnectionManager:
         client = await self.get_or_create_connection(host, port, username, password, user_email, session_id)
         return client is not None and client.is_connected()
 
+    async def disconnect_session_connections(self, session_id: str) -> int:
+        """Disconnect all MQTT connections for a specific session."""
+        async with self._lock:
+            disconnected_count = 0
+            keys_to_remove = []
+
+            # Find all connections that belong to this session
+            for connection_key in self._connections.keys():
+                # Connection keys are formatted as: host:port:username:user_email:session_id
+                if connection_key.endswith(f":{session_id}"):
+                    keys_to_remove.append(connection_key)
+
+            # Disconnect and remove these connections
+            for connection_key in keys_to_remove:
+                try:
+                    client = self._connections[connection_key]
+                    client.loop_stop()
+                    client.disconnect()
+                    del self._connections[connection_key]
+                    disconnected_count += 1
+                    logger.info(f"✅ Disconnected session connection: {connection_key}")
+                except Exception as exc:
+                    logger.error(f"❌ Error disconnecting {connection_key} - {exc}")
+
+            logger.info(f"🔌 Disconnected {disconnected_count} MQTT connections for session {session_id}")
+            return disconnected_count
+
     async def disconnect_user_connections(self, user_email: str) -> int:
         """Disconnect all MQTT connections for a specific user."""
         async with self._lock:
             disconnected_count = 0
             keys_to_remove = []
-            
+
             # Find all connections that belong to this user
             for connection_key in self._connections.keys():
                 # Connection keys are formatted as: host:port:username:user_email or host:port:username:user_email:session_id
                 if f":{user_email}" in connection_key or connection_key.endswith(f":{user_email}"):
                     keys_to_remove.append(connection_key)
-            
+
             # Disconnect and remove these connections
             for connection_key in keys_to_remove:
                 try:
@@ -250,7 +277,7 @@ class MqttConnectionManager:
                     logger.info(f"✅ Disconnected user connection: {connection_key}")
                 except Exception as exc:
                     logger.error(f"❌ Error disconnecting {connection_key} - {exc}")
-            
+
             logger.info(f"🔌 Disconnected {disconnected_count} MQTT connections for user {user_email}")
             return disconnected_count
 

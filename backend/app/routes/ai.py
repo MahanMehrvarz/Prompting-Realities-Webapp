@@ -174,6 +174,7 @@ async def chat_with_openai(
                         if marker_id:
                             supabase.table("chat_messages").update({
                                 "assistant_payload": {"_response_id_marker": response_id},
+                                "assistant_name": assistant.get("name"),
                             }).eq("id", marker_id).execute()
                             logger.info(f"💾 [Backend] Updated response_id {response_id} for thread {request.thread_id}")
                 else:
@@ -181,6 +182,7 @@ async def chat_with_openai(
                     supabase.table("chat_messages").insert({
                         "session_id": request.session_id,
                         "assistant_id": request.assistant_id,
+                        "assistant_name": assistant.get("name"),
                         "thread_id": request.thread_id,
                         "user_text": None,
                         "assistant_payload": {"_response_id_marker": response_id},
@@ -335,6 +337,39 @@ async def test_mqtt(
     except Exception as exc:
         logger.error(f"MQTT test failed: {exc}")
         return MqttResponse(success=False, message=str(exc))
+
+
+class MqttDisconnectRequest(BaseModel):
+    """Request to disconnect MQTT connections for a session."""
+    session_id: str
+
+
+class MqttDisconnectResponse(BaseModel):
+    """Response from MQTT disconnect operation."""
+    success: bool
+    connections_closed: int
+
+
+@router.post("/mqtt/disconnect", response_model=MqttDisconnectResponse)
+async def disconnect_mqtt(
+    request: MqttDisconnectRequest,
+    user_id: str | None = Depends(maybe_current_user_id),
+):
+    """
+    Disconnect MQTT connections for a specific session.
+    Called when stopping an LLM thing to clean up connections.
+    """
+    logger.info(f"🔌 [Backend] /ai/mqtt/disconnect endpoint called for session {request.session_id}")
+    try:
+        from ..mqtt_manager import mqtt_manager
+        connections_closed = await mqtt_manager.disconnect_session_connections(request.session_id)
+        return MqttDisconnectResponse(
+            success=True,
+            connections_closed=connections_closed
+        )
+    except Exception as exc:
+        logger.error(f"MQTT disconnect failed: {exc}")
+        return MqttDisconnectResponse(success=False, connections_closed=0)
 
 
 @router.post("/transcribe", response_model=TranscriptionResponse)

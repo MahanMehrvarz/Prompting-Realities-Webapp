@@ -147,6 +147,20 @@ export const backendApi = {
   },
 
   /**
+   * Disconnect MQTT connections for a session.
+   * Called when stopping an LLM thing to clean up broker connections.
+   */
+  async disconnectMqtt(
+    sessionId: string,
+    token?: string
+  ): Promise<{ success: boolean; connections_closed: number }> {
+    return apiFetch<{ success: boolean; connections_closed: number }>("/ai/mqtt/disconnect", token, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  },
+
+  /**
    * Transcribe audio file using OpenAI Whisper API.
    * Backend fetches assistant config and API key from database.
    */
