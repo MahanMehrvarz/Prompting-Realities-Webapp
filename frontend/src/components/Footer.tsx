@@ -8,6 +8,7 @@ type LinkItem = {
 type Collaborator = {
   name: string;
   href?: string;
+  highlight?: boolean;
 };
 
 type Publication = {
@@ -34,7 +35,7 @@ const collaborators: Collaborator[] = [
   { name: "Diego Viero", href: "https://github.com/Diego-Viero" },
   { name: "Aadjan Van Der Helm", href: "https://mahanmehrvarz.name/promptingrealities/#" },
   { name: "Martin Havranek" },
-  { name: "Nastaran Tahbaz", href: "https://www.nastarantahbaz.com/" },
+  { name: "Nastaran Tahbaz", href: "https://www.nastarantahbaz.com/", highlight: true },
 ];
 
 const publications: Publication[] = [
@@ -95,7 +96,11 @@ export function Footer() {
                       href={collab.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline decoration-2 underline-offset-2"
+                      className={`text-sm transition hover:underline decoration-2 underline-offset-2 ${
+                        collab.highlight
+                          ? "font-semibold text-[var(--background)] hover:text-[var(--accent-green)]"
+                          : "font-medium text-[var(--ink-dark)] hover:text-[var(--accent-green)]"
+                      }`}
                     >
                       {collab.name}
                     </a>
