@@ -59,10 +59,8 @@ class MqttConnectionManager:
                     logger.warning(f"⚠️ Existing connection to {host}:{port} is disconnected, removing")
                     del self._connections[connection_key]
 
-            # Create new persistent connection with user email and session as client ID
-            if user_email and session_id:
-                client_id = f"{user_email}_{session_id}"
-            elif user_email:
+            # Create new persistent connection with user email as client ID
+            if user_email:
                 client_id = user_email
             else:
                 client_id = f"backend_{connection_key}"
