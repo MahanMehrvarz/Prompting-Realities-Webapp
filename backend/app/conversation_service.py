@@ -86,7 +86,7 @@ async def run_model_turn(
     api_key: str,
     prompt_instruction: str = "You are a helpful assistant.",
     json_schema: Optional[Dict[str, Any]] = None,
-    model: str = "gpt-4o-mini",
+    model: str = "gpt-5-mini",
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Call OpenAI API to generate a response using Responses API.
