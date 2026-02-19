@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2 } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { TTSWarningModal } from "@/components/TTSWarningModal";
+import { MqttReceiverModal } from "@/components/MqttReceiverModal";
+import { useMqttSubscriber, type MqttConnectionStatus } from "@/hooks/useMqttSubscriber";
 import {
   sessionService,
   messageService,
@@ -64,6 +66,16 @@ export default function AssistantChatPage() {
   const [isTTSLoading, setIsTTSLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // MQTT Receiver state
+  const [showMqttReceiverModal, setShowMqttReceiverModal] = useState(false);
+  const [mqttCredentials, setMqttCredentials] = useState<{
+    mqtt_host: string | null;
+    mqtt_port: number;
+    mqtt_user: string | null;
+    mqtt_pass: string | null;
+    mqtt_topic: string | null;
+  } | null>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -118,6 +130,23 @@ export default function AssistantChatPage() {
       }
     };
   }, []);
+
+  // Fetch MQTT credentials for the receiver modal
+  useEffect(() => {
+    if (!assistantId || !hydrated) return;
+
+    const fetchMqttCredentials = async () => {
+      try {
+        const credentials = await backendApi.getMqttCredentials(assistantId, token || undefined);
+        setMqttCredentials(credentials);
+        logger.log("📡 [MQTT] Loaded credentials for receiver:", credentials.mqtt_host ? "configured" : "not configured");
+      } catch (err) {
+        logger.warn("⚠️ [MQTT] Failed to fetch credentials:", err);
+      }
+    };
+
+    fetchMqttCredentials();
+  }, [assistantId, token, hydrated]);
 
   useEffect(() => {
     setHydrated(true);
@@ -526,23 +555,20 @@ export default function AssistantChatPage() {
     }
   };
 
-  const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    logger.log("🚀 [Frontend] handleSend triggered");
-    
-    if (!sessionId || (!token && !shareToken)) {
-      logger.log("❌ [Frontend] Missing sessionId or token");
-      return;
-    }
-    
-    const trimmed = input.trim();
+  // Core function to send a message to AI - reused by form submit and MQTT receiver
+  const sendMessageToAI = async (messageText: string): Promise<void> => {
+    const trimmed = messageText.trim();
     if (!trimmed) {
       logger.log("❌ [Frontend] Empty message");
       return;
     }
-    
-    logger.log("📝 [Frontend] User message:", trimmed);
-    setInput("");
+
+    if (!sessionId || (!token && !shareToken)) {
+      logger.log("❌ [Frontend] Missing sessionId or token");
+      return;
+    }
+
+    logger.log("📝 [Frontend] Sending message to AI:", trimmed);
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: ChatMessage = {
       id: tempId,
@@ -552,24 +578,24 @@ export default function AssistantChatPage() {
     };
     setMessages((prev) => [...prev, optimisticMessage]);
     setIsAiResponding(true);
-    
+
     try {
       // Get session info
       logger.log("🔍 [Frontend] Fetching session info for:", sessionId);
       const session = await sessionService.get(sessionId);
       logger.log("✅ [Frontend] Session retrieved:", { active: session.active, thread_id: session.current_thread_id });
-      
+
       // Check if session is active
       if (!session.active) {
         throw new Error("Session is not running");
       }
-      
+
       // Get assistant info to make AI call
       const { data: { user } } = await supabase.auth.getUser();
       if (!user && !shareToken) {
         throw new Error("Not authorized");
       }
-      
+
       // Get assistant config from database
       logger.log("🔍 [Frontend] Fetching assistant configuration...");
       const { data: assistantData, error: assistantError } = await supabase
@@ -577,7 +603,7 @@ export default function AssistantChatPage() {
         .select("*")
         .eq("id", assistantId)
         .single();
-      
+
       if (assistantError || !assistantData) {
         throw new Error("Failed to fetch assistant configuration");
       }
@@ -588,39 +614,38 @@ export default function AssistantChatPage() {
       logger.log("🤖 [Frontend] Calling backend AI API...");
       logger.log("📜 [Frontend] Using previous_response_id:", lastResponseId);
       logger.log("🧵 [Frontend] Using thread_id:", threadIdRef.current);
-      
+
       // Use Responses API with previous_response_id for context
       const aiResponse = await backendApi.chat(
         {
-          previous_response_id: lastResponseId,  // Pass context ID
+          previous_response_id: lastResponseId,
           user_message: trimmed,
           assistant_id: assistantId,
-          session_id: sessionId,  // For persisting response_id in backend
-          thread_id: threadIdRef.current,  // Pass thread_id for per-thread context isolation
+          session_id: sessionId,
+          thread_id: threadIdRef.current,
         },
         token || undefined
       );
-      
+
       // Save response_id for next turn
       if (aiResponse.response_id) {
         setLastResponseId(aiResponse.response_id);
         logger.log("💾 [Frontend] Saved response_id for next turn:", aiResponse.response_id);
       }
-      
+
       logger.log("✅ [Frontend] Backend response received:", aiResponse);
-      
+
       // Publish to MQTT if we have a payload
       let mqttPublishSuccess = false;
       let mqttPublishAttempted = false;
       let mqttValueToSave = null;
-      
+
       if (aiResponse.payload && assistantData.mqtt_host && assistantData.mqtt_topic) {
         logger.log("📡 [Frontend] Publishing to MQTT...");
-        
+
         mqttPublishAttempted = true;
-        
+
         // Extract the MQTT value to save to database
-        // Check keys in order: MQTT_value, MQTT_values, values
         let mqttValue = null;
         if (aiResponse.payload.MQTT_value !== undefined && aiResponse.payload.MQTT_value !== null) {
           mqttValue = aiResponse.payload.MQTT_value;
@@ -635,24 +660,20 @@ export default function AssistantChatPage() {
           mqttValue = aiResponse.payload;
           logger.log("📤 [Frontend] Using full payload for MQTT:", mqttValue);
         }
-        
+
         if (mqttValue !== undefined && mqttValue !== null) {
           mqttValueToSave = mqttValue;
         } else {
           logger.log("⚠️ [Frontend] No MQTT value found in payload");
         }
-        
+
         try {
-          // Send the values object to MQTT broker
-          // Ensure mqttPayload is always an object, never null/undefined/empty string
           let mqttPayload = mqttValue;
-          
-          // If mqttPayload is not a valid object, wrap it in an object
           if (mqttPayload === null || mqttPayload === undefined || mqttPayload === "" || typeof mqttPayload !== "object") {
             logger.log("⚠️ [Frontend] Invalid MQTT payload, wrapping in object:", mqttPayload);
             mqttPayload = { value: mqttPayload };
           }
-          
+
           const mqttResult = await backendApi.publishMqtt(
             {
               assistant_id: assistantId,
@@ -661,7 +682,7 @@ export default function AssistantChatPage() {
             },
             token || undefined
           );
-          
+
           if (mqttResult.success) {
             logger.log("✅ [Frontend] MQTT publish successful");
             mqttPublishSuccess = true;
@@ -676,52 +697,42 @@ export default function AssistantChatPage() {
       } else {
         logger.log("⏭️ [Frontend] Skipping MQTT publish - missing payload or MQTT config");
       }
-      
-      // Save complete conversation turn (user + assistant) in a single entry
+
+      // Save complete conversation turn
       logger.log("💾 [Frontend] Saving conversation turn to database...");
-      
-      // Use the display_text extracted by the backend
+
       const responseText = aiResponse.display_text || null;
       logger.log("📝 [Frontend] Using display_text from backend:", responseText?.substring(0, 100));
 
-      // Ensure thread_id is initialized before saving
       if (!threadIdRef.current) {
         logger.error("❌ [Frontend] Thread ID not initialized when trying to save message");
         throw new Error("Thread ID not initialized");
       }
-      
+
       logger.log("🧵 [Frontend] Saving message with thread_id:", threadIdRef.current);
-      
-      // Only save mqtt_payload if MQTT publish was successful
-      // mqtt_payload now stores only the MQTT_value field, not the entire payload
-      // For anonymous users, save device_id; for authenticated users, leave it null
-      // Always save thread_id to group messages by conversation thread
+
       const conversationMessage = await messageService.create({
         session_id: sessionId,
         assistant_id: assistantId,
         assistant_name: assistantDisplayName,
-        user_text: trimmed, // Store user's message
-        assistant_payload: aiResponse.payload, // Store as actual JSON object
-        response_text: responseText, // Store the extracted text from backend
-        mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? mqttValueToSave : null, // Only store MQTT_value if MQTT publish succeeded
-        device_id: user ? null : deviceIdRef.current, // Anonymous users get device_id, authenticated users get null
-        thread_id: threadIdRef.current, // Always save thread_id for conversation isolation
-        reaction: null, // No reaction initially
+        user_text: trimmed,
+        assistant_payload: aiResponse.payload,
+        response_text: responseText,
+        mqtt_payload: (mqttPublishAttempted && mqttPublishSuccess) ? mqttValueToSave : null,
+        device_id: user ? null : deviceIdRef.current,
+        thread_id: threadIdRef.current,
+        reaction: null,
       });
       logger.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
-      
-      // After saving, add the new messages to the existing state instead of reloading from DB
-      // This prevents old messages from reappearing after a reset
-      logger.log("✅ [Frontend] Conversation turn saved, updating local state");
-      
-      // Create the new message objects to add to state
+
+      // Update local state
       const newUserMessage: ChatMessage = {
         id: `${conversationMessage.id}-user`,
         role: "user",
         content: trimmed,
         timestamp: conversationMessage.created_at,
       };
-      
+
       const newAssistantMessage: ChatMessage = {
         id: `${conversationMessage.id}-assistant`,
         dbMessageId: conversationMessage.id,
@@ -731,8 +742,7 @@ export default function AssistantChatPage() {
         mqttFailed: mqttPublishAttempted && !mqttPublishSuccess,
         reaction: null,
       };
-      
-      // Update messages by replacing the temp message with the real ones
+
       setMessages((prev) => {
         const withoutTemp = prev.filter((msg) => msg.id !== tempId);
         return [...withoutTemp, newUserMessage, newAssistantMessage];
@@ -740,7 +750,7 @@ export default function AssistantChatPage() {
 
       logger.log("✅ [Frontend] Messages updated in local state");
 
-      // Play TTS if enabled (fire and forget - don't block the chat flow)
+      // Play TTS if enabled
       if (ttsEnabled && responseText) {
         playTTS(responseText).catch((err) => {
           logger.error("❌ TTS playback failed:", err);
@@ -749,7 +759,7 @@ export default function AssistantChatPage() {
 
       setError(null);
     } catch (err) {
-      logger.error("❌ [Frontend] Error in handleSend:", err);
+      logger.error("❌ [Frontend] Error in sendMessageToAI:", err);
       setMessages((prev) => prev.filter((message) => message.id !== tempId));
       const errorMessage = err instanceof Error ? err.message : "Unable to send message.";
       if (errorMessage.includes("Session is not running") || errorMessage.includes("not running") || errorMessage.includes("not active")) {
@@ -762,6 +772,43 @@ export default function AssistantChatPage() {
     } finally {
       setIsAiResponding(false);
     }
+  };
+
+  // MQTT Receiver: Handle incoming MQTT messages and auto-send to AI
+  const handleMqttMessage = async (topic: string, message: string) => {
+    logger.log(`📨 [MQTT Receiver] Message received on ${topic}: ${message}`);
+    // Auto-send the message to AI
+    await sendMessageToAI(message);
+  };
+
+  const handleMqttError = (error: Error) => {
+    logger.error("❌ [MQTT Receiver] Error:", error);
+  };
+
+  // Initialize MQTT subscriber hook
+  const {
+    status: mqttStatus,
+    currentTopic: mqttCurrentTopic,
+    errorMessage: mqttErrorMessage,
+    connect: mqttConnect,
+    disconnect: mqttDisconnect,
+  } = useMqttSubscriber({
+    onMessage: handleMqttMessage,
+    onError: handleMqttError,
+  });
+
+  const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    logger.log("🚀 [Frontend] handleSend triggered");
+
+    const trimmed = input.trim();
+    if (!trimmed) {
+      logger.log("❌ [Frontend] Empty message");
+      return;
+    }
+
+    setInput("");
+    await sendMessageToAI(trimmed);
   };
 
   const beginRecording = async () => {
@@ -874,6 +921,22 @@ export default function AssistantChatPage() {
         onCancel={cancelTTSEnable}
       />
 
+      {/* MQTT Receiver Modal */}
+      <MqttReceiverModal
+        isOpen={showMqttReceiverModal}
+        onClose={() => setShowMqttReceiverModal(false)}
+        onConnect={mqttConnect}
+        onDisconnect={mqttDisconnect}
+        connectionStatus={mqttStatus}
+        currentTopic={mqttCurrentTopic}
+        errorMessage={mqttErrorMessage}
+        defaultHost={mqttCredentials?.mqtt_host}
+        defaultPort={mqttCredentials?.mqtt_port || 8083}
+        defaultUsername={mqttCredentials?.mqtt_user}
+        defaultPassword={mqttCredentials?.mqtt_pass}
+        defaultTopic={mqttCredentials?.mqtt_topic}
+      />
+
       {/* Fixed Header */}
       <header className="flex-shrink-0 border-b-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
         <div className="mx-auto max-w-3xl flex items-center justify-between gap-4">
@@ -914,6 +977,32 @@ export default function AssistantChatPage() {
               ) : (
                 <Volume2 className="h-4 w-4" />
               )}
+            </button>
+
+            {/* MQTT Receiver */}
+            <button
+              onClick={() => setShowMqttReceiverModal(true)}
+              className={`flex items-center justify-center rounded-full border-2 p-2 transition-all ${
+                mqttStatus === "connected"
+                  ? "bg-green-500 text-white border-green-500"
+                  : mqttStatus === "connecting"
+                  ? "bg-yellow-500 text-white border-yellow-500 animate-pulse"
+                  : mqttStatus === "error"
+                  ? "bg-red-500 text-white border-red-500"
+                  : "bg-transparent text-[var(--ink-dark)] border-[var(--card-shell)] hover:bg-[var(--card-shell)]/20"
+              }`}
+              title={
+                mqttStatus === "connected"
+                  ? `MQTT Connected: ${mqttCurrentTopic}`
+                  : mqttStatus === "connecting"
+                  ? "MQTT Connecting..."
+                  : mqttStatus === "error"
+                  ? "MQTT Error"
+                  : "MQTT Receiver"
+              }
+              aria-label="MQTT Receiver"
+            >
+              <Radio className="h-4 w-4" />
             </button>
 
             {/* Reset */}

@@ -113,6 +113,14 @@ export type TTSRequest = {
   model?: "tts-1" | "tts-1-hd";
 };
 
+export type MqttCredentialsResponse = {
+  mqtt_host: string | null;
+  mqtt_port: number;
+  mqtt_user: string | null;
+  mqtt_pass: string | null;
+  mqtt_topic: string | null;
+};
+
 // API methods
 export const backendApi = {
   /**
@@ -263,5 +271,19 @@ export const backendApi = {
 
     logger.log(`✅ [BackendApi] TTS successful`);
     return response.blob();
+  },
+
+  /**
+   * Get MQTT credentials for an assistant to use for WebSocket connection.
+   */
+  async getMqttCredentials(
+    assistantId: string,
+    token?: string
+  ): Promise<MqttCredentialsResponse> {
+    return apiFetch<MqttCredentialsResponse>(
+      `/ai/mqtt/credentials/${assistantId}`,
+      token,
+      { method: "GET" }
+    );
   },
 };

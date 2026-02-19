@@ -615,3 +615,83 @@ async def text_to_speech(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Text-to-speech failed: {str(exc)}"
         )
+
+
+class MqttCredentialsResponse(BaseModel):
+    """Response containing MQTT credentials for WebSocket connection."""
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_user: str | None = None
+    mqtt_pass: str | None = None
+    mqtt_topic: str | None = None
+
+
+@router.get("/mqtt/credentials/{assistant_id}", response_model=MqttCredentialsResponse)
+async def get_mqtt_credentials(
+    assistant_id: str,
+    user_id: str | None = Depends(maybe_current_user_id),
+):
+    """
+    Get MQTT credentials for an assistant to use for WebSocket connection in browser.
+    Allows anonymous access (for shared sessions).
+    """
+    logger.info("🔌 [Backend] /ai/mqtt/credentials endpoint called")
+    logger.info(f"🆔 [Backend] Assistant ID: {assistant_id}")
+    logger.info(f"🔑 [Backend] User ID: {user_id} (anonymous: {user_id is None})")
+
+    try:
+        from supabase import create_client
+        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
+            )
+
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+        # Fetch assistant configuration
+        logger.info(f"🔍 [Backend] Fetching MQTT config for {assistant_id}")
+        response = supabase.table("assistants").select(
+            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic"
+        ).eq("id", assistant_id).execute()
+
+        if not response.data or len(response.data) == 0:
+            logger.error(f"❌ [Backend] Assistant {assistant_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assistant not found"
+            )
+
+        assistant = response.data[0]
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+
+        mqtt_host = assistant.get("mqtt_host")
+        mqtt_port = assistant.get("mqtt_port", 1883)
+        mqtt_user = assistant.get("mqtt_user")
+        mqtt_pass = assistant.get("mqtt_pass")
+        mqtt_topic = assistant.get("mqtt_topic")
+
+        logger.info(f"✅ [Backend] MQTT config retrieved: host={mqtt_host}, port={mqtt_port}, topic={mqtt_topic}")
+
+        return MqttCredentialsResponse(
+            mqtt_host=mqtt_host,
+            mqtt_port=mqtt_port if mqtt_port else 1883,
+            mqtt_user=mqtt_user,
+            mqtt_pass=mqtt_pass,
+            mqtt_topic=mqtt_topic,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"❌ [Backend] Failed to get MQTT credentials: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get MQTT credentials: {str(exc)}"
+        )
