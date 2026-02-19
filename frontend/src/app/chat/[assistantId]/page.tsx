@@ -874,53 +874,62 @@ export default function AssistantChatPage() {
         onCancel={cancelTTSEnable}
       />
 
-      {/* Fixed Header - Compact on mobile */}
+      {/* Fixed Header */}
       <header className="flex-shrink-0 border-b-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
-        <div className="mx-auto max-w-3xl flex items-center justify-between">
-          <div className="flex-1">
-            <h1 className="text-lg font-bold text-[var(--ink-dark)] sm:text-xl">{title}</h1>
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-[var(--ink-muted)] sm:text-sm">Session {sessionId}</p>
+        <div className="mx-auto max-w-3xl flex items-center justify-between gap-4">
+          {/* Left: Title and metadata */}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-bold text-[var(--ink-dark)] sm:text-xl truncate">{title}</h1>
               {activeViewers > 0 && (
-                <div 
-                  className="flex items-center gap-1 text-xs text-[var(--ink-muted)] bg-[var(--card-shell)]/30 px-2 py-0.5 rounded-full"
+                <div
+                  className="flex-shrink-0 flex items-center gap-1 text-xs text-[var(--ink-muted)] bg-[var(--card-shell)]/20 px-2 py-1 rounded-full"
                   title={viewersList.map((v: any) => v.user_email || "Anonymous").join(", ")}
                 >
                   <Users className="h-3 w-3" />
-                  <span>{activeViewers} viewing</span>
+                  <span>{activeViewers}</span>
                 </div>
               )}
             </div>
+            <p className="text-xs text-[var(--ink-muted)] truncate mt-0.5">
+              Session {sessionId?.slice(0, 8)}...
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            {/* TTS Toggle Button */}
+
+          {/* Right: Action buttons */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* TTS Toggle */}
             <button
               onClick={handleTTSToggle}
-              className={`flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] px-3 py-2 text-xs transition-all sm:px-4 sm:py-2 sm:text-sm ${
+              className={`flex items-center justify-center rounded-full border-2 border-[var(--card-shell)] p-2 transition-all ${
                 ttsEnabled
-                  ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
+                  ? "bg-[var(--ink-dark)] text-[var(--card-fill)] border-[var(--ink-dark)]"
                   : "bg-transparent text-[var(--ink-dark)] hover:bg-[var(--card-shell)]/20"
               }`}
-              title={ttsEnabled ? "Disable Text-to-Speech" : "Enable Text-to-Speech"}
+              title={ttsEnabled ? "Text-to-Speech On (click to disable)" : "Enable Text-to-Speech"}
+              aria-label={ttsEnabled ? "Disable Text-to-Speech" : "Enable Text-to-Speech"}
             >
               {isTTSLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Volume2 className="h-4 w-4" />
               )}
-              <span className="hidden sm:inline">{ttsEnabled ? "TTS On" : "TTS"}</span>
             </button>
+
+            {/* Reset */}
             <button
               onClick={handleResetConversation}
-              className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
+              className="flex items-center justify-center rounded-full border-2 border-[var(--card-shell)] bg-transparent p-2 text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20"
               title="Reset Conversation"
+              aria-label="Reset Conversation"
             >
               <RotateCcw className="h-4 w-4" />
-              <span className="hidden sm:inline">Reset</span>
             </button>
+
+            {/* Dashboard */}
             <button
               onClick={handleBackToDashboard}
-              className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"
+              className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:text-sm"
               title="Return to Dashboard"
             >
               <ArrowLeft className="h-4 w-4" />
