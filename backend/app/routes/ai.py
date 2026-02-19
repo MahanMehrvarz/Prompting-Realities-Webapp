@@ -58,6 +58,14 @@ class TranscriptionResponse(BaseModel):
     text: str
 
 
+class TTSRequest(BaseModel):
+    """Request to convert text to speech."""
+    text: str
+    voice: str = "alloy"  # alloy, echo, fable, onyx, nova, shimmer
+    assistant_id: str
+    model: str = "tts-1"  # tts-1 (faster) or tts-1-hd (higher quality)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_openai(
     request: ChatRequest,
@@ -476,4 +484,134 @@ async def transcribe_audio(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Transcription failed: {str(exc)}"
+        )
+
+
+@router.post("/tts")
+async def text_to_speech(
+    request: TTSRequest,
+    user_id: str | None = Depends(maybe_current_user_id),
+):
+    """
+    Convert text to speech using OpenAI TTS API.
+    Returns audio as streaming response (mp3 format).
+    Allows anonymous access.
+    """
+    logger.info("🔊 [Backend] /ai/tts endpoint called")
+    logger.info(f"📝 [Backend] Text length: {len(request.text)} characters")
+    logger.info(f"🎙️ [Backend] Voice: {request.voice}, Model: {request.model}")
+    logger.info(f"🔑 [Backend] User ID: {user_id} (anonymous: {user_id is None})")
+    logger.info(f"🆔 [Backend] Assistant ID: {request.assistant_id}")
+
+    # Validate voice
+    valid_voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+    if request.voice not in valid_voices:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid voice. Must be one of: {', '.join(valid_voices)}"
+        )
+
+    # Validate model
+    valid_models = ["tts-1", "tts-1-hd"]
+    if request.model not in valid_models:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid model. Must be one of: {', '.join(valid_models)}"
+        )
+
+    try:
+        # Import here to avoid circular dependency
+        from supabase import create_client
+        from openai import OpenAI
+        from fastapi.responses import StreamingResponse
+        import io
+        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..encryption import decrypt_api_key
+
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase configuration is missing"
+            )
+
+        # Initialize Supabase client
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+        # Fetch assistant configuration from database
+        logger.info(f"🔍 [Backend] Fetching assistant configuration for {request.assistant_id}")
+        response = supabase.table("assistants").select("*").eq("id", request.assistant_id).execute()
+
+        if not response.data or len(response.data) == 0:
+            logger.error(f"❌ [Backend] Assistant {request.assistant_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assistant not found"
+            )
+
+        assistant = response.data[0]
+        if not isinstance(assistant, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid assistant data"
+            )
+
+        logger.info(f"✅ [Backend] Allowing TTS access to assistant {request.assistant_id} for user {user_id or 'anonymous'}")
+
+        # Decrypt the API key
+        encrypted_key = assistant.get("openai_key", "")
+        if not encrypted_key or not isinstance(encrypted_key, str):
+            logger.error(f"❌ [Backend] No API key found for assistant {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key not configured for this assistant"
+            )
+
+        try:
+            api_key = decrypt_api_key(encrypted_key)
+        except Exception as decrypt_error:
+            logger.error(f"❌ [Backend] Failed to decrypt API key: {decrypt_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to decrypt API key"
+            )
+
+        if not api_key:
+            logger.error(f"❌ [Backend] Decrypted API key is empty for assistant {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API key not configured for this assistant"
+            )
+
+        logger.info(f"🔑 [Backend] API key retrieved and decrypted successfully")
+
+        # Call OpenAI TTS API
+        client = OpenAI(api_key=api_key)
+        logger.info("🎵 [Backend] Calling OpenAI TTS API...")
+
+        tts_response = client.audio.speech.create(
+            model=request.model,
+            voice=request.voice,  # type: ignore
+            input=request.text,
+        )
+
+        # Get the audio content
+        audio_content = tts_response.content
+        logger.info(f"✅ [Backend] TTS successful, audio size: {len(audio_content)} bytes")
+
+        # Return as streaming response
+        return StreamingResponse(
+            io.BytesIO(audio_content),
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "inline; filename=speech.mp3"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"❌ [Backend] TTS failed: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Text-to-speech failed: {str(exc)}"
         )

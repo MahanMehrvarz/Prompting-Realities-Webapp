@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
+import { TTSWarningModal } from "@/components/TTSWarningModal";
 import {
   sessionService,
   messageService,
@@ -56,6 +57,13 @@ export default function AssistantChatPage() {
   const [showResetModal, setShowResetModal] = useState(false);
   const [isAiResponding, setIsAiResponding] = useState(false);
 
+  // TTS state
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsVoice, setTtsVoice] = useState<string>("alloy");
+  const [showTTSModal, setShowTTSModal] = useState(false);
+  const [isTTSLoading, setIsTTSLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunks = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -99,6 +107,17 @@ export default function AssistantChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isAiResponding]);
+
+  // Cleanup TTS audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        URL.revokeObjectURL(audioRef.current.src);
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setHydrated(true);
@@ -434,6 +453,79 @@ export default function AssistantChatPage() {
     }
   };
 
+  // TTS handlers
+  const handleTTSToggle = () => {
+    if (!ttsEnabled) {
+      // Opening: show warning modal with voice selection
+      setShowTTSModal(true);
+    } else {
+      // Closing: disable TTS immediately
+      setTtsEnabled(false);
+      // Stop any playing audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      setIsTTSLoading(false);
+    }
+  };
+
+  const confirmTTSEnable = () => {
+    setTtsEnabled(true);
+    setShowTTSModal(false);
+  };
+
+  const cancelTTSEnable = () => {
+    setShowTTSModal(false);
+  };
+
+  const playTTS = async (text: string) => {
+    if (!ttsEnabled || !text) return;
+
+    // Stop any previous audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      URL.revokeObjectURL(audioRef.current.src);
+      audioRef.current = null;
+    }
+
+    setIsTTSLoading(true);
+
+    try {
+      const audioBlob = await backendApi.tts(
+        {
+          text,
+          voice: ttsVoice as "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer",
+          assistant_id: assistantId,
+          model: "tts-1",
+        },
+        token || undefined
+      );
+
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
+        setIsTTSLoading(false);
+      };
+
+      audio.onerror = () => {
+        logger.error("❌ TTS audio playback error");
+        URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
+        setIsTTSLoading(false);
+      };
+
+      await audio.play();
+    } catch (err) {
+      logger.error("❌ TTS failed:", err);
+      setIsTTSLoading(false);
+    }
+  };
+
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     logger.log("🚀 [Frontend] handleSend triggered");
@@ -645,8 +737,16 @@ export default function AssistantChatPage() {
         const withoutTemp = prev.filter((msg) => msg.id !== tempId);
         return [...withoutTemp, newUserMessage, newAssistantMessage];
       });
-      
+
       logger.log("✅ [Frontend] Messages updated in local state");
+
+      // Play TTS if enabled (fire and forget - don't block the chat flow)
+      if (ttsEnabled && responseText) {
+        playTTS(responseText).catch((err) => {
+          logger.error("❌ TTS playback failed:", err);
+        });
+      }
+
       setError(null);
     } catch (err) {
       logger.error("❌ [Frontend] Error in handleSend:", err);
@@ -765,6 +865,15 @@ export default function AssistantChatPage() {
         variant="warning"
       />
 
+      {/* TTS Warning Modal */}
+      <TTSWarningModal
+        isOpen={showTTSModal}
+        selectedVoice={ttsVoice}
+        onVoiceChange={setTtsVoice}
+        onConfirm={confirmTTSEnable}
+        onCancel={cancelTTSEnable}
+      />
+
       {/* Fixed Header - Compact on mobile */}
       <header className="flex-shrink-0 border-b-2 border-[var(--card-shell)] bg-[var(--card-fill)] px-4 py-3 sm:px-6 sm:py-4">
         <div className="mx-auto max-w-3xl flex items-center justify-between">
@@ -784,6 +893,23 @@ export default function AssistantChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* TTS Toggle Button */}
+            <button
+              onClick={handleTTSToggle}
+              className={`flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] px-3 py-2 text-xs transition-all sm:px-4 sm:py-2 sm:text-sm ${
+                ttsEnabled
+                  ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
+                  : "bg-transparent text-[var(--ink-dark)] hover:bg-[var(--card-shell)]/20"
+              }`}
+              title={ttsEnabled ? "Disable Text-to-Speech" : "Enable Text-to-Speech"}
+            >
+              {isTTSLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">{ttsEnabled ? "TTS On" : "TTS"}</span>
+            </button>
             <button
               onClick={handleResetConversation}
               className="flex items-center gap-2 rounded-full border-2 border-[var(--card-shell)] bg-transparent px-3 py-2 text-xs text-[var(--ink-dark)] transition-all hover:bg-[var(--card-shell)]/20 sm:px-4 sm:py-2 sm:text-sm"

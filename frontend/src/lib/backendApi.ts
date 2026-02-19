@@ -106,6 +106,13 @@ export type LogoutResponse = {
   mqtt_connections_closed: number;
 };
 
+export type TTSRequest = {
+  text: string;
+  voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+  assistant_id: string;
+  model?: "tts-1" | "tts-1-hd";
+};
+
 // API methods
 export const backendApi = {
   /**
@@ -229,5 +236,32 @@ export const backendApi = {
     return apiFetch<LogoutResponse>("/auth/logout", token, {
       method: "POST",
     });
+  },
+
+  /**
+   * Convert text to speech using OpenAI TTS API.
+   * Returns audio as Blob (mp3 format).
+   */
+  async tts(request: TTSRequest, token?: string): Promise<Blob> {
+    logger.log(`🔊 [BackendApi] Calling TTS API`);
+    logger.log(`📝 [BackendApi] Text length: ${request.text.length}, Voice: ${request.voice}`);
+
+    const response = await fetch(`${API_BASE}/ai/tts`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeader(token),
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error(`❌ [BackendApi] TTS error:`, errorText);
+      throw new Error(errorText || response.statusText);
+    }
+
+    logger.log(`✅ [BackendApi] TTS successful`);
+    return response.blob();
   },
 };
