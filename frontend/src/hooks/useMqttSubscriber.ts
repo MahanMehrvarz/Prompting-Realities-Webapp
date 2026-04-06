@@ -73,9 +73,7 @@ export function useMqttSubscriber({ onMessage, onError }: UseMqttSubscriberOptio
 
         client.on("close", () => {
           logger.log("🔌 [MQTT] Connection closed");
-          if (status !== "error") {
-            setStatus("disconnected");
-          }
+          setStatus((prev) => (prev !== "error" ? "disconnected" : prev));
           setCurrentTopic(null);
         });
 
@@ -98,7 +96,7 @@ export function useMqttSubscriber({ onMessage, onError }: UseMqttSubscriberOptio
         onError?.(error);
       }
     },
-    [onMessage, onError, status]
+    [onMessage, onError]
   );
 
   const disconnect = useCallback(() => {

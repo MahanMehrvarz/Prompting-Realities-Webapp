@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -774,16 +774,21 @@ export default function AssistantChatPage() {
     }
   };
 
-  // MQTT Receiver: Handle incoming MQTT messages and auto-send to AI
-  const handleMqttMessage = async (topic: string, message: string) => {
-    logger.log(`📨 [MQTT Receiver] Message received on ${topic}: ${message}`);
-    // Auto-send the message to AI
-    await sendMessageToAI(message);
-  };
+  // Keep a stable ref to sendMessageToAI so MQTT callbacks don't go stale
+  const sendMessageToAIRef = useRef(sendMessageToAI);
+  useEffect(() => {
+    sendMessageToAIRef.current = sendMessageToAI;
+  });
 
-  const handleMqttError = (error: Error) => {
+  // MQTT Receiver: Handle incoming MQTT messages and auto-send to AI
+  const handleMqttMessage = useCallback(async (topic: string, message: string) => {
+    logger.log(`📨 [MQTT Receiver] Message received on ${topic}: ${message}`);
+    await sendMessageToAIRef.current(message);
+  }, []);
+
+  const handleMqttError = useCallback((error: Error) => {
     logger.error("❌ [MQTT Receiver] Error:", error);
-  };
+  }, []);
 
   // Initialize MQTT subscriber hook
   const {
@@ -932,6 +937,7 @@ export default function AssistantChatPage() {
         errorMessage={mqttErrorMessage}
         defaultHost={mqttCredentials?.mqtt_host}
         defaultPort={mqttCredentials?.mqtt_port || 8083}
+        defaultTopic={mqttCredentials?.mqtt_topic}
         defaultUsername={mqttCredentials?.mqtt_user}
         defaultPassword={mqttCredentials?.mqtt_pass}
       />
