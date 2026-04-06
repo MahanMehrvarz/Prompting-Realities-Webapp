@@ -11,7 +11,6 @@ interface MqttReceiverModalProps {
   currentTopic: string | null;
   errorMessage: string | null;
   defaultHost?: string | null;
-  defaultPort?: number;
   defaultTopic?: string | null;
   defaultUsername?: string | null;
   defaultPassword?: string | null;
@@ -26,29 +25,31 @@ export function MqttReceiverModal({
   currentTopic,
   errorMessage,
   defaultHost,
-  defaultPort = 8083,
   defaultTopic,
   defaultUsername,
   defaultPassword,
 }: MqttReceiverModalProps) {
-  const [wsUrl, setWsUrl] = useState("");
-  const [topic, setTopic] = useState("");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  // Build the correct WebSocket URL from host, ignoring the TCP port.
+  // Browsers connect via WebSocket only: wss://<host>/mqtt for remote, ws://<host>:9001/mqtt for local.
+  const buildWsUrl = (host: string) => {
+    const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
+    return isLocal ? `ws://${host}:9001/mqtt` : `wss://${host}/mqtt`;
+  };
 
-  // Initialize form with defaults when modal opens
+  const [wsUrl, setWsUrl] = useState(() => defaultHost ? buildWsUrl(defaultHost) : "");
+  const [topic, setTopic] = useState(defaultTopic || "");
+  const [username, setUsername] = useState(defaultUsername || "");
+  const [password, setPassword] = useState(defaultPassword || "");
+
+  // Re-initialize form with defaults each time the modal opens while disconnected
   useEffect(() => {
     if (isOpen && connectionStatus === "disconnected") {
-      // Build WebSocket URL from host and port
-      if (defaultHost) {
-        const protocol = defaultHost.includes("localhost") || defaultHost.includes("127.0.0.1") ? "ws" : "wss";
-        setWsUrl(`${protocol}://${defaultHost}:${defaultPort}/mqtt`);
-      }
+      if (defaultHost) setWsUrl(buildWsUrl(defaultHost));
       setTopic(defaultTopic || "");
       setUsername(defaultUsername || "");
       setPassword(defaultPassword || "");
     }
-  }, [isOpen, connectionStatus, defaultHost, defaultPort, defaultTopic, defaultUsername, defaultPassword]);
+  }, [isOpen, connectionStatus, defaultHost, defaultTopic, defaultUsername, defaultPassword]);
 
   if (!isOpen) return null;
 
@@ -135,7 +136,7 @@ export function MqttReceiverModal({
               type="text"
               value={wsUrl}
               onChange={(e) => setWsUrl(e.target.value)}
-              placeholder="wss://broker.example.com:8084/mqtt"
+              placeholder="wss://broker.example.com/mqtt"
               disabled={isConnected || isConnecting}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 disabled:bg-gray-100 disabled:text-gray-500"
             />
