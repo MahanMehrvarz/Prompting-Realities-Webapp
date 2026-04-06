@@ -24,15 +24,15 @@ class MqttConnectionManager:
         host: str,
         port: int,
         username: Optional[str] = None,
-        user_email: Optional[str] = None,
+        assistant_name: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> str:
-        """Generate a unique key for a broker configuration including user session."""
+        """Generate a unique key for a broker configuration including assistant session."""
         base_key = f"{host}:{port}:{username or 'anonymous'}"
-        if user_email and session_id:
-            return f"{base_key}:{user_email}:{session_id}"
-        elif user_email:
-            return f"{base_key}:{user_email}"
+        if assistant_name and session_id:
+            return f"{base_key}:{assistant_name}:{session_id}"
+        elif assistant_name:
+            return f"{base_key}:{assistant_name}"
         return base_key
 
     async def get_or_create_connection(
@@ -41,11 +41,11 @@ class MqttConnectionManager:
         port: int,
         username: Optional[str] = None,
         password: Optional[str] = None,
-        user_email: Optional[str] = None,
+        assistant_name: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> Optional[mqtt.Client]:
         """Get existing connection or create a new persistent one."""
-        connection_key = self._get_connection_key(host, port, username, user_email, session_id)
+        connection_key = self._get_connection_key(host, port, username, assistant_name, session_id)
 
         async with self._lock:
             # Check if we already have a connected client
@@ -59,9 +59,9 @@ class MqttConnectionManager:
                     logger.warning(f"⚠️ Existing connection to {host}:{port} is disconnected, removing")
                     del self._connections[connection_key]
 
-            # Create new persistent connection with user email as client ID
-            if user_email:
-                client_id = user_email
+            # Create new persistent connection with assistant name as client ID
+            if assistant_name:
+                client_id = assistant_name
             else:
                 client_id = f"backend_{connection_key}"
             
@@ -162,14 +162,14 @@ class MqttConnectionManager:
         payload: Dict[str, Any],
         username: Optional[str] = None,
         password: Optional[str] = None,
-        user_email: Optional[str] = None,
+        assistant_name: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> bool:
         """Publish a message using a persistent connection.
-        
+
         Extracts the MQTT_value field from the payload if present, otherwise sends the entire payload.
         """
-        client = await self.get_or_create_connection(host, port, username, password, user_email, session_id)
+        client = await self.get_or_create_connection(host, port, username, password, assistant_name, session_id)
         if not client:
             logger.error(f"Failed to get MQTT connection for {host}:{port}")
             return False
@@ -220,11 +220,11 @@ class MqttConnectionManager:
         port: int,
         username: Optional[str] = None,
         password: Optional[str] = None,
-        user_email: Optional[str] = None,
+        assistant_name: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> bool:
         """Test connection to MQTT broker."""
-        client = await self.get_or_create_connection(host, port, username, password, user_email, session_id)
+        client = await self.get_or_create_connection(host, port, username, password, assistant_name, session_id)
         return client is not None and client.is_connected()
 
     async def disconnect_session_connections(self, session_id: str) -> int:

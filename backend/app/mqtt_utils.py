@@ -19,7 +19,7 @@ async def test_mqtt_connection(
     port: int,
     username: Optional[str] = None,
     password: Optional[str] = None,
-    user_email: Optional[str] = None,
+    assistant_name: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> bool:
     """Test connection to MQTT broker using persistent connection.
@@ -27,7 +27,7 @@ async def test_mqtt_connection(
     Returns:
         True if connection succeeded, False otherwise.
     """
-    return await mqtt_manager.test_connection(host, port, username, password, user_email, session_id)
+    return await mqtt_manager.test_connection(host, port, username, password, assistant_name, session_id)
 
 
 async def publish_payload(
@@ -38,18 +38,16 @@ async def publish_payload(
     payload: Dict[str, Any],
     username: Optional[str] = None,
     password: Optional[str] = None,
-    user_email: Optional[str] = None,
+    assistant_name: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> bool:
     """Publish a JSON payload to the given MQTT broker using persistent connection.
 
-    This function now uses a persistent connection manager that maintains connections
-    across requests, so the connection counter in your MQTT broker interface will
-    show active connections instead of always being at 0.
-    
-    Each unique combination of user_email and session_id gets its own connection.
+    This function uses a persistent connection manager that maintains connections
+    across requests. Each unique combination of assistant_name and session_id gets
+    its own connection, identified in the broker by the assistant name as client ID.
 
     Returns:
         True if connection and publish succeeded, False otherwise.
     """
-    return await mqtt_manager.publish(host, port, topic, payload, username, password, user_email, session_id)
+    return await mqtt_manager.publish(host, port, topic, payload, username, password, assistant_name, session_id)

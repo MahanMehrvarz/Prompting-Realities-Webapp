@@ -61,14 +61,14 @@ async def logout(
             assistant_ids = [str(assistant.get("id", "")) for assistant in assistants_response.data if isinstance(assistant, dict)]
             logger.info(f"📋 [Backend] Found {len(assistant_ids)} assistants for user")
             
-            # 2. Find all active sessions for these assistants
+            # 2. Find all active sessions for these assistants and disconnect MQTT connections
             for assistant_id in assistant_ids:
                 sessions_response = supabase.table("assistant_sessions").select("*").eq("assistant_id", assistant_id).eq("active", True).execute()
-                
+
                 if sessions_response.data and isinstance(sessions_response.data, list):
                     logger.info(f"🔄 [Backend] Found {len(sessions_response.data)} active sessions for assistant {assistant_id}")
-                    
-                    # Stop each active session
+
+                    # Stop each active session and disconnect its MQTT connections
                     for session in sessions_response.data:
                         if not isinstance(session, dict):
                             continue
@@ -81,12 +81,12 @@ async def logout(
                                 }).eq("id", session_id).execute()
                                 sessions_stopped += 1
                                 logger.info(f"✅ [Backend] Stopped session {session_id}")
+                                # Disconnect MQTT connections for this session
+                                closed = await mqtt_manager.disconnect_session_connections(session_id)
+                                mqtt_connections_closed += closed
                         except Exception as e:
                             logger.error(f"❌ [Backend] Failed to stop session {session.get('id', 'unknown')}: {e}")
-        
-        # 3. Disconnect all MQTT connections for this user
-        logger.info(f"🔌 [Backend] Disconnecting MQTT connections for user {user_email}")
-        mqtt_connections_closed = await mqtt_manager.disconnect_user_connections(user_email)
+
         logger.info(f"✅ [Backend] Disconnected {mqtt_connections_closed} MQTT connections")
         
         logger.info(f"✅ [Backend] Logout cleanup complete: {sessions_stopped} sessions stopped, {mqtt_connections_closed} MQTT connections closed")

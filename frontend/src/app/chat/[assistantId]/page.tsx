@@ -934,7 +934,6 @@ export default function AssistantChatPage() {
         defaultPort={mqttCredentials?.mqtt_port || 8083}
         defaultUsername={mqttCredentials?.mqtt_user}
         defaultPassword={mqttCredentials?.mqtt_pass}
-        defaultTopic={mqttCredentials?.mqtt_topic}
       />
 
       {/* Fixed Header */}

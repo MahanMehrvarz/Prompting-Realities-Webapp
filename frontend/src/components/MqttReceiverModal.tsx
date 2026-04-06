@@ -14,7 +14,6 @@ interface MqttReceiverModalProps {
   defaultPort?: number;
   defaultUsername?: string | null;
   defaultPassword?: string | null;
-  defaultTopic?: string | null;
 }
 
 export function MqttReceiverModal({
@@ -29,7 +28,6 @@ export function MqttReceiverModal({
   defaultPort = 8083,
   defaultUsername,
   defaultPassword,
-  defaultTopic,
 }: MqttReceiverModalProps) {
   const [wsUrl, setWsUrl] = useState("");
   const [topic, setTopic] = useState("");
@@ -44,11 +42,11 @@ export function MqttReceiverModal({
         const protocol = defaultHost.includes("localhost") || defaultHost.includes("127.0.0.1") ? "ws" : "wss";
         setWsUrl(`${protocol}://${defaultHost}:${defaultPort}/mqtt`);
       }
-      setTopic(defaultTopic || "");
+      setTopic("");
       setUsername(defaultUsername || "");
       setPassword(defaultPassword || "");
     }
-  }, [isOpen, connectionStatus, defaultHost, defaultPort, defaultUsername, defaultPassword, defaultTopic]);
+  }, [isOpen, connectionStatus, defaultHost, defaultPort, defaultUsername, defaultPassword]);
 
   if (!isOpen) return null;
 

@@ -283,22 +283,15 @@ async def publish_to_mqtt(
                 message="MQTT configuration is incomplete (missing host or topic)"
             )
         
-        # Get user email if authenticated, otherwise use "anonymous"
-        user_email = "anonymous"
-        if user_id:
-            try:
-                user_response = supabase.auth.admin.get_user_by_id(user_id)
-                if user_response and user_response.user:
-                    user_email = user_response.user.email or "anonymous"
-            except Exception as e:
-                logger.warning(f"Failed to get user email: {e}")
-        
-        logger.info(f"📧 [Backend] User Email: {user_email}")
+        # Use assistant name as MQTT client ID
+        assistant_name = str(assistant.get("name", "")) or f"assistant_{request.assistant_id}"
+
+        logger.info(f"🤖 [Backend] Assistant Name (MQTT client ID): {assistant_name}")
         logger.info(f"🌐 [Backend] MQTT Host: {mqtt_host}:{mqtt_port}")
         logger.info(f"📋 [Backend] MQTT Topic: {mqtt_topic}")
         logger.info(f"👤 [Backend] MQTT Username: {mqtt_user}")
         logger.info(f"🔐 [Backend] MQTT Password present: {bool(mqtt_pass)}")
-        
+
         logger.info("🚀 [Backend] Calling publish_payload...")
         success = await publish_payload(
             host=mqtt_host,
@@ -307,7 +300,7 @@ async def publish_to_mqtt(
             payload=request.payload,
             username=mqtt_user,
             password=mqtt_pass,
-            user_email=user_email,
+            assistant_name=assistant_name,
             session_id=request.session_id,
         )
         logger.info(f"✅ [Backend] publish_payload completed: success={success}")

@@ -1763,7 +1763,7 @@ export default function Home() {
                         onChange={(event) =>
                           handleFieldChange(selectedAssistant.id, "mqttTopic", event.target.value)
                         }
-                        placeholder="campus/bot/commands"
+                        placeholder=""
                         className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)]"
                       />
                     </div>

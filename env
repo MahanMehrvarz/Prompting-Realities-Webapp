@@ -1,0 +1,14 @@
+# Supabase Configuration
+SUPABASE_URL=https://vqdayblvvxahdgxmooao.supabase.co
+SUPABASE_JWT_SECRET="MlwetDS2HqM8g0MpV+1pp1L6/MQqzlxKwxWM7a9UGkgmAgAxSOPVYruzOl2w5QCVWpjrKyjvbp4dSi479BAGCw=="
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZxZGF5Ymx2dnhhaGRneG1vb2FvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NTk3MTEzNSwiZXhwIjoyMDgxNTQ3MTM1fQ.XCjniWTfDD1-VHFc8VOE3b_DsgQY7EnnknnZFk0NOw0
+
+PR_BACKEND_DB_URL="postgresql://postgres:nxc9Cv84v1gszC4i@db.vqdayblvvxahdgxmooao.supabase.co:5432/postgres"
+
+# Optional: Token expiration (in minutes)
+PR_ACCESS_TOKEN_MINUTES=43200
+
+# Optional: Secret key for JWT signing (if not using Supabase auth exclusively)
+PR_SECRET_KEY=dev-secret-change-me
+
+ENCRYPTION_SECRET=3SE6ED7JNPhZnFIUau6TpA7/xzwzmtbjWhjVlYNbsFY=
