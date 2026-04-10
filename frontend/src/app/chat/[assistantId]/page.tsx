@@ -1448,7 +1448,7 @@ export default function AssistantChatPage() {
                 {/* Mic button — tap to send, slide left to cancel */}
                 <button
                   type="button"
-                  title="Tap to send"
+                  title="Release to send"
                   className={`flex-shrink-0 flex items-center justify-center w-14 h-14 rounded-full transition-all duration-200 select-none touch-none shadow-lg ${
                     isCancelling
                       ? "bg-red-200 text-red-500 scale-95"
@@ -1478,7 +1478,7 @@ export default function AssistantChatPage() {
                       type="button"
                       disabled={isAiResponding}
                       className="flex-shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed select-none touch-none"
-                      title="Tap to record voice message"
+                      title="Hold to record voice message"
                       {...micButtonProps}
                     >
                       <Mic className="h-5 w-5" />

@@ -3,18 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Recording state machine:
+ * Hold-to-record, release-to-send.
  *
- * idle       → pointerDown → requesting
- * requesting → mic granted → recording
- * recording  → pointerUp / tap mic again → sends
+ * idle       → pointerDown → requesting → recording
+ * recording  → pointerUp → sends
  *            → tap trash / slide left → cancels
  * error      → auto-recovers to idle after 3s
- *
- * Both tap and hold work:
- * - Hold: pointerDown starts, pointerUp sends
- * - Tap: pointerDown starts, pointerUp fires before recording is ready
- *        → we set a "sendWhenReady" flag so onstop fires immediately after recording begins
  */
 export type RecordingState = "idle" | "requesting" | "recording" | "cancelling" | "error";
 
@@ -55,9 +49,6 @@ export function useVoiceRecorder({
   const isCancellingRef = useRef<boolean>(false);
   const recordingStateRef = useRef<RecordingState>("idle");
 
-  // If pointerUp fires before getUserMedia resolves (fast tap), we send as soon as recording starts
-  const sendWhenReadyRef = useRef<boolean>(false);
-
   useEffect(() => { isCancellingRef.current = isCancelling; }, [isCancelling]);
   useEffect(() => { elapsedRef.current = elapsedSeconds; }, [elapsedSeconds]);
   useEffect(() => { recordingStateRef.current = recordingState; }, [recordingState]);
@@ -83,14 +74,13 @@ export function useVoiceRecorder({
     elapsedRef.current = 0;
     setIsCancelling(false);
     isCancellingRef.current = false;
-    sendWhenReadyRef.current = false;
     recordedChunksRef.current = [];
     mediaRecorderRef.current = null;
   }, [stopTimer, stopStream]);
 
   const cancelRecording = useCallback(() => {
     const state = recordingStateRef.current;
-    if (state !== "recording" && state !== "cancelling" && state !== "requesting") return;
+    if (state === "idle" || state === "error") return;
     isCancellingRef.current = true;
     setIsCancelling(true);
     setRecordingState("cancelling");
@@ -107,8 +97,6 @@ export function useVoiceRecorder({
 
   const handlePointerDown = useCallback(
     async (e: React.PointerEvent<HTMLButtonElement>) => {
-      // If already recording → this is a tap-to-send on the mic button; handled in pointerUp
-      if (recordingStateRef.current === "recording") return;
       if (recordingStateRef.current !== "idle") return;
 
       e.preventDefault();
@@ -117,7 +105,6 @@ export function useVoiceRecorder({
       } catch { /* safe to ignore */ }
 
       pointerStartXRef.current = e.clientX;
-      sendWhenReadyRef.current = false;
       setRecordingState("requesting");
 
       try {
@@ -162,9 +149,10 @@ export function useVoiceRecorder({
 
         setRecordingState("recording");
 
-        // If pointerUp already fired while we were waiting for getUserMedia (fast tap) → send now
-        if (sendWhenReadyRef.current) {
-          stopTimer();
+        // If the user already released before getUserMedia resolved (quick press),
+        // cancel — we don't send empty/very-short recordings from accidental taps
+        if (recordingStateRef.current !== "recording") {
+          isCancellingRef.current = true;
           recorder.stop();
         }
       } catch {
@@ -173,25 +161,23 @@ export function useVoiceRecorder({
         setTimeout(() => setRecordingState("idle"), 3000);
       }
     },
-    [onRecordingComplete, onCancelled, reset, stopStream, stopTimer]
+    [onRecordingComplete, onCancelled, reset, stopStream]
   );
 
   const handlePointerUp = useCallback(
     (_e: React.PointerEvent<HTMLButtonElement>) => {
       const state = recordingStateRef.current;
-
       if (state === "recording") {
-        // Hold released or second tap on mic → send
+        // Normal release → send
         stopTimer();
         const recorder = mediaRecorderRef.current;
         if (recorder && recorder.state !== "inactive") {
           recorder.stop();
         }
       } else if (state === "requesting") {
-        // Fast tap: getUserMedia hasn't resolved yet → mark to send as soon as it does
-        sendWhenReadyRef.current = true;
+        // Released before getUserMedia resolved → mark state so pointerDown handler cancels
+        setRecordingState("idle");
       } else if (state === "cancelling") {
-        // Pointer released while sliding → confirm cancel
         stopTimer();
         const recorder = mediaRecorderRef.current;
         if (recorder && recorder.state !== "inactive") {
