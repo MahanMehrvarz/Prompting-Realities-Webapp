@@ -1056,7 +1056,7 @@ export default function AssistantChatPage() {
   );
 
   // Wire up the voice recorder hook
-  const { recordingState, elapsedSeconds, isCancelling, micButtonProps } = useVoiceRecorder({
+  const { recordingState, elapsedSeconds, isCancelling, micButtonProps, cancelRecording } = useVoiceRecorder({
     onRecordingComplete: handleVoiceRecordingComplete,
   });
 
@@ -1405,10 +1405,15 @@ export default function AssistantChatPage() {
             ) : (recordingState === "recording" || recordingState === "cancelling" || recordingState === "requesting") ? (
               /* ── Recording mode: full-bar takeover, WhatsApp-style ── */
               <div className="mx-auto max-w-3xl flex items-center gap-3">
-                {/* Trash / cancel zone on the left */}
-                <div className={`flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full transition-all duration-200 ${isCancelling ? "bg-red-500 text-white scale-110" : "bg-[var(--card-shell)] text-[var(--ink-muted)]"}`}>
+                {/* Trash / cancel button on the left — tap to discard */}
+                <button
+                  type="button"
+                  onClick={cancelRecording}
+                  className={`flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full transition-all duration-200 ${isCancelling ? "bg-red-500 text-white scale-110" : "bg-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-red-100 hover:text-red-500"}`}
+                  aria-label="Discard recording"
+                >
                   <Trash2 className="h-5 w-5" />
-                </div>
+                </button>
 
                 {/* Center: slide-to-cancel hint + waveform + timer */}
                 <div className="flex-1 flex flex-col items-center gap-1">
@@ -1440,9 +1445,10 @@ export default function AssistantChatPage() {
                   )}
                 </div>
 
-                {/* Mic button — large, pulsing red */}
+                {/* Mic button — tap to send, slide left to cancel */}
                 <button
                   type="button"
+                  title="Tap to send"
                   className={`flex-shrink-0 flex items-center justify-center w-14 h-14 rounded-full transition-all duration-200 select-none touch-none shadow-lg ${
                     isCancelling
                       ? "bg-red-200 text-red-500 scale-95"
@@ -1472,7 +1478,7 @@ export default function AssistantChatPage() {
                       type="button"
                       disabled={isAiResponding}
                       className="flex-shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed select-none touch-none"
-                      title="Hold to record voice message"
+                      title="Tap to record voice message"
                       {...micButtonProps}
                     >
                       <Mic className="h-5 w-5" />
