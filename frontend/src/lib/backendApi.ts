@@ -298,7 +298,7 @@ export const backendApi = {
 
   /**
    * Send a recorded audio blob to the voice-message endpoint.
-   * Returns the acknowledgement audio blob and the job message ID.
+   * Returns the acknowledgement text and the job message ID immediately.
    * The message ID should be polled via voiceMessageResult().
    */
   async voiceMessage(
@@ -311,7 +311,7 @@ export const backendApi = {
       voice?: string;
     } = {},
     token?: string
-  ): Promise<{ ackAudioBlob: Blob; messageId: string }> {
+  ): Promise<{ ackText: string; messageId: string }> {
     logger.log("🎙️ [BackendApi] Sending voice message");
 
     const formData = new FormData();
@@ -338,14 +338,9 @@ export const backendApi = {
       throw new Error(errorText || response.statusText);
     }
 
-    const messageId = response.headers.get("X-Voice-Message-ID");
-    if (!messageId) {
-      throw new Error("Server did not return X-Voice-Message-ID header");
-    }
-
-    const ackAudioBlob = await response.blob();
-    logger.log(`✅ [BackendApi] Voice message sent, messageId=${messageId}`);
-    return { ackAudioBlob, messageId };
+    const data = await response.json();
+    logger.log(`✅ [BackendApi] Voice message sent, messageId=${data.message_id}`);
+    return { ackText: data.ack_text, messageId: data.message_id };
   },
 
   /**

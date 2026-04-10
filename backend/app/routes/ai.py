@@ -10,7 +10,7 @@ import uuid
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -849,13 +849,6 @@ async def send_voice_message(
         ack_text = random.choice(ACK_PHRASES)
         logger.info(f"💬 [Backend] Ack phrase: {ack_text}")
 
-        # Synthesise ack audio synchronously so it can be returned immediately
-        valid_voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
-        ack_voice = voice if voice in valid_voices else "alloy"
-        ack_audio_bytes = await asyncio.to_thread(
-            _synthesize_tts_sync, api_key, ack_text, ack_voice
-        )
-
         # Create the voice message store entry
         message_id = str(uuid.uuid4())
         voice_message_store.create_entry(message_id)
@@ -878,14 +871,9 @@ async def send_voice_message(
             previous_response_id,
         )
 
-        logger.info(f"✅ [Backend] Returning ack audio for {message_id}")
-        return StreamingResponse(
-            io.BytesIO(ack_audio_bytes),
-            media_type="audio/mpeg",
-            headers={
-                "X-Voice-Message-ID": message_id,
-                "Content-Disposition": "inline; filename=ack.mp3",
-            },
+        logger.info(f"✅ [Backend] Returning ack JSON for {message_id}")
+        return JSONResponse(
+            content={"message_id": message_id, "ack_text": ack_text},
         )
 
     except HTTPException:

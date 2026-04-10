@@ -861,7 +861,7 @@ export default function AssistantChatPage() {
       const tempUserMsgId = `voice-user-${Date.now()}`;
       const tempAckMsgId = `voice-ack-${Date.now()}`;
 
-      // 1. Add optimistic user voice bubble immediately
+      // 1. Add user voice bubble immediately (no loading dot — the bubble is the visual)
       const optimisticUserMsg: ChatMessage = {
         id: tempUserMsgId,
         role: "user",
@@ -870,21 +870,21 @@ export default function AssistantChatPage() {
         isVoiceMessage: true,
         audioUrl,
         durationSeconds,
-        isProcessing: true,
+        isProcessing: false,
       };
       setMessages((prev) => [...prev, optimisticUserMsg]);
       setIsAiResponding(true);
 
       try {
-        // 2. Stop any playing TTS audio before playing ack
+        // 2. Stop any playing TTS audio
         if (audioRef.current) {
           audioRef.current.pause();
           URL.revokeObjectURL(audioRef.current.src);
           audioRef.current = null;
         }
 
-        // 3. Send voice message to backend
-        const { ackAudioBlob, messageId } = await backendApi.voiceMessage(
+        // 3. Send voice message to backend — returns ack text + job ID instantly (no TTS)
+        const { ackText, messageId } = await backendApi.voiceMessage(
           blob,
           assistantId,
           {
@@ -896,32 +896,33 @@ export default function AssistantChatPage() {
           token || undefined
         );
 
-        // 4. Add ack assistant message
+        // 4. Show ack as a status message (not a loading dot — shows the ack phrase + "Transcribing…")
         const ackMsg: ChatMessage = {
           id: tempAckMsgId,
           role: "assistant",
-          content: "",
+          content: ackText,
           timestamp: new Date().toISOString(),
           isProcessing: true,
         };
         setMessages((prev) => [...prev, ackMsg]);
 
-        // 5. Play ack audio immediately (bypasses ttsEnabled gate — this is voice UX)
-        const ackUrl = URL.createObjectURL(ackAudioBlob);
-        voiceAudioUrlsRef.current.push(ackUrl);
-        const ackAudio = new Audio(ackUrl);
-        ackAudio.onended = () => URL.revokeObjectURL(ackUrl);
-        ackAudio.onerror = () => URL.revokeObjectURL(ackUrl);
-        ackAudio.play().catch(() => {});
-
-        // 6. Start polling for result
+        // 5. Start polling — update status text as we progress
         let pollCount = 0;
-        const MAX_POLLS = 20; // 30 seconds at 1.5s interval
+        const MAX_POLLS = 40; // 60 seconds at 1.5s interval
 
         if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
 
         pollingIntervalRef.current = setInterval(async () => {
           pollCount++;
+
+          // Update status label: first ~10s = transcribing, after = responding
+          const statusLabel = pollCount <= 7 ? "Transcribing…" : "Responding…";
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAckMsgId ? { ...m, content: statusLabel } : m
+            )
+          );
+
           try {
             const result = await backendApi.voiceMessageResult(messageId, token || undefined);
 
@@ -930,12 +931,11 @@ export default function AssistantChatPage() {
               pollingIntervalRef.current = null;
               setIsAiResponding(false);
 
-              // 7. Update lastResponseId for conversation continuity
               if (result.response_id) {
                 setLastResponseId(result.response_id);
               }
 
-              // 8. Save to database (using transcript as user_text)
+              // Save to database
               let conversationMessage = null;
               try {
                 const { data: { user } } = await supabase.auth.getUser();
@@ -962,7 +962,7 @@ export default function AssistantChatPage() {
                 logger.error("❌ [VoiceMsg] Failed to save to database:", dbErr);
               }
 
-              // 9. Replace optimistic messages with final messages
+              // Replace optimistic messages with final messages
               setMessages((prev) => {
                 const withoutOptimistic = prev.filter(
                   (m) => m.id !== tempUserMsgId && m.id !== tempAckMsgId
@@ -984,12 +984,13 @@ export default function AssistantChatPage() {
                   role: "assistant",
                   content: result.response_text || "",
                   timestamp: conversationMessage?.created_at || new Date().toISOString(),
+                  isProcessing: false,
                   reaction: null,
                 };
                 return [...withoutOptimistic, finalUserMsg, finalAssistantMsg];
               });
 
-              // 10. Play full TTS response (also bypasses ttsEnabled — voice UX)
+              // Play full TTS response
               if (result.response_text) {
                 try {
                   const ttsBlob = await backendApi.tts(
@@ -1298,7 +1299,12 @@ export default function AssistantChatPage() {
                       }`}
                       style={message.role === "assistant" ? { backgroundColor: assistantColors.accent } : undefined}
                     >
-                      <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
+                      <p className="text-sm leading-relaxed sm:text-base flex items-center gap-2">
+                        {message.content}
+                        {message.isProcessing && (
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current opacity-70 animate-pulse" />
+                        )}
+                      </p>
                       <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
                         {new Date(message.timestamp).toLocaleTimeString([], {
                           hour: "2-digit",
