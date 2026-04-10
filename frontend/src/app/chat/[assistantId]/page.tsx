@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { TTSWarningModal } from "@/components/TTSWarningModal";
 import { MqttReceiverModal } from "@/components/MqttReceiverModal";
+import { VoiceMessageBubble } from "@/components/VoiceMessageBubble";
 import { useMqttSubscriber, type MqttConnectionStatus } from "@/hooks/useMqttSubscriber";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import {
   sessionService,
   messageService,
@@ -29,6 +31,13 @@ type ChatMessage = {
   timestamp: string;
   mqttFailed?: boolean; // Flag to indicate MQTT publish failure
   reaction?: "like" | "dislike" | null; // User reaction to assistant message
+  // Voice message fields
+  isVoiceMessage?: boolean;
+  audioUrl?: string;          // Object URL of the recorded audio blob
+  durationSeconds?: number;   // Recording duration in seconds
+  isProcessing?: boolean;     // true while polling for voice message result
+  voiceMessageId?: string;    // job ID for polling
+  transcript?: string | null; // Whisper transcript (populated after polling)
 };
 
 export default function AssistantChatPage() {
@@ -49,9 +58,6 @@ export default function AssistantChatPage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState<boolean | null>(null);
   const [lastResponseId, setLastResponseId] = useState<string | null>(null);
   const [activeViewers, setActiveViewers] = useState<number>(0);
@@ -78,12 +84,12 @@ export default function AssistantChatPage() {
     mqtt_topic: string | null;
   } | null>(null);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunks = useRef<Blob[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const presenceChannelRef = useRef<RealtimeChannel | null>(null);
   const deviceIdRef = useRef<string>("");
   const threadIdRef = useRef<string>("");
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceAudioUrlsRef = useRef<string[]>([]); // track object URLs for cleanup
   
   // Initialize device ID and thread ID from localStorage or create new ones
   useEffect(() => {
@@ -138,7 +144,7 @@ export default function AssistantChatPage() {
     };
   }, []);
 
-  // Cleanup TTS audio on unmount
+  // Cleanup TTS audio, polling, and voice message object URLs on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -146,6 +152,12 @@ export default function AssistantChatPage() {
         URL.revokeObjectURL(audioRef.current.src);
         audioRef.current = null;
       }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      voiceAudioUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      voiceAudioUrlsRef.current = [];
     };
   }, []);
 
@@ -834,69 +846,218 @@ export default function AssistantChatPage() {
     await sendMessageToAI(trimmed);
   };
 
-  const beginRecording = async () => {
-    if (!sessionId || (!token && !shareToken) || isRecording || isTranscribing) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      recordedChunks.current = [];
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordedChunks.current.push(event.data);
-        }
-      };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        setIsRecording(false);
-        const blob = new Blob(recordedChunks.current, { type: recorder.mimeType });
-        if (blob.size === 0) {
-          return;
-        }
-        const file = new File([blob], "voice-input.webm", { type: blob.type });
-        setIsTranscribing(true);
-        try {
-          // Backend will fetch API key from database (same approach as chat)
-          const result = await backendApi.transcribe(file, assistantId, token || undefined);
-          setInput((prev) => (prev ? `${prev} ${result.text}` : result.text));
-        } catch (err) {
-          const errorMsg = "Unable to transcribe audio.";
-          setTranscriptionError(errorMsg);
-          // Clear the transcription error after 3 seconds
-          setTimeout(() => {
-            setTranscriptionError(null);
-          }, 3000);
-        } finally {
-          setIsTranscribing(false);
-        }
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-    } catch (err) {
-      setError("Microphone access denied.");
-    }
-  };
+  /**
+   * Called by useVoiceRecorder when the user releases the mic button
+   * without sliding to cancel. Sends the audio blob to the backend,
+   * plays the ack audio, and starts polling for the full result.
+   */
+  const handleVoiceRecordingComplete = useCallback(
+    async (blob: Blob, durationSeconds: number) => {
+      if (!sessionId || (!token && !shareToken)) return;
 
-  const stopRecording = () => {
-    const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
-    }
-  };
+      const audioUrl = URL.createObjectURL(blob);
+      voiceAudioUrlsRef.current.push(audioUrl);
 
-  const recordingEvents = {
-    onMouseDown: beginRecording,
-    onMouseUp: stopRecording,
-    onMouseLeave: () => isRecording && stopRecording(),
-    onTouchStart: (event: React.TouchEvent) => {
-      event.preventDefault();
-      beginRecording();
+      const tempUserMsgId = `voice-user-${Date.now()}`;
+      const tempAckMsgId = `voice-ack-${Date.now()}`;
+
+      // 1. Add optimistic user voice bubble immediately
+      const optimisticUserMsg: ChatMessage = {
+        id: tempUserMsgId,
+        role: "user",
+        content: "",
+        timestamp: new Date().toISOString(),
+        isVoiceMessage: true,
+        audioUrl,
+        durationSeconds,
+        isProcessing: true,
+      };
+      setMessages((prev) => [...prev, optimisticUserMsg]);
+      setIsAiResponding(true);
+
+      try {
+        // 2. Stop any playing TTS audio before playing ack
+        if (audioRef.current) {
+          audioRef.current.pause();
+          URL.revokeObjectURL(audioRef.current.src);
+          audioRef.current = null;
+        }
+
+        // 3. Send voice message to backend
+        const { ackAudioBlob, messageId } = await backendApi.voiceMessage(
+          blob,
+          assistantId,
+          {
+            sessionId,
+            threadId: threadIdRef.current,
+            previousResponseId: lastResponseId,
+            voice: ttsVoice,
+          },
+          token || undefined
+        );
+
+        // 4. Add ack assistant message
+        const ackMsg: ChatMessage = {
+          id: tempAckMsgId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+          isProcessing: true,
+        };
+        setMessages((prev) => [...prev, ackMsg]);
+
+        // 5. Play ack audio immediately (bypasses ttsEnabled gate — this is voice UX)
+        const ackUrl = URL.createObjectURL(ackAudioBlob);
+        voiceAudioUrlsRef.current.push(ackUrl);
+        const ackAudio = new Audio(ackUrl);
+        ackAudio.onended = () => URL.revokeObjectURL(ackUrl);
+        ackAudio.onerror = () => URL.revokeObjectURL(ackUrl);
+        ackAudio.play().catch(() => {});
+
+        // 6. Start polling for result
+        let pollCount = 0;
+        const MAX_POLLS = 20; // 30 seconds at 1.5s interval
+
+        if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+
+        pollingIntervalRef.current = setInterval(async () => {
+          pollCount++;
+          try {
+            const result = await backendApi.voiceMessageResult(messageId, token || undefined);
+
+            if (result.status === "ready") {
+              clearInterval(pollingIntervalRef.current!);
+              pollingIntervalRef.current = null;
+              setIsAiResponding(false);
+
+              // 7. Update lastResponseId for conversation continuity
+              if (result.response_id) {
+                setLastResponseId(result.response_id);
+              }
+
+              // 8. Save to database (using transcript as user_text)
+              let conversationMessage = null;
+              try {
+                const { data: { user } } = await supabase.auth.getUser();
+                const { data: assistantData } = await supabase
+                  .from("assistants")
+                  .select("name")
+                  .eq("id", assistantId)
+                  .single();
+                const assistantDisplayName = assistantData?.name || assistantId;
+
+                conversationMessage = await messageService.create({
+                  session_id: sessionId,
+                  assistant_id: assistantId,
+                  assistant_name: assistantDisplayName,
+                  user_text: result.transcript || "(voice message)",
+                  assistant_payload: result.response_payload,
+                  response_text: result.response_text,
+                  mqtt_payload: null,
+                  device_id: user ? null : deviceIdRef.current,
+                  thread_id: threadIdRef.current,
+                  reaction: null,
+                });
+              } catch (dbErr) {
+                logger.error("❌ [VoiceMsg] Failed to save to database:", dbErr);
+              }
+
+              // 9. Replace optimistic messages with final messages
+              setMessages((prev) => {
+                const withoutOptimistic = prev.filter(
+                  (m) => m.id !== tempUserMsgId && m.id !== tempAckMsgId
+                );
+                const finalUserMsg: ChatMessage = {
+                  id: conversationMessage ? `${conversationMessage.id}-user` : tempUserMsgId,
+                  role: "user",
+                  content: result.transcript || "(voice message)",
+                  timestamp: conversationMessage?.created_at || new Date().toISOString(),
+                  isVoiceMessage: true,
+                  audioUrl,
+                  durationSeconds,
+                  transcript: result.transcript,
+                  isProcessing: false,
+                };
+                const finalAssistantMsg: ChatMessage = {
+                  id: conversationMessage ? `${conversationMessage.id}-assistant` : tempAckMsgId,
+                  dbMessageId: conversationMessage?.id,
+                  role: "assistant",
+                  content: result.response_text || "",
+                  timestamp: conversationMessage?.created_at || new Date().toISOString(),
+                  reaction: null,
+                };
+                return [...withoutOptimistic, finalUserMsg, finalAssistantMsg];
+              });
+
+              // 10. Play full TTS response (also bypasses ttsEnabled — voice UX)
+              if (result.response_text) {
+                try {
+                  const ttsBlob = await backendApi.tts(
+                    {
+                      text: result.response_text,
+                      voice: ttsVoice as "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer",
+                      assistant_id: assistantId,
+                      model: "tts-1",
+                    },
+                    token || undefined
+                  );
+                  const ttsUrl = URL.createObjectURL(ttsBlob);
+                  const ttsAudio = new Audio(ttsUrl);
+                  audioRef.current = ttsAudio;
+                  ttsAudio.onended = () => {
+                    URL.revokeObjectURL(ttsUrl);
+                    audioRef.current = null;
+                  };
+                  ttsAudio.onerror = () => {
+                    URL.revokeObjectURL(ttsUrl);
+                    audioRef.current = null;
+                  };
+                  await ttsAudio.play();
+                } catch (ttsErr) {
+                  logger.error("❌ [VoiceMsg] Full TTS playback failed:", ttsErr);
+                }
+              }
+            } else if (result.status === "error") {
+              clearInterval(pollingIntervalRef.current!);
+              pollingIntervalRef.current = null;
+              setIsAiResponding(false);
+              setMessages((prev) =>
+                prev.filter((m) => m.id !== tempUserMsgId && m.id !== tempAckMsgId)
+              );
+              setError("Voice message processing failed. Please try again.");
+              setTimeout(() => setError(null), 4000);
+            } else if (pollCount >= MAX_POLLS) {
+              clearInterval(pollingIntervalRef.current!);
+              pollingIntervalRef.current = null;
+              setIsAiResponding(false);
+              setMessages((prev) =>
+                prev.filter((m) => m.id !== tempUserMsgId && m.id !== tempAckMsgId)
+              );
+              setError("Voice message timed out. Please try again.");
+              setTimeout(() => setError(null), 4000);
+            }
+          } catch (pollErr) {
+            logger.error("❌ [VoiceMsg] Polling error:", pollErr);
+          }
+        }, 1500);
+      } catch (err) {
+        logger.error("❌ [VoiceMsg] Failed to send voice message:", err);
+        setIsAiResponding(false);
+        setMessages((prev) =>
+          prev.filter((m) => m.id !== tempUserMsgId && m.id !== tempAckMsgId)
+        );
+        setError("Failed to send voice message. Please try again.");
+        setTimeout(() => setError(null), 4000);
+      }
     },
-    onTouchEnd: (event: React.TouchEvent) => {
-      event.preventDefault();
-      stopRecording();
-    },
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessionId, token, shareToken, assistantId, lastResponseId, ttsVoice]
+  );
+
+  // Wire up the voice recorder hook
+  const { recordingState, elapsedSeconds, isCancelling, micButtonProps } = useVoiceRecorder({
+    onRecordingComplete: handleVoiceRecordingComplete,
+  });
 
   if (!hydrated) {
     return null;
@@ -1095,30 +1256,65 @@ export default function AssistantChatPage() {
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div className="flex flex-col gap-1 max-w-[85%] sm:max-w-[75%]">
-                  <div
-                    className={`rounded-2xl px-3 py-2 sm:px-4 sm:py-3 ${
-                      message.role === "user"
-                        ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
-                        : "text-[var(--ink-dark)]"
-                    }`}
-                    style={message.role === "assistant" ? { backgroundColor: assistantColors.accent } : undefined}
-                  >
-                    <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
-                    <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
-                      {new Date(message.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      })}
-                    </p>
-                  </div>
+                  {message.isVoiceMessage && message.audioUrl ? (
+                    /* Voice message bubble */
+                    <div>
+                      <VoiceMessageBubble
+                        audioUrl={message.audioUrl}
+                        durationSeconds={message.durationSeconds ?? 0}
+                        transcript={message.transcript}
+                        isProcessing={message.isProcessing}
+                        role={message.role}
+                        accentColor={message.role === "assistant" ? assistantColors.accent : undefined}
+                      />
+                      <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
+                        {new Date(message.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                  ) : message.isProcessing && message.role === "assistant" && !message.content ? (
+                    /* Ack assistant message while processing — show typing dots */
+                    <div
+                      className="rounded-2xl px-3 py-2 sm:px-4 sm:py-3"
+                      style={{ backgroundColor: assistantColors.accent }}
+                    >
+                      <div className="flex items-center gap-1">
+                        <div className="flex gap-1">
+                          <span className="w-2 h-2 bg-[var(--ink-dark)] rounded-full animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1.4s" }} />
+                          <span className="w-2 h-2 bg-[var(--ink-dark)] rounded-full animate-bounce" style={{ animationDelay: "200ms", animationDuration: "1.4s" }} />
+                          <span className="w-2 h-2 bg-[var(--ink-dark)] rounded-full animate-bounce" style={{ animationDelay: "400ms", animationDuration: "1.4s" }} />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Regular text bubble */
+                    <div
+                      className={`rounded-2xl px-3 py-2 sm:px-4 sm:py-3 ${
+                        message.role === "user"
+                          ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
+                          : "text-[var(--ink-dark)]"
+                      }`}
+                      style={message.role === "assistant" ? { backgroundColor: assistantColors.accent } : undefined}
+                    >
+                      <p className="text-sm leading-relaxed sm:text-base">{message.content}</p>
+                      <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
+                        {new Date(message.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        })}
+                      </p>
+                    </div>
+                  )}
                   {message.mqttFailed && (
                     <div className="flex items-center gap-1 px-2 py-1 text-xs text-[#8b3b00] bg-[#fff0dc] rounded-lg border border-[#ffb347]">
                       <span className="text-[10px]">⚠️</span>
                       <span>MQTT publish failed</span>
                     </div>
                   )}
-                  {/* Like/Dislike buttons for assistant messages */}
-                  {message.role === "assistant" && (
+                  {/* Like/Dislike buttons for assistant messages (not processing) */}
+                  {message.role === "assistant" && !message.isProcessing && (
                     <div className="flex items-center gap-1 mt-1">
                       <button
                         onClick={() => handleReaction(message.id, message.dbMessageId, "like")}
@@ -1183,31 +1379,16 @@ export default function AssistantChatPage() {
 
         {/* Fixed Input Bar - Sticky to bottom */}
         <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)] chat-input-safe">
-          {/* Helper text - positioned above the input controls, outside the padding */}
-          {isRecording && (
+          {/* Helper text - recording status banners */}
+          {(recordingState === "recording" || recordingState === "cancelling") && (
             <div className="px-4 pt-3 sm:px-6 sm:pt-4">
-              <div className="mx-auto max-w-3xl">
-                <p className="text-center text-xs text-red-600 sm:text-sm">
-                  Recording... Release to send
-                </p>
-              </div>
-            </div>
-          )}
-          {isTranscribing && !transcriptionError && (
-            <div className="px-4 pt-3 sm:px-6 sm:pt-4">
-              <div className="mx-auto max-w-3xl">
-                <p className="text-center text-xs text-blue-600 sm:text-sm">
-                  Transcribing...
-                </p>
-              </div>
-            </div>
-          )}
-          {transcriptionError && (
-            <div className="px-4 pt-3 sm:px-6 sm:pt-4">
-              <div className="mx-auto max-w-3xl">
-                <p className="text-center text-xs text-red-600 sm:text-sm">
-                  {transcriptionError}
-                </p>
+              <div className="mx-auto max-w-3xl flex items-center justify-between">
+                <span className="text-xs text-red-600 sm:text-sm font-medium">
+                  {isCancelling ? "Release to cancel" : `Recording… ${Math.floor(elapsedSeconds / 60)}:${(elapsedSeconds % 60).toString().padStart(2, "0")}`}
+                </span>
+                {!isCancelling && (
+                  <span className="text-xs text-[var(--ink-muted)]">← slide to cancel</span>
+                )}
               </div>
             </div>
           )}
@@ -1232,22 +1413,34 @@ export default function AssistantChatPage() {
             ) : (
               <form onSubmit={handleSend} className="mx-auto max-w-3xl">
                 <div className="flex items-center gap-2 sm:gap-3">
-                {/* Mic button */}
+                {/* Mic button — hold to record, slide left to cancel */}
                 <button
                   type="button"
-                  title={isTranscribing ? "Transcribing…" : isRecording ? "Recording…" : "Hold to talk"}
-                  disabled={isTranscribing}
-                  className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all ${
-                    isTranscribing
+                  title={
+                    recordingState === "recording"
+                      ? "Recording… release to send"
+                      : recordingState === "cancelling"
+                      ? "Release to cancel"
+                      : recordingState === "requesting"
+                      ? "Requesting microphone…"
+                      : "Hold to talk"
+                  }
+                  disabled={recordingState === "requesting" || isAiResponding}
+                  className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all select-none touch-none ${
+                    recordingState === "requesting"
                       ? "bg-blue-500 text-white cursor-not-allowed"
-                      : isRecording
-                      ? "bg-red-500 text-white scale-110"
+                      : recordingState === "cancelling"
+                      ? "bg-orange-500 text-white scale-110"
+                      : recordingState === "recording"
+                      ? "bg-red-500 text-white scale-110 animate-pulse"
                       : "bg-transparent border-2 border-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/20"
                   }`}
-                  {...(!isTranscribing ? recordingEvents : {})}
+                  {...micButtonProps}
                 >
-                  {isTranscribing ? (
+                  {recordingState === "requesting" ? (
                     <Loader2 className="h-5 w-5 sm:h-5 sm:w-5 animate-spin" />
+                  ) : recordingState === "cancelling" ? (
+                    <X className="h-5 w-5 sm:h-5 sm:w-5" />
                   ) : (
                     <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
                   )}

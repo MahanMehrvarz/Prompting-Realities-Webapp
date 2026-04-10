@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
 import logging
-from typing import Any, Dict
+import random
+import uuid
+from typing import Any, Dict, Optional, Tuple
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
+from openai import OpenAI
 from pydantic import BaseModel
 
 from ..conversation_service import run_model_turn, transcribe_blob
 from ..mqtt_utils import publish_payload, test_mqtt_connection
 from ..security import get_current_user_id, get_current_user_email, maybe_current_user_id
+from .. import voice_message_store
+
+ACK_PHRASES = [
+    "Got it, give me a second.",
+    "Sure, let me think about that.",
+    "On it!",
+    "Let me check that for you.",
+    "Got your message, just a moment.",
+    "Roger that, processing now.",
+    "One second!",
+    "Understood, working on it.",
+]
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -688,3 +706,223 @@ async def get_mqtt_credentials(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get MQTT credentials: {str(exc)}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Shared helper: fetch assistant row + decrypt API key
+# ---------------------------------------------------------------------------
+
+async def _get_assistant_and_key(assistant_id: str) -> Tuple[dict, str]:
+    """Fetch the assistant config from Supabase and return (assistant_dict, api_key).
+
+    Raises HTTPException on any failure so callers don't need to repeat error handling.
+    """
+    from supabase import create_client
+    from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+    from ..encryption import decrypt_api_key
+
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase configuration is missing",
+        )
+
+    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    response = supabase.table("assistants").select("*").eq("id", assistant_id).execute()
+
+    if not response.data or len(response.data) == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant not found")
+
+    assistant = response.data[0]
+    if not isinstance(assistant, dict):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid assistant data",
+        )
+
+    encrypted_key = assistant.get("openai_key", "")
+    if not encrypted_key or not isinstance(encrypted_key, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="API key not configured for this assistant",
+        )
+
+    try:
+        api_key = decrypt_api_key(encrypted_key)
+    except Exception as exc:
+        logger.error(f"❌ [Backend] Failed to decrypt API key: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to decrypt API key",
+        )
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="API key not configured for this assistant",
+        )
+
+    return assistant, api_key
+
+
+# ---------------------------------------------------------------------------
+# Background processing function for voice messages
+# ---------------------------------------------------------------------------
+
+async def _process_voice_message(
+    message_id: str,
+    audio_bytes: bytes,
+    api_key: str,
+    prompt_instruction: str,
+    json_schema: Optional[dict],
+    previous_response_id: Optional[str],
+) -> None:
+    """Background task: transcribe -> chat -> store result."""
+    try:
+        logger.info(f"🎤 [VoiceMsg] Starting background processing for {message_id}")
+
+        transcript = await transcribe_blob(audio_bytes, api_key)
+        if not transcript:
+            raise ValueError("Transcription returned empty text")
+
+        logger.info(f"📝 [VoiceMsg] Transcript: {transcript[:100]}")
+
+        payload, response_id, display_text = await run_model_turn(
+            previous_response_id,
+            transcript,
+            api_key,
+            prompt_instruction,
+            json_schema,
+            model="gpt-4o-mini",
+        )
+
+        logger.info(f"✅ [VoiceMsg] Processing complete for {message_id}")
+
+        voice_message_store.update_entry(
+            message_id,
+            status="ready",
+            transcript=transcript,
+            response_text=display_text,
+            response_payload=payload,
+            response_id=response_id,
+        )
+    except Exception as exc:
+        logger.error(f"❌ [VoiceMsg] Background processing failed for {message_id}: {exc}", exc_info=True)
+        voice_message_store.update_entry(
+            message_id,
+            status="error",
+            error=str(exc),
+        )
+
+
+# ---------------------------------------------------------------------------
+# POST /ai/voice-message
+# ---------------------------------------------------------------------------
+
+@router.post("/voice-message")
+async def send_voice_message(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    assistant_id: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    thread_id: Optional[str] = Form(None),
+    previous_response_id: Optional[str] = Form(None),
+    voice: str = Form("alloy"),
+    user_id: Optional[str] = Depends(maybe_current_user_id),
+):
+    """
+    Accept a recorded audio blob, return an acknowledgement TTS mp3 immediately
+    (in the response body), and kick off background processing.
+
+    The X-Voice-Message-ID response header carries the job ID that the frontend
+    should poll via GET /ai/voice-message/{message_id}/result.
+    """
+    logger.info(f"🎙️ [Backend] /ai/voice-message called — assistant={assistant_id}")
+
+    try:
+        assistant, api_key = await _get_assistant_and_key(assistant_id)
+
+        audio_bytes = await file.read()
+        logger.info(f"📊 [Backend] Audio bytes received: {len(audio_bytes)}")
+
+        # Pick a random acknowledgement phrase
+        ack_text = random.choice(ACK_PHRASES)
+        logger.info(f"💬 [Backend] Ack phrase: {ack_text}")
+
+        # Synthesise ack audio synchronously so it can be returned immediately
+        valid_voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+        ack_voice = voice if voice in valid_voices else "alloy"
+        ack_audio_bytes = await asyncio.to_thread(
+            _synthesize_tts_sync, api_key, ack_text, ack_voice
+        )
+
+        # Create the voice message store entry
+        message_id = str(uuid.uuid4())
+        voice_message_store.create_entry(message_id)
+        logger.info(f"📦 [Backend] Created voice message store entry: {message_id}")
+
+        # Extract assistant config to pass into background task
+        prompt_instruction_raw = assistant.get("prompt_instruction", "You are a helpful assistant.")
+        prompt_instruction = str(prompt_instruction_raw) if prompt_instruction_raw else "You are a helpful assistant."
+        json_schema_raw = assistant.get("json_schema")
+        json_schema = json_schema_raw if isinstance(json_schema_raw, dict) else None
+
+        # Schedule background processing
+        background_tasks.add_task(
+            _process_voice_message,
+            message_id,
+            audio_bytes,
+            api_key,
+            prompt_instruction,
+            json_schema,
+            previous_response_id,
+        )
+
+        logger.info(f"✅ [Backend] Returning ack audio for {message_id}")
+        return StreamingResponse(
+            io.BytesIO(ack_audio_bytes),
+            media_type="audio/mpeg",
+            headers={
+                "X-Voice-Message-ID": message_id,
+                "Content-Disposition": "inline; filename=ack.mp3",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"❌ [Backend] voice-message failed: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Voice message processing failed: {str(exc)}",
+        )
+
+
+def _synthesize_tts_sync(api_key: str, text: str, voice: str) -> bytes:
+    """Synchronous TTS call — run inside asyncio.to_thread."""
+    client = OpenAI(api_key=api_key)
+    response = client.audio.speech.create(model="tts-1", voice=voice, input=text)  # type: ignore[arg-type]
+    return response.content
+
+
+# ---------------------------------------------------------------------------
+# GET /ai/voice-message/{message_id}/result
+# ---------------------------------------------------------------------------
+
+@router.get("/voice-message/{message_id}/result")
+async def get_voice_message_result(
+    message_id: str,
+    user_id: Optional[str] = Depends(maybe_current_user_id),
+):
+    """
+    Poll for the result of a background voice message processing job.
+    Returns the entry dict: { status, transcript, response_text, response_payload, response_id, error }.
+    """
+    voice_message_store.cleanup_expired()
+    entry = voice_message_store.get_entry(message_id)
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Voice message not found or expired",
+        )
+    return entry

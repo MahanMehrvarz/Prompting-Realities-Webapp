@@ -121,6 +121,15 @@ export type MqttCredentialsResponse = {
   mqtt_topic: string | null;
 };
 
+export type VoiceMessageResult = {
+  status: "pending" | "ready" | "error";
+  transcript: string | null;
+  response_text: string | null;
+  response_payload: Record<string, any> | null;
+  response_id: string | null;
+  error: string | null;
+};
+
 // API methods
 export const backendApi = {
   /**
@@ -282,6 +291,72 @@ export const backendApi = {
   ): Promise<MqttCredentialsResponse> {
     return apiFetch<MqttCredentialsResponse>(
       `/ai/mqtt/credentials/${assistantId}`,
+      token,
+      { method: "GET" }
+    );
+  },
+
+  /**
+   * Send a recorded audio blob to the voice-message endpoint.
+   * Returns the acknowledgement audio blob and the job message ID.
+   * The message ID should be polled via voiceMessageResult().
+   */
+  async voiceMessage(
+    audioBlob: Blob,
+    assistantId: string,
+    options: {
+      sessionId?: string | null;
+      threadId?: string | null;
+      previousResponseId?: string | null;
+      voice?: string;
+    } = {},
+    token?: string
+  ): Promise<{ ackAudioBlob: Blob; messageId: string }> {
+    logger.log("🎙️ [BackendApi] Sending voice message");
+
+    const formData = new FormData();
+    const mimeType = audioBlob.type || "audio/webm";
+    const ext = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
+    formData.append("file", new File([audioBlob], `voice-message.${ext}`, { type: mimeType }));
+    formData.append("assistant_id", assistantId);
+    if (options.sessionId) formData.append("session_id", options.sessionId);
+    if (options.threadId) formData.append("thread_id", options.threadId);
+    if (options.previousResponseId) formData.append("previous_response_id", options.previousResponseId);
+    if (options.voice) formData.append("voice", options.voice);
+
+    const response = await fetch(`${API_BASE}/ai/voice-message`, {
+      method: "POST",
+      body: formData,
+      headers: {
+        ...authHeader(token),
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error("❌ [BackendApi] voice-message error:", errorText);
+      throw new Error(errorText || response.statusText);
+    }
+
+    const messageId = response.headers.get("X-Voice-Message-ID");
+    if (!messageId) {
+      throw new Error("Server did not return X-Voice-Message-ID header");
+    }
+
+    const ackAudioBlob = await response.blob();
+    logger.log(`✅ [BackendApi] Voice message sent, messageId=${messageId}`);
+    return { ackAudioBlob, messageId };
+  },
+
+  /**
+   * Poll for the result of a background voice message processing job.
+   */
+  async voiceMessageResult(
+    messageId: string,
+    token?: string
+  ): Promise<VoiceMessageResult> {
+    return apiFetch<VoiceMessageResult>(
+      `/ai/voice-message/${messageId}/result`,
       token,
       { method: "GET" }
     );
