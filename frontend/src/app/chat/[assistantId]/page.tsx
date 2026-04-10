@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio, X } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio, X, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
@@ -1385,20 +1385,6 @@ export default function AssistantChatPage() {
 
         {/* Fixed Input Bar - Sticky to bottom */}
         <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)] chat-input-safe">
-          {/* Helper text - recording status banners */}
-          {(recordingState === "recording" || recordingState === "cancelling") && (
-            <div className="px-4 pt-3 sm:px-6 sm:pt-4">
-              <div className="mx-auto max-w-3xl flex items-center justify-between">
-                <span className="text-xs text-red-600 sm:text-sm font-medium">
-                  {isCancelling ? "Release to cancel" : `Recording… ${Math.floor(elapsedSeconds / 60)}:${(elapsedSeconds % 60).toString().padStart(2, "0")}`}
-                </span>
-                {!isCancelling && (
-                  <span className="text-xs text-[var(--ink-muted)]">← slide to cancel</span>
-                )}
-              </div>
-            </div>
-          )}
-          
           <div className="px-4 py-3 sm:px-6 sm:py-4">
             {sessionActive === false ? (
               <div className="mx-auto max-w-3xl">
@@ -1416,61 +1402,91 @@ export default function AssistantChatPage() {
                   </p>
                 </div>
               </div>
-            ) : (
-              <form onSubmit={handleSend} className="mx-auto max-w-3xl">
-                <div className="flex items-center gap-2 sm:gap-3">
-                {/* Mic button — hold to record, slide left to cancel */}
+            ) : (recordingState === "recording" || recordingState === "cancelling" || recordingState === "requesting") ? (
+              /* ── Recording mode: full-bar takeover, WhatsApp-style ── */
+              <div className="mx-auto max-w-3xl flex items-center gap-3">
+                {/* Trash / cancel zone on the left */}
+                <div className={`flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full transition-all duration-200 ${isCancelling ? "bg-red-500 text-white scale-110" : "bg-[var(--card-shell)] text-[var(--ink-muted)]"}`}>
+                  <Trash2 className="h-5 w-5" />
+                </div>
+
+                {/* Center: slide-to-cancel hint + waveform + timer */}
+                <div className="flex-1 flex flex-col items-center gap-1">
+                  {isCancelling ? (
+                    <span className="text-sm font-medium text-red-500">Release to discard</span>
+                  ) : (
+                    <>
+                      {/* Decorative animated waveform */}
+                      <div className="flex items-center gap-[3px] h-7">
+                        {[3,5,8,5,9,6,4,7,10,6,8,4,6,9,5,7,4,6,8,5].map((h, i) => (
+                          <span
+                            key={i}
+                            className="w-[3px] rounded-full bg-red-500 animate-pulse"
+                            style={{
+                              height: `${h * 2}px`,
+                              animationDelay: `${(i * 80) % 600}ms`,
+                              animationDuration: `${600 + (i * 50) % 400}ms`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-red-500 font-semibold">
+                          {Math.floor(elapsedSeconds / 60)}:{(elapsedSeconds % 60).toString().padStart(2, "0")}
+                        </span>
+                        <span className="text-xs text-[var(--ink-muted)]">← slide to cancel</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Mic button — large, pulsing red */}
                 <button
                   type="button"
-                  title={
-                    recordingState === "recording"
-                      ? "Recording… release to send"
-                      : recordingState === "cancelling"
-                      ? "Release to cancel"
-                      : recordingState === "requesting"
-                      ? "Requesting microphone…"
-                      : "Hold to talk"
-                  }
-                  disabled={recordingState === "requesting" || isAiResponding}
-                  className={`flex-shrink-0 rounded-full p-2 sm:p-2.5 transition-all select-none touch-none ${
-                    recordingState === "requesting"
-                      ? "bg-blue-500 text-white cursor-not-allowed"
-                      : recordingState === "cancelling"
-                      ? "bg-orange-500 text-white scale-110"
-                      : recordingState === "recording"
-                      ? "bg-red-500 text-white scale-110 animate-pulse"
-                      : "bg-transparent border-2 border-[var(--card-shell)] text-[var(--ink-muted)] hover:bg-[var(--card-shell)]/20"
+                  className={`flex-shrink-0 flex items-center justify-center w-14 h-14 rounded-full transition-all duration-200 select-none touch-none shadow-lg ${
+                    isCancelling
+                      ? "bg-red-200 text-red-500 scale-95"
+                      : "bg-red-500 text-white scale-110 animate-pulse"
                   }`}
                   {...micButtonProps}
                 >
-                  {recordingState === "requesting" ? (
-                    <Loader2 className="h-5 w-5 sm:h-5 sm:w-5 animate-spin" />
-                  ) : recordingState === "cancelling" ? (
-                    <X className="h-5 w-5 sm:h-5 sm:w-5" />
-                  ) : (
-                    <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
-                  )}
-                </button>
-
-                {/* Input field */}
-                <input
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  placeholder="Message..."
-                  className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-base text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3"
-                  autoComplete="off"
-                />
-
-                {/* Send button - Icon only on mobile, with text on desktop */}
-                <button
-                  type="submit"
-                  disabled={!input.trim()}
-                  className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 sm:px-4 sm:py-3"
-                  aria-label="Send message"
-                >
-                  <Send className="h-5 w-5 sm:h-5 sm:w-5" />
+                  <Mic className="h-6 w-6" />
                 </button>
               </div>
+            ) : (
+              /* ── Normal mode: text input + mic + send ── */
+              <form onSubmit={handleSend} className="mx-auto max-w-3xl">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {/* Input field */}
+                  <input
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    placeholder="Message..."
+                    className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-base text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3"
+                    autoComplete="off"
+                  />
+
+                  {/* Mic button (idle) — shown when input is empty, replaces send */}
+                  {!input.trim() ? (
+                    <button
+                      type="button"
+                      disabled={isAiResponding}
+                      className="flex-shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed select-none touch-none"
+                      title="Hold to record voice message"
+                      {...micButtonProps}
+                    >
+                      <Mic className="h-5 w-5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 sm:px-4 sm:py-3"
+                      aria-label="Send message"
+                    >
+                      <Send className="h-5 w-5 sm:h-5 sm:w-5" />
+                    </button>
+                  )}
+                </div>
               </form>
             )}
           </div>
