@@ -27,6 +27,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--background);
   background-image: radial-gradient(circle at 8% 18%, #1ee784 0%, transparent 45%),
     radial-gradient(circle at 92% 12%, #00a957 0%, transparent 35%);
@@ -89,4 +90,14 @@ a,
 
 .animate-pulse {
   animation: shimmer 2s ease-in-out infinite;
+}
+
+/* Mobile chat viewport utilities */
+.chat-full-height {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.chat-input-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

@@ -37,7 +37,7 @@ export function MqttReceiverModal({
   };
 
   const [wsUrl, setWsUrl] = useState(() => defaultHost ? buildWsUrl(defaultHost) : "");
-  const [topic, setTopic] = useState(defaultTopic || "");
+  const [topic, setTopic] = useState(defaultTopic || "sensor");
   const [username, setUsername] = useState(defaultUsername || "");
   const [password, setPassword] = useState(defaultPassword || "");
 
@@ -45,7 +45,7 @@ export function MqttReceiverModal({
   useEffect(() => {
     if (isOpen && connectionStatus === "disconnected") {
       if (defaultHost) setWsUrl(buildWsUrl(defaultHost));
-      setTopic(defaultTopic || "");
+      setTopic(defaultTopic || "sensor");
       setUsername(defaultUsername || "");
       setPassword(defaultPassword || "");
     }

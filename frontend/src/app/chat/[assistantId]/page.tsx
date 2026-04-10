@@ -17,6 +17,7 @@ import {
 import { backendApi } from "@/lib/backendApi";
 import { getAssistantColors } from "@/lib/assistantColors";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useVisualViewport } from "@/hooks/useVisualViewport";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 
@@ -31,6 +32,7 @@ type ChatMessage = {
 };
 
 export default function AssistantChatPage() {
+  const viewportHeight = useVisualViewport();
   const router = useRouter();
   const params = useParams<{ assistantId?: string }>();
   const assistantId = params?.assistantId ?? "assistant";
@@ -119,6 +121,22 @@ export default function AssistantChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isAiResponding]);
+
+  // Scroll to bottom when visual viewport height changes (e.g. keyboard open/close on mobile)
+  useEffect(() => {
+    if (viewportHeight > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+    }
+  }, [viewportHeight]);
+
+  // Suppress body overscroll on chat route
+  useEffect(() => {
+    const prev = document.body.style.overscrollBehavior;
+    document.body.style.overscrollBehavior = 'none';
+    return () => {
+      document.body.style.overscrollBehavior = prev;
+    };
+  }, []);
 
   // Cleanup TTS audio on unmount
   useEffect(() => {
@@ -902,8 +920,8 @@ export default function AssistantChatPage() {
 
   return (
     <div
-      className="flex h-screen flex-col text-[var(--foreground)]"
-      style={{ background: assistantColors.chatBg }}
+      className="flex chat-full-height flex-col text-[var(--foreground)]"
+      style={{ background: assistantColors.chatBg, height: 'var(--vvp-height, 100dvh)' }}
     >
       {/* Reset Conversation Confirmation Modal */}
       <ConfirmationModal
@@ -1164,7 +1182,7 @@ export default function AssistantChatPage() {
         </div>
 
         {/* Fixed Input Bar - Sticky to bottom */}
-        <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)]">
+        <div className="flex-shrink-0 border-t-2 border-[var(--card-shell)] bg-[var(--card-fill)] chat-input-safe">
           {/* Helper text - positioned above the input controls, outside the padding */}
           {isRecording && (
             <div className="px-4 pt-3 sm:px-6 sm:pt-4">
@@ -1240,7 +1258,7 @@ export default function AssistantChatPage() {
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="Message..."
-                  className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3 sm:text-base"
+                  className="min-w-0 flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-4 py-2.5 text-base text-[var(--foreground)] outline-none placeholder:text-[var(--ink-muted)] focus:border-[var(--ink-dark)] sm:px-5 sm:py-3"
                   autoComplete="off"
                 />
 
