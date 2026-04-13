@@ -12,6 +12,8 @@ import {
   ChevronRight,
   Tag,
   CalendarDays,
+  MessageSquare,
+  Clock,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { analysisApi, type AnalysisList, type AssistantBrowseItem } from "@/lib/backendApi";
@@ -157,14 +159,35 @@ function AssistantCard({ assistant, lists, onAddToList }: { assistant: Assistant
   const memberCount = assistant.list_memberships.length;
   return (
     <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[5px_5px_0_var(--card-shell)] flex flex-col gap-3">
-      {/* Name */}
+      {/* Dark header */}
       <div className="rounded-[12px] bg-[var(--ink-dark)] px-4 py-3 text-[var(--card-fill)]">
-        <h3 className="font-semibold truncate">{assistant.name}</h3>
+        <h3 className="font-bold truncate text-base">{assistant.name}</h3>
         <div className="flex items-center gap-1 mt-1.5 text-[var(--card-fill)]/50">
           <CalendarDays className="h-3 w-3 flex-shrink-0" />
           <span className="text-xs">Created {fmtDate(assistant.created_at)}</span>
         </div>
       </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-3 py-2">
+          <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
+            <MessageSquare className="h-3 w-3" />
+            <span className="text-[10px] font-medium uppercase tracking-wide">Threads</span>
+          </div>
+          <p className="text-lg font-black text-[var(--ink-dark)] leading-none">{assistant.thread_count ?? 0}</p>
+        </div>
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-3 py-2">
+          <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
+            <Clock className="h-3 w-3" />
+            <span className="text-[10px] font-medium uppercase tracking-wide">Last used</span>
+          </div>
+          <p className="text-xs font-semibold text-[var(--ink-dark)] leading-tight">
+            {assistant.last_used ? fmtDate(assistant.last_used) : "—"}
+          </p>
+        </div>
+      </div>
+
       {/* Footer */}
       <div className="flex items-center justify-between gap-2">
         {memberCount > 0 ? (

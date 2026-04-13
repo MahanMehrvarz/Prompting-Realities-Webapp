@@ -461,6 +461,8 @@ export type AssistantBrowseItem = {
   prompt_instruction: string;
   created_at: string;
   list_memberships: string[];
+  thread_count: number;
+  last_used: string | null;
 };
 
 export type ThreadConversation = {

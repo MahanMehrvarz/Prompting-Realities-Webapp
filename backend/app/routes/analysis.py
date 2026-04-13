@@ -246,9 +246,31 @@ def browse_assistants(
     for item in (all_list_items.data or []):
         membership_map.setdefault(item["assistant_id"], []).append(item["list_id"])
 
+    # Fetch thread stats (thread count + last used) for this page's assistants
+    page_ids = [row["id"] for row in (rows.data or [])]
+    thread_count_map: dict[str, int] = {}
+    last_used_map: dict[str, str | None] = {}
+    if page_ids:
+        msgs_res = sb.table("chat_messages").select("assistant_id, thread_id, created_at").in_("assistant_id", page_ids).execute()
+        for m in (msgs_res.data or []):
+            aid = m["assistant_id"]
+            tid = m.get("thread_id") or m.get("session_id") or m.get("id")
+            if tid:
+                if aid not in thread_count_map:
+                    thread_count_map[aid] = set()  # type: ignore[assignment]
+                thread_count_map[aid].add(tid)  # type: ignore[attr-defined]
+            ts = m.get("created_at")
+            if ts and (last_used_map.get(aid) is None or ts > last_used_map[aid]):
+                last_used_map[aid] = ts
+        # convert sets to counts
+        thread_count_map = {k: len(v) for k, v in thread_count_map.items()}  # type: ignore[arg-type]
+
     items = []
     for row in (rows.data or []):
-        row["list_memberships"] = membership_map.get(row["id"], [])
+        aid = row["id"]
+        row["list_memberships"] = membership_map.get(aid, [])
+        row["thread_count"] = thread_count_map.get(aid, 0)
+        row["last_used"] = last_used_map.get(aid)
         items.append(row)
 
     return {"total": total, "page": page, "page_size": page_size, "items": items}
