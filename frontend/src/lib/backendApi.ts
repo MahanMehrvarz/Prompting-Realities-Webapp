@@ -438,6 +438,23 @@ export type ThreadSummary = {
   last_message_at: string | null;
 };
 
+export type CodeHighlight = {
+  highlight_id: string;
+  thread_id: string;
+  session_id: string;
+  assistant_id: string;
+  assistant_name: string;
+  selected_text: string;
+  source_field: "user_text" | "response_text" | "both";
+  created_by: string;
+  created_at: string;
+  message_texts: {
+    message_id: string;
+    user_text: string | null;
+    response_text: string | null;
+  }[];
+};
+
 export type AssistantBrowseItem = {
   id: string;
   name: string;
@@ -583,6 +600,9 @@ export const analysisApi = {
 
   unassignCode: (highlightId: string, codeId: string, token: string) =>
     apiFetch<void>(`/analysis/highlights/${highlightId}/codes/${codeId}`, token, { method: "DELETE" }),
+
+  getCodeHighlights: (listId: string, codeId: string, token: string) =>
+    apiFetch<CodeHighlight[]>(`/analysis/lists/${listId}/codes/${codeId}/highlights`, token, { method: "GET" }),
 
   // Export (returns a download URL — call via window.location or fetch+blob)
   getExportUrl: (listId: string, format: "json" | "csv") =>

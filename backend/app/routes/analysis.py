@@ -521,6 +521,62 @@ def unassign_code(highlight_id: str, code_id: str, admin: str = Depends(require_
     return None
 
 
+@router.get("/lists/{list_id}/codes/{code_id}/highlights")
+def get_code_highlights(list_id: str, code_id: str, admin: str = Depends(require_admin)):
+    """Return all highlights assigned to a specific code, with message context."""
+    sb = get_supabase()
+    # Get all highlight-code assignments for this code
+    assignments = sb.table("analysis_highlight_codes").select("highlight_id").eq("code_id", code_id).execute()
+    highlight_ids = [row["highlight_id"] for row in (assignments.data or [])]
+    if not highlight_ids:
+        return []
+
+    # Fetch highlights filtered by list_id
+    hl_res = sb.table("analysis_highlights").select("*").in_("id", highlight_ids).eq("list_id", list_id).order("created_at", desc=True).execute()
+    highlights = hl_res.data or []
+
+    # Fetch assistant names for context
+    assistant_ids = list({h["assistant_id"] for h in highlights})
+    asst_map: dict[str, str] = {}
+    if assistant_ids:
+        asst_res = sb.table("assistants").select("id, name").in_("id", assistant_ids).execute()
+        for a in (asst_res.data or []):
+            asst_map[a["id"]] = a.get("name", "")
+
+    # Fetch message texts
+    all_msg_ids: list[str] = []
+    for h in highlights:
+        all_msg_ids.extend(h.get("message_ids") or [])
+    msg_map: dict[str, dict] = {}
+    if all_msg_ids:
+        msg_res = sb.table("chat_messages").select("id, user_text, response_text").in_("id", all_msg_ids).execute()
+        for m in (msg_res.data or []):
+            msg_map[m["id"]] = m
+
+    result = []
+    for h in highlights:
+        result.append({
+            "highlight_id": h["id"],
+            "thread_id": h["thread_id"],
+            "session_id": h["session_id"],
+            "assistant_id": h["assistant_id"],
+            "assistant_name": asst_map.get(h["assistant_id"], ""),
+            "selected_text": h["selected_text"],
+            "source_field": h["source_field"],
+            "created_by": h["created_by"],
+            "created_at": h["created_at"],
+            "message_texts": [
+                {
+                    "message_id": mid,
+                    "user_text": msg_map.get(mid, {}).get("user_text"),
+                    "response_text": msg_map.get(mid, {}).get("response_text"),
+                }
+                for mid in (h.get("message_ids") or [])
+            ],
+        })
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
