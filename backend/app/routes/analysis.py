@@ -190,18 +190,22 @@ def get_list_items(list_id: str, admin: str = Depends(require_admin)):
 @router.post("/lists/{list_id}/items", status_code=201)
 def add_list_item(list_id: str, body: AddListItemBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    # Check duplicate
-    existing = sb.table("analysis_list_items").select("id").eq("list_id", list_id).eq("assistant_id", body.assistant_id).maybe_single().execute()
-    if existing.data:
-        raise HTTPException(status_code=409, detail="Assistant already in list")
-    res = sb.table("analysis_list_items").insert({
-        "list_id": list_id,
-        "assistant_id": body.assistant_id,
-        "added_by": admin,
-    }).execute()
-    if not res.data:
-        raise HTTPException(status_code=500, detail="Insert failed")
-    return res.data[0]
+    try:
+        existing = sb.table("analysis_list_items").select("id").eq("list_id", list_id).eq("assistant_id", body.assistant_id).maybe_single().execute()
+        if existing.data:
+            raise HTTPException(status_code=409, detail="Assistant already in list")
+        res = sb.table("analysis_list_items").insert({
+            "list_id": list_id,
+            "assistant_id": body.assistant_id,
+            "added_by": admin,
+        }).execute()
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Insert failed")
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/lists/{list_id}/items/{assistant_id}", status_code=204)
@@ -257,8 +261,10 @@ def browse_assistants(
 @router.get("/lists/{list_id}/assistant/{assistant_id}/threads")
 def get_threads(list_id: str, assistant_id: str, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    # Get all sessions for this assistant
-    sessions = sb.table("assistant_sessions").select("id, current_thread_id, device_id, created_at, updated_at").eq("assistant_id", assistant_id).execute()
+    try:
+     sessions = sb.table("assistant_sessions").select("id, current_thread_id, device_id, created_at, updated_at").eq("assistant_id", assistant_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"sessions query: {e}")
 
     # Get highlight counts per thread for this list
     highlights = sb.table("analysis_highlights").select("thread_id, session_id").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
