@@ -120,15 +120,14 @@ def get_lists(admin: str = Depends(require_admin)):
 @router.post("/lists", status_code=201)
 def create_list(body: CreateListBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    try:
-        row = sb.table("analysis_lists").insert({
-            "name": body.name,
-            "description": body.description,
-            "created_by": admin,
-        }).select().single().execute()
-        return row.data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    res = sb.table("analysis_lists").insert({
+        "name": body.name,
+        "description": body.description,
+        "created_by": admin,
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
 
 
 @router.get("/lists/{list_id}")
@@ -150,10 +149,11 @@ def update_list(list_id: str, body: UpdateListBody, admin: str = Depends(require
         updates["description"] = body.description
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    row = sb.table("analysis_lists").update(updates).eq("id", list_id).is_("deleted_at", None).select().single().execute()
-    if not row.data:
+    sb.table("analysis_lists").update(updates).eq("id", list_id).is_("deleted_at", None).execute()
+    data = _list_with_counts(sb, list_id)
+    if not data:
         raise HTTPException(status_code=404, detail="List not found")
-    return row.data
+    return data
 
 
 @router.delete("/lists/{list_id}", status_code=204)
@@ -194,12 +194,14 @@ def add_list_item(list_id: str, body: AddListItemBody, admin: str = Depends(requ
     existing = sb.table("analysis_list_items").select("id").eq("list_id", list_id).eq("assistant_id", body.assistant_id).maybe_single().execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="Assistant already in list")
-    row = sb.table("analysis_list_items").insert({
+    res = sb.table("analysis_list_items").insert({
         "list_id": list_id,
         "assistant_id": body.assistant_id,
         "added_by": admin,
-    }).select().single().execute()
-    return row.data
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
 
 
 @router.delete("/lists/{list_id}/items/{assistant_id}", status_code=204)
@@ -356,13 +358,15 @@ def get_code_groups(list_id: str, admin: str = Depends(require_admin)):
 @router.post("/lists/{list_id}/code-groups", status_code=201)
 def create_code_group(list_id: str, body: CreateCodeGroupBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    row = sb.table("analysis_code_groups").insert({
+    res = sb.table("analysis_code_groups").insert({
         "list_id": list_id,
         "name": body.name,
         "color": body.color,
         "created_by": admin,
-    }).select().single().execute()
-    return row.data
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
 
 
 @router.patch("/lists/{list_id}/code-groups/{group_id}")
@@ -375,7 +379,8 @@ def update_code_group(list_id: str, group_id: str, body: UpdateCodeGroupBody, ad
         updates["color"] = body.color
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    row = sb.table("analysis_code_groups").update(updates).eq("id", group_id).eq("list_id", list_id).select().single().execute()
+    sb.table("analysis_code_groups").update(updates).eq("id", group_id).eq("list_id", list_id).execute()
+    row = sb.table("analysis_code_groups").select("*").eq("id", group_id).maybe_single().execute()
     if not row.data:
         raise HTTPException(status_code=404, detail="Code group not found")
     return row.data
@@ -409,15 +414,17 @@ def get_codes(list_id: str, admin: str = Depends(require_admin)):
 @router.post("/lists/{list_id}/codes", status_code=201)
 def create_code(list_id: str, body: CreateCodeBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    row = sb.table("analysis_codes").insert({
+    res = sb.table("analysis_codes").insert({
         "list_id": list_id,
         "group_id": body.group_id,
         "name": body.name,
         "color": body.color,
         "description": body.description,
         "created_by": admin,
-    }).select().single().execute()
-    return row.data
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
 
 
 @router.patch("/lists/{list_id}/codes/{code_id}")
@@ -434,7 +441,8 @@ def update_code(list_id: str, code_id: str, body: UpdateCodeBody, admin: str = D
         updates["group_id"] = body.group_id if body.group_id != "" else None
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    row = sb.table("analysis_codes").update(updates).eq("id", code_id).eq("list_id", list_id).select().single().execute()
+    sb.table("analysis_codes").update(updates).eq("id", code_id).eq("list_id", list_id).execute()
+    row = sb.table("analysis_codes").select("*").eq("id", code_id).maybe_single().execute()
     if not row.data:
         raise HTTPException(status_code=404, detail="Code not found")
     return row.data
@@ -458,7 +466,7 @@ def create_highlight(body: CreateHighlightBody, admin: str = Depends(require_adm
     if body.char_end <= body.char_start:
         raise HTTPException(status_code=400, detail="char_end must be greater than char_start")
     sb = get_supabase()
-    row = sb.table("analysis_highlights").insert({
+    res = sb.table("analysis_highlights").insert({
         "list_id": body.list_id,
         "thread_id": body.thread_id,
         "session_id": body.session_id,
@@ -469,8 +477,10 @@ def create_highlight(body: CreateHighlightBody, admin: str = Depends(require_adm
         "char_end": body.char_end,
         "source_field": body.source_field,
         "created_by": admin,
-    }).select().single().execute()
-    return row.data
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
 
 
 @router.delete("/highlights/{highlight_id}", status_code=204)
@@ -490,12 +500,14 @@ def assign_code(highlight_id: str, body: AssignCodeBody, admin: str = Depends(re
     existing = sb.table("analysis_highlight_codes").select("id").eq("highlight_id", highlight_id).eq("code_id", body.code_id).maybe_single().execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="Code already assigned to this highlight")
-    row = sb.table("analysis_highlight_codes").insert({
+    res = sb.table("analysis_highlight_codes").insert({
         "highlight_id": highlight_id,
         "code_id": body.code_id,
         "assigned_by": admin,
-    }).select().single().execute()
-    return row.data
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
 
 
 @router.delete("/highlights/{highlight_id}/codes/{code_id}", status_code=204)
