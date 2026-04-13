@@ -459,30 +459,28 @@ export default function AnalysisPage() {
                   </div>
                 </div>
 
-                {/* Date range — only shown for date-based sort fields */}
-                {(sortBy === "created_at" || sortBy === "last_used") && (
-                  <div>
-                    <label className="block text-xs font-bold text-[var(--ink-dark)] uppercase tracking-wider mb-2">
-                      Date range <span className="normal-case font-normal text-[var(--ink-muted)]">({SORT_LABELS[sortBy]})</span>
-                    </label>
-                    <div className="flex flex-wrap gap-3 items-center">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-[var(--ink-muted)]">From</span>
-                        <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-                          className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-[var(--ink-muted)]">To</span>
-                        <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-                          className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
-                      </div>
-                      {(dateFrom || dateTo) && (
-                        <button onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}
-                          className="text-xs text-[var(--accent-red)] hover:underline">Clear dates</button>
-                      )}
+                {/* Date range — always filters by date created, independent of sort */}
+                <div>
+                  <label className="block text-xs font-bold text-[var(--ink-dark)] uppercase tracking-wider mb-2">
+                    Filter by date created
+                  </label>
+                  <div className="flex flex-wrap gap-3 items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--ink-muted)]">From</span>
+                      <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+                        className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-[var(--ink-muted)]">To</span>
+                      <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+                        className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
+                    </div>
+                    {(dateFrom || dateTo) && (
+                      <button onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}
+                        className="text-xs text-[var(--accent-red)] hover:underline">Clear dates</button>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </div>
           )}

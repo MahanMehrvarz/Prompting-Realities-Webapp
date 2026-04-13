@@ -301,18 +301,11 @@ def browse_assistants(
         row["last_used"] = last_used_map.get(aid)
         items.append(row)
 
-    # 5. Apply date filter on the chosen sort field
-    if date_from or date_to:
-        def _val(item: dict) -> str:
-            if sort_by == "created_at":
-                return item["created_at"] or ""
-            if sort_by == "last_used":
-                return item["last_used"] or ""
-            return item["created_at"] or ""  # date filter only applies to date fields
-        if date_from:
-            items = [i for i in items if _val(i) >= date_from]
-        if date_to:
-            items = [i for i in items if _val(i) <= date_to + "T23:59:59"]
+    # 5. Apply date filter — always on created_at, independent of sort field
+    if date_from:
+        items = [i for i in items if (i["created_at"] or "") >= date_from]
+    if date_to:
+        items = [i for i in items if (i["created_at"] or "") <= date_to + "T23:59:59"]
 
     # 6. Sort
     reverse = sort_dir == "desc"
