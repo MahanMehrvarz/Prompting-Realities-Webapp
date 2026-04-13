@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Clock,
   SlidersHorizontal,
+  ArrowUpDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { analysisApi, type AnalysisList, type AssistantBrowseItem } from "@/lib/backendApi";
@@ -22,6 +23,13 @@ import AnalysisShell from "./AnalysisShell";
 import { useAnalysisBreadcrumb } from "./AnalysisBreadcrumbContext";
 
 const TOKEN_KEY = "pr-auth-token";
+
+const SORT_LABELS: Record<"created_at" | "last_used" | "thread_count" | "message_count", string> = {
+  created_at: "Date created",
+  last_used: "Last used",
+  thread_count: "Thread count",
+  message_count: "Message count",
+};
 
 // ---------------------------------------------------------------------------
 // Add-to-list modal
@@ -212,21 +220,28 @@ function AssistantCard({ assistant, lists, onAddToList }: { assistant: Assistant
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-3 py-2">
+      {/* Stats grid */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-2 py-2">
           <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
-            <MessageSquare className="h-3 w-3" />
-            <span className="text-[10px] font-medium uppercase tracking-wide">Threads</span>
+            <MessageSquare className="h-3 w-3 flex-shrink-0" />
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Threads</span>
           </div>
           <p className="text-lg font-black text-[var(--ink-dark)] leading-none">{assistant.thread_count ?? 0}</p>
         </div>
-        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-3 py-2">
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-2 py-2">
           <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
-            <Clock className="h-3 w-3" />
-            <span className="text-[10px] font-medium uppercase tracking-wide">Last used</span>
+            <ArrowUpDown className="h-3 w-3 flex-shrink-0" />
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Messages</span>
           </div>
-          <p className="text-xs font-semibold text-[var(--ink-dark)] leading-tight">
+          <p className="text-lg font-black text-[var(--ink-dark)] leading-none">{assistant.message_count ?? 0}</p>
+        </div>
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-2 py-2">
+          <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
+            <Clock className="h-3 w-3 flex-shrink-0" />
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Last used</span>
+          </div>
+          <p className="text-[11px] font-semibold text-[var(--ink-dark)] leading-tight">
             {assistant.last_used ? fmtDate(assistant.last_used) : "—"}
           </p>
         </div>
@@ -282,7 +297,7 @@ export default function AnalysisPage() {
   const [deletingListId, setDeletingListId] = useState<string | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [sortBy, setSortBy] = useState<"created_at" | "last_used">("created_at");
+  const [sortBy, setSortBy] = useState<"created_at" | "last_used" | "thread_count" | "message_count">("created_at");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -356,80 +371,119 @@ export default function AnalysisPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8">
         {/* LEFT: Assistant browse */}
         <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-[var(--card-fill)]">LLM Things</h2>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-[var(--card-fill)]/70">{total} total</span>
-              <button
-                onClick={() => setShowFilters((v) => !v)}
-                className={`flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition ${showFilters || hasActiveFilters ? "bg-[var(--ink-dark)] text-white shadow-[3px_3px_0_var(--shadow-deep)]" : "bg-white text-[var(--foreground)] hover:bg-[var(--card-fill)]"}`}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Filter & Sort
-              </button>
+          {/* Header row: title + search + filter toggle */}
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-lg font-bold text-[var(--card-fill)] flex-shrink-0">LLM Things</h2>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-muted)]" />
+              <input type="text" value={search} onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Search by name…"
+                className="w-full rounded-[12px] border-2 border-[var(--card-shell)] bg-white pl-9 pr-8 py-2 text-sm placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
+              {search && (
+                <button onClick={() => handleSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink-dark)]">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className={`flex-shrink-0 flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] px-3 py-2 text-xs font-semibold transition ${showFilters || hasActiveFilters ? "bg-[var(--ink-dark)] text-white shadow-[3px_3px_0_var(--shadow-deep)]" : "bg-white text-[var(--foreground)] hover:bg-[var(--card-fill)]"}`}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {hasActiveFilters ? "Filtered" : "Filter & Sort"}
+            </button>
+            <span className="flex-shrink-0 text-sm text-[var(--card-fill)]/60">{total} total</span>
           </div>
 
-          {/* Search bar */}
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-muted)]" />
-            <input type="text" value={search} onChange={(e) => handleSearch(e.target.value)}
-              placeholder="Search LLM things…"
-              className="w-full rounded-[12px] border-2 border-[var(--card-shell)] bg-white pl-9 pr-4 py-2.5 text-sm placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
-            {search && (
-              <button onClick={() => handleSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink-dark)]">
-                <X className="h-4 w-4" />
+          {/* Active filter chips */}
+          {hasActiveFilters && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {sortBy !== "created_at" && (
+                <span className="flex items-center gap-1 rounded-full bg-[var(--ink-dark)] text-white px-2.5 py-1 text-xs font-medium">
+                  Sort: {SORT_LABELS[sortBy]}
+                  <button onClick={() => { setSortBy("created_at"); setPage(1); }} className="ml-1 hover:opacity-70"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {sortDir !== "desc" && (
+                <span className="flex items-center gap-1 rounded-full bg-[var(--ink-dark)] text-white px-2.5 py-1 text-xs font-medium">
+                  Ascending
+                  <button onClick={() => { setSortDir("desc"); setPage(1); }} className="ml-1 hover:opacity-70"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {dateFrom && (
+                <span className="flex items-center gap-1 rounded-full bg-[var(--ink-dark)] text-white px-2.5 py-1 text-xs font-medium">
+                  From {dateFrom}
+                  <button onClick={() => { setDateFrom(""); setPage(1); }} className="ml-1 hover:opacity-70"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {dateTo && (
+                <span className="flex items-center gap-1 rounded-full bg-[var(--ink-dark)] text-white px-2.5 py-1 text-xs font-medium">
+                  To {dateTo}
+                  <button onClick={() => { setDateTo(""); setPage(1); }} className="ml-1 hover:opacity-70"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              <button onClick={() => { resetFilters(); setPage(1); }}
+                className="rounded-full border-2 border-[var(--card-shell)] bg-white px-2.5 py-1 text-xs text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white transition">
+                Clear all
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Filter panel */}
           {showFilters && (
-            <div className="mb-4 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[4px_4px_0_var(--card-shell)]">
-              <div className="flex flex-wrap gap-4 items-end">
+            <div className="mb-5 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-5 shadow-[4px_4px_0_var(--card-shell)]">
+              <div className="space-y-4">
+                {/* Sort by */}
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">Sort by</label>
-                  <div className="flex gap-2">
-                    {(["created_at", "last_used"] as const).map((f) => (
+                  <label className="block text-xs font-bold text-[var(--ink-dark)] uppercase tracking-wider mb-2">Sort by</label>
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.entries(SORT_LABELS) as [typeof sortBy, string][]).map(([f, label]) => (
                       <button key={f} onClick={() => { setSortBy(f); setPage(1); }}
-                        className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1 text-xs font-medium transition ${sortBy === f ? "bg-[var(--ink-dark)] text-white" : "bg-white hover:bg-[var(--card-fill)]"}`}>
-                        {f === "created_at" ? "Date created" : "Last used"}
+                        className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition ${sortBy === f ? "bg-[var(--ink-dark)] text-white shadow-[2px_2px_0_var(--shadow-deep)]" : "bg-white hover:bg-[var(--card-fill)]"}`}>
+                        {label}
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {/* Order */}
                 <div>
-                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">Order</label>
+                  <label className="block text-xs font-bold text-[var(--ink-dark)] uppercase tracking-wider mb-2">Order</label>
                   <div className="flex gap-2">
                     {(["desc", "asc"] as const).map((d) => (
                       <button key={d} onClick={() => { setSortDir(d); setPage(1); }}
-                        className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1 text-xs font-medium transition ${sortDir === d ? "bg-[var(--ink-dark)] text-white" : "bg-white hover:bg-[var(--card-fill)]"}`}>
-                        {d === "desc" ? "Newest first" : "Oldest first"}
+                        className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition ${sortDir === d ? "bg-[var(--ink-dark)] text-white shadow-[2px_2px_0_var(--shadow-deep)]" : "bg-white hover:bg-[var(--card-fill)]"}`}>
+                        {d === "desc" ? "↓ High to low / Newest first" : "↑ Low to high / Oldest first"}
                       </button>
                     ))}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">From</label>
-                  <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-                    className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">To</label>
-                  <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-                    className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
-                </div>
-                {hasActiveFilters && (
-                  <button onClick={() => { resetFilters(); setPage(1); }}
-                    className="flex items-center gap-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white transition">
-                    <X className="h-3 w-3" />
-                    Reset
-                  </button>
+
+                {/* Date range — only shown for date-based sort fields */}
+                {(sortBy === "created_at" || sortBy === "last_used") && (
+                  <div>
+                    <label className="block text-xs font-bold text-[var(--ink-dark)] uppercase tracking-wider mb-2">
+                      Date range <span className="normal-case font-normal text-[var(--ink-muted)]">({SORT_LABELS[sortBy]})</span>
+                    </label>
+                    <div className="flex flex-wrap gap-3 items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--ink-muted)]">From</span>
+                        <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+                          className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--ink-muted)]">To</span>
+                        <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+                          className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
+                      </div>
+                      {(dateFrom || dateTo) && (
+                        <button onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}
+                          className="text-xs text-[var(--accent-red)] hover:underline">Clear dates</button>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
-              {(dateFrom || dateTo) && (
-                <p className="text-xs text-[var(--ink-muted)] mt-2">Filtering by <strong>{sortBy === "created_at" ? "date created" : "last used"}</strong></p>
-              )}
             </div>
           )}
 

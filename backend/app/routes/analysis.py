@@ -234,82 +234,103 @@ def remove_list_item(list_id: str, assistant_id: str, admin: str = Depends(requi
 # Assistants browse
 # ---------------------------------------------------------------------------
 
+BROWSE_SORT_FIELDS = {"created_at", "last_used", "thread_count", "message_count"}
+
 @router.get("/assistants")
 def browse_assistants(
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    sort_by: str = Query("created_at", regex="^(created_at|last_used)$"),
-    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
-    date_from: str | None = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
+    date_from: str | None = Query(None),  # ISO date string YYYY-MM-DD, applied to sort_by field
     date_to: str | None = Query(None),
     admin: str = Depends(require_admin),
 ):
+    if sort_by not in BROWSE_SORT_FIELDS:
+        sort_by = "created_at"
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "desc"
+
     sb = get_supabase()
-    query = sb.table("assistants").select("id, name, prompt_instruction, created_at").is_("deleted_at", None)
+
+    # 1. Fetch all matching assistants (no pagination yet — needed for stats-based sorting)
+    query = sb.table("assistants").select("id, name, created_at").is_("deleted_at", None)
     if search:
         query = query.ilike("name", f"%{search}%")
-    if date_from and sort_by == "created_at":
-        query = query.gte("created_at", date_from)
-    if date_to and sort_by == "created_at":
-        query = query.lte("created_at", date_to + "T23:59:59")
-    # Get total count
-    count_q = sb.table("assistants").select("id", count="exact").is_("deleted_at", None)
-    if search:
-        count_q = count_q.ilike("name", f"%{search}%")
-    if date_from and sort_by == "created_at":
-        count_q = count_q.gte("created_at", date_from)
-    if date_to and sort_by == "created_at":
-        count_q = count_q.lte("created_at", date_to + "T23:59:59")
-    total_res = count_q.execute()
-    total = total_res.count or 0
+    rows = query.order("created_at", desc=True).execute()
+    all_rows = rows.data or []
 
-    offset = (page - 1) * page_size
-    # For last_used sort we fetch then sort in-memory after stats are computed
-    rows = query.order("created_at", desc=(sort_dir == "desc")).range(offset, offset + page_size - 1).execute()
+    if not all_rows:
+        return {"total": 0, "page": page, "page_size": page_size, "items": []}
 
-    # Fetch list memberships for each assistant
-    all_list_items = sb.table("analysis_list_items").select("assistant_id, list_id").execute()
+    all_ids = [r["id"] for r in all_rows]
+
+    # 2. Batch fetch message stats for all matched assistants in one query
+    msgs_res = sb.table("chat_messages").select("assistant_id, thread_id, created_at").in_("assistant_id", all_ids).execute()
+
+    thread_sets: dict[str, set] = {}
+    msg_count_map: dict[str, int] = {}
+    last_used_map: dict[str, str] = {}
+
+    for m in (msgs_res.data or []):
+        aid = m["assistant_id"]
+        tid = m.get("thread_id") or m.get("session_id") or m.get("id")
+        msg_count_map[aid] = msg_count_map.get(aid, 0) + 1
+        if tid:
+            thread_sets.setdefault(aid, set()).add(tid)
+        ts = m.get("created_at")
+        if ts and ts > last_used_map.get(aid, ""):
+            last_used_map[aid] = ts
+
+    thread_count_map = {aid: len(s) for aid, s in thread_sets.items()}
+
+    # 3. Fetch list memberships (one query for all)
+    all_items = sb.table("analysis_list_items").select("assistant_id, list_id").execute()
     membership_map: dict[str, list[str]] = {}
-    for item in (all_list_items.data or []):
+    for item in (all_items.data or []):
         membership_map.setdefault(item["assistant_id"], []).append(item["list_id"])
 
-    # Fetch thread stats (thread count + last used) for this page's assistants
-    page_ids = [row["id"] for row in (rows.data or [])]
-    thread_count_map: dict[str, int] = {}
-    last_used_map: dict[str, str | None] = {}
-    if page_ids:
-        msgs_res = sb.table("chat_messages").select("assistant_id, thread_id, created_at").in_("assistant_id", page_ids).execute()
-        for m in (msgs_res.data or []):
-            aid = m["assistant_id"]
-            tid = m.get("thread_id") or m.get("session_id") or m.get("id")
-            if tid:
-                if aid not in thread_count_map:
-                    thread_count_map[aid] = set()  # type: ignore[assignment]
-                thread_count_map[aid].add(tid)  # type: ignore[attr-defined]
-            ts = m.get("created_at")
-            if ts and (last_used_map.get(aid) is None or ts > last_used_map[aid]):
-                last_used_map[aid] = ts
-        # convert sets to counts
-        thread_count_map = {k: len(v) for k, v in thread_count_map.items()}  # type: ignore[arg-type]
-
-    items = []
-    for row in (rows.data or []):
+    # 4. Build enriched list
+    items: list[dict] = []
+    for row in all_rows:
         aid = row["id"]
         row["list_memberships"] = membership_map.get(aid, [])
         row["thread_count"] = thread_count_map.get(aid, 0)
+        row["message_count"] = msg_count_map.get(aid, 0)
         row["last_used"] = last_used_map.get(aid)
         items.append(row)
 
-    # For last_used sort: filter by date range then sort in-memory
-    if sort_by == "last_used":
+    # 5. Apply date filter on the chosen sort field
+    if date_from or date_to:
+        def _val(item: dict) -> str:
+            if sort_by == "created_at":
+                return item["created_at"] or ""
+            if sort_by == "last_used":
+                return item["last_used"] or ""
+            return item["created_at"] or ""  # date filter only applies to date fields
         if date_from:
-            items = [i for i in items if i["last_used"] and i["last_used"] >= date_from]
+            items = [i for i in items if _val(i) >= date_from]
         if date_to:
-            items = [i for i in items if i["last_used"] and i["last_used"] <= date_to + "T23:59:59"]
-        items.sort(key=lambda i: i["last_used"] or "", reverse=(sort_dir == "desc"))
+            items = [i for i in items if _val(i) <= date_to + "T23:59:59"]
 
-    return {"total": total, "page": page, "page_size": page_size, "items": items}
+    # 6. Sort
+    reverse = sort_dir == "desc"
+    if sort_by == "created_at":
+        items.sort(key=lambda i: i["created_at"] or "", reverse=reverse)
+    elif sort_by == "last_used":
+        items.sort(key=lambda i: i["last_used"] or "", reverse=reverse)
+    elif sort_by == "thread_count":
+        items.sort(key=lambda i: i["thread_count"], reverse=reverse)
+    elif sort_by == "message_count":
+        items.sort(key=lambda i: i["message_count"], reverse=reverse)
+
+    # 7. Paginate
+    total = len(items)
+    offset = (page - 1) * page_size
+    page_items = items[offset: offset + page_size]
+
+    return {"total": total, "page": page, "page_size": page_size, "items": page_items}
 
 
 # ---------------------------------------------------------------------------

@@ -458,10 +458,10 @@ export type CodeHighlight = {
 export type AssistantBrowseItem = {
   id: string;
   name: string;
-  prompt_instruction: string;
   created_at: string;
   list_memberships: string[];
   thread_count: number;
+  message_count: number;
   last_used: string | null;
 };
 
