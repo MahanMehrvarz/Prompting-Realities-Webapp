@@ -36,41 +36,56 @@ This feature introduces a qualitative analysis workspace into the admin interfac
 
 ## 3. User Stories
 
+### Layout & Navigation
+- As an admin, all analysis pages share a persistent sticky header showing a "Dashboard" link, the "Analysis" label, and a dynamic breadcrumb that updates based on current page depth (e.g. Analysis / My List / GPT-4o / …abc12345), so I can navigate back and forth without losing context.
+- As an admin, analysis pages use full browser width (up to 1536px) so that cards and conversation views can make use of available screen space.
+
 ### List Management
 - As an admin, I can create a new list with a name and optional description so that I can scope my analysis project.
 - As an admin, I can rename or delete a list. Deleting a list cascades to all its items, codes, groups, and highlights.
-- As an admin, I can see all lists I and other admins have created on the main analysis page.
-- as an admin, i can toggle between sessions/threads (all sessions of assistants in a list). 
-- as an admin, i can filter a list to only see coded sessions (sessions that have at least one code in them).
-### Assistant & Thread Browsing
-- As an admin, I can search and filter all non-deleted assistants from the main analysis page so that I can identify relevant ones to include in a project.
-- As an admin, I can add an assistant to one or more lists from the assistant card on the browse page.
-- As an admin, I can open a list and see which assistants have been added to it.
-- As an admin, I can click an assistant within a list and browse all its threads (sessions), seeing a summary of each.
-- As an admin, I can click a thread to open the conversation view.
-- As an admin I can see what threads have codes without needing to open them.
+- As an admin, I can see all lists I and other admins have created on the main analysis page, with item count and code count shown on each list card.
 
-### Coding & Highlighting
-- As an admin, I can select any span of text in a conversation (within a single message field or spanning user and assistant turns) and see a tooltip popup.
-- As an admin, I can search for an existing code in the tooltip's fuzzy search field and apply it to the selection.
-- As an admin, I can create a new code directly from the tooltip if no existing code fits.
-- As an admin, I can apply multiple codes to the same highlight.
-- As an admin, I can see all highlights in a thread rendered with color-coded background markers, similar to Word's highlight feature.
-- As an admin, I can click on a highlight to see which codes are assigned to it and who created it.
+### Assistant & Thread Browsing
+- As an admin, I can search all non-deleted assistants from the main analysis page to identify relevant ones to include in a project.
+- As an admin, each assistant card on the browse page shows: assistant name, date created, total thread count, last used date, and which lists it belongs to — without showing the system prompt text.
+- As an admin, I can click an assistant card (when it belongs to at least one list) to navigate directly to its thread list. If it belongs to multiple lists, a picker popover lets me choose which list context to open.
+- As an admin, I can add an assistant to one or more lists from the assistant card via the "+ Lists" button.
+- As an admin, I can open a list and see all assistants added to it as cards showing: thread count, last used date, date added, and added-by.
+- As an admin, I can click an assistant card within a list to browse all its threads (sessions), seeing message count, start date, last activity date, and whether the thread has any codes.
+- As an admin, I can filter the thread list by "coded only" (threads with at least one highlight), and sort/filter by date started or last activity with a date range picker.
+- As an admin, I can click a thread to open the conversation view.
+- As an admin, I can see at a glance which threads have codes (highlighted badge with count) without opening them.
+
+### Coding (Message-Level)
+- As an admin, I can click on any message bubble in the conversation view to select it; selected messages show a checkmark indicator.
+- As an admin, I can select multiple messages at once (any combination of user and assistant turns) and code them all in one action.
+- As an admin, a floating action bar appears at the bottom of the screen whenever I have one or more messages selected, showing a count and an "Assign code" button.
+- As an admin, clicking "Assign code" opens a code tooltip (centered at the bottom of the viewport) where I can search existing codes or create a new one.
+- As an admin, I can create a new code directly from the tooltip if no existing code fits, and it is immediately applied to the selected messages.
+- As an admin, after assigning a code, the selection is cleared and the coded messages show color chips indicating which codes have been applied.
+- As an admin, I can apply multiple codes to the same message by selecting it again and assigning another code.
+- As an admin, I can remove a code assignment from a message directly from the code chip shown on the message bubble.
 
 ### Codebook Management
-- As an admin, I can view all codes in the current list's codebook in a side panel.
+- As an admin, I can view all codes in the current list's codebook in a collapsible side panel within the conversation view.
+- As an admin, each code in the codebook shows its name, color, and usage count (number of highlights it has been applied to).
+- As an admin, I can click a code name in the codebook to navigate to the code's quotations page, where I can review all messages tagged with that code across all threads.
 - As an admin, I can rename, recolor, or add a description to any code.
 - As an admin, I can create and rename code groups (themes) and assign codes to them.
-- As an admin, I can see a usage count for each code (how many highlights it has been applied to within this list).
 - As an admin, I can delete a code; this removes all its highlight assignments but does not delete the highlights themselves.
-- as an admin i can see session(thread) or assistants by filtering by codes.
+
+### Code Quotations Page
+- As an admin, I can navigate to a dedicated page for any code that shows all messages tagged with that code, grouped by thread.
+- As an admin, consecutive highlights from the same thread created within 5 minutes of each other are merged into a single card showing the full continuous dialogue, with a badge indicating "N messages · continuous dialogue" and dashed dividers between exchanges.
+- As an admin, each quotation card shows the user and assistant message bubbles tinted in the code's color, along with the creator's email and timestamp.
+- As an admin, each thread group on the quotations page has a link to open the full thread in the conversation view.
+
 ### Export
 - As an admin, I can export a list's codebook and all associated quotes in CSV or JSON format.
-- Exported quotes include the full message text for context when the highlight is a substring.
+- Exported quotes include the full message text for context.
 
 ### Attribution
-- As an admin, I can see who created a highlight or assigned a code, via a simple "created by [email]" label.
+- As an admin, I can see who created a highlight or assigned a code, via a simple "created by [email]" label on every quotation card and highlight chip.
 
 ---
 
@@ -332,9 +347,10 @@ Response:
     {
       "id": "uuid",
       "name": "string",
-      "system_prompt": "string",
       "created_at": "ISO8601",
-      "list_memberships": ["list_uuid_1", "list_uuid_2"]
+      "list_memberships": ["list_uuid_1", "list_uuid_2"],
+      "thread_count": 12,
+      "last_used": "ISO8601 | null"
     }
   ]
 }
