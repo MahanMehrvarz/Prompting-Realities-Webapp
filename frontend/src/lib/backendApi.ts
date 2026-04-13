@@ -357,3 +357,234 @@ export const backendApi = {
     );
   },
 };
+
+// ---------------------------------------------------------------------------
+// Analysis API types
+// ---------------------------------------------------------------------------
+
+export type AnalysisList = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by: string;
+  created_at: string;
+  deleted_at: string | null;
+  item_count?: number;
+  code_count?: number;
+};
+
+export type AnalysisListItem = {
+  id: string;
+  assistant_id: string;
+  assistant_name: string;
+  assistant_system_prompt: string;
+  added_by: string;
+  added_at: string;
+};
+
+export type AnalysisCodeGroup = {
+  id: string;
+  list_id: string;
+  name: string;
+  color: string;
+  created_by: string;
+  created_at: string;
+  code_count?: number;
+};
+
+export type AnalysisCode = {
+  id: string;
+  list_id: string;
+  group_id: string | null;
+  group_name: string | null;
+  name: string;
+  color: string;
+  description: string | null;
+  created_by: string;
+  created_at: string;
+  usage_count?: number;
+};
+
+export type AnalysisHighlight = {
+  id: string;
+  list_id: string;
+  thread_id: string;
+  session_id: string;
+  assistant_id: string;
+  selected_text: string;
+  message_ids: string[];
+  char_start: number;
+  char_end: number;
+  source_field: "user_text" | "response_text" | "both";
+  created_by: string;
+  created_at: string;
+  codes: {
+    id: string;
+    name: string;
+    color: string;
+    assigned_by: string;
+    assigned_at: string;
+  }[];
+};
+
+export type ThreadSummary = {
+  thread_id: string;
+  session_id: string;
+  device_id: string | null;
+  message_count: number;
+  highlight_count: number;
+  has_codes: boolean;
+  first_message_at: string | null;
+  last_message_at: string | null;
+};
+
+export type AssistantBrowseItem = {
+  id: string;
+  name: string;
+  prompt_instruction: string;
+  created_at: string;
+  list_memberships: string[];
+};
+
+export type ThreadConversation = {
+  thread_id: string;
+  assistant_id: string;
+  messages: {
+    id: string;
+    session_id: string;
+    assistant_id: string;
+    user_text: string | null;
+    response_text: string | null;
+    created_at: string;
+    reaction: string | null;
+  }[];
+  highlights: AnalysisHighlight[];
+};
+
+// ---------------------------------------------------------------------------
+// Analysis API client
+// ---------------------------------------------------------------------------
+
+export const analysisApi = {
+  // Lists
+  getLists: (token: string) =>
+    apiFetch<AnalysisList[]>("/analysis/lists", token, { method: "GET" }),
+
+  createList: (body: { name: string; description?: string }, token: string) =>
+    apiFetch<AnalysisList>("/analysis/lists", token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getList: (listId: string, token: string) =>
+    apiFetch<AnalysisList>(`/analysis/lists/${listId}`, token, { method: "GET" }),
+
+  updateList: (listId: string, body: { name?: string; description?: string }, token: string) =>
+    apiFetch<AnalysisList>(`/analysis/lists/${listId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  deleteList: (listId: string, token: string) =>
+    apiFetch<void>(`/analysis/lists/${listId}`, token, { method: "DELETE" }),
+
+  // List items
+  getListItems: (listId: string, token: string) =>
+    apiFetch<AnalysisListItem[]>(`/analysis/lists/${listId}/items`, token, { method: "GET" }),
+
+  addListItem: (listId: string, assistantId: string, token: string) =>
+    apiFetch<AnalysisListItem>(`/analysis/lists/${listId}/items`, token, {
+      method: "POST",
+      body: JSON.stringify({ assistant_id: assistantId }),
+    }),
+
+  removeListItem: (listId: string, assistantId: string, token: string) =>
+    apiFetch<void>(`/analysis/lists/${listId}/items/${assistantId}`, token, { method: "DELETE" }),
+
+  // Assistants browse
+  browseAssistants: (params: { search?: string; page?: number; page_size?: number }, token: string) => {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.page_size) qs.set("page_size", String(params.page_size));
+    return apiFetch<{ total: number; page: number; page_size: number; items: AssistantBrowseItem[] }>(
+      `/analysis/assistants?${qs}`, token, { method: "GET" }
+    );
+  },
+
+  // Threads
+  getThreads: (listId: string, assistantId: string, token: string) =>
+    apiFetch<ThreadSummary[]>(`/analysis/lists/${listId}/assistant/${assistantId}/threads`, token, { method: "GET" }),
+
+  // Conversation
+  getThreadConversation: (listId: string, threadId: string, token: string) =>
+    apiFetch<ThreadConversation>(`/analysis/lists/${listId}/thread/${threadId}`, token, { method: "GET" }),
+
+  // Code groups
+  getCodeGroups: (listId: string, token: string) =>
+    apiFetch<AnalysisCodeGroup[]>(`/analysis/lists/${listId}/code-groups`, token, { method: "GET" }),
+
+  createCodeGroup: (listId: string, body: { name: string; color?: string }, token: string) =>
+    apiFetch<AnalysisCodeGroup>(`/analysis/lists/${listId}/code-groups`, token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateCodeGroup: (listId: string, groupId: string, body: { name?: string; color?: string }, token: string) =>
+    apiFetch<AnalysisCodeGroup>(`/analysis/lists/${listId}/code-groups/${groupId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  deleteCodeGroup: (listId: string, groupId: string, token: string) =>
+    apiFetch<void>(`/analysis/lists/${listId}/code-groups/${groupId}`, token, { method: "DELETE" }),
+
+  // Codes
+  getCodes: (listId: string, token: string) =>
+    apiFetch<AnalysisCode[]>(`/analysis/lists/${listId}/codes`, token, { method: "GET" }),
+
+  createCode: (listId: string, body: { name: string; color?: string; description?: string; group_id?: string }, token: string) =>
+    apiFetch<AnalysisCode>(`/analysis/lists/${listId}/codes`, token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateCode: (listId: string, codeId: string, body: { name?: string; color?: string; description?: string; group_id?: string | null }, token: string) =>
+    apiFetch<AnalysisCode>(`/analysis/lists/${listId}/codes/${codeId}`, token, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  deleteCode: (listId: string, codeId: string, token: string) =>
+    apiFetch<void>(`/analysis/lists/${listId}/codes/${codeId}`, token, { method: "DELETE" }),
+
+  // Highlights
+  createHighlight: (body: {
+    list_id: string; thread_id: string; session_id: string; assistant_id: string;
+    selected_text: string; message_ids: string[]; char_start: number; char_end: number;
+    source_field: "user_text" | "response_text" | "both";
+  }, token: string) =>
+    apiFetch<AnalysisHighlight>("/analysis/highlights", token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  deleteHighlight: (highlightId: string, token: string) =>
+    apiFetch<void>(`/analysis/highlights/${highlightId}`, token, { method: "DELETE" }),
+
+  // Highlight-code assignments
+  assignCode: (highlightId: string, codeId: string, token: string) =>
+    apiFetch<{ id: string; highlight_id: string; code_id: string; assigned_by: string; assigned_at: string }>(
+      `/analysis/highlights/${highlightId}/codes`, token, {
+        method: "POST",
+        body: JSON.stringify({ code_id: codeId }),
+      }
+    ),
+
+  unassignCode: (highlightId: string, codeId: string, token: string) =>
+    apiFetch<void>(`/analysis/highlights/${highlightId}/codes/${codeId}`, token, { method: "DELETE" }),
+
+  // Export (returns a download URL — call via window.location or fetch+blob)
+  getExportUrl: (listId: string, format: "json" | "csv") =>
+    `${process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000"}/analysis/lists/${listId}/export?format=${format}`,
+};

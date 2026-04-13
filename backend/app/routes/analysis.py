@@ -1,0 +1,644 @@
+"""Analysis feature routes: qualitative coding of human-AI conversations."""
+
+from __future__ import annotations
+
+import csv
+import io
+import json
+from datetime import datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from supabase import create_client
+
+from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from ..security import get_current_user_email
+
+router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+def get_supabase():
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+
+def require_admin(email: str = Depends(get_current_user_email)) -> str:
+    """Verify the caller is in admin_emails; return their email."""
+    sb = get_supabase()
+    result = sb.table("admin_emails").select("email").eq("email", email).maybe_single().execute()
+    if not result.data:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return email
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models
+# ---------------------------------------------------------------------------
+
+class CreateListBody(BaseModel):
+    name: str
+    description: str | None = None
+
+class UpdateListBody(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+class AddListItemBody(BaseModel):
+    assistant_id: str
+
+class CreateCodeGroupBody(BaseModel):
+    name: str
+    color: str = "#94a3b8"
+
+class UpdateCodeGroupBody(BaseModel):
+    name: str | None = None
+    color: str | None = None
+
+class CreateCodeBody(BaseModel):
+    name: str
+    color: str = "#fbbf24"
+    description: str | None = None
+    group_id: str | None = None
+
+class UpdateCodeBody(BaseModel):
+    name: str | None = None
+    color: str | None = None
+    description: str | None = None
+    group_id: str | None = None
+
+class CreateHighlightBody(BaseModel):
+    list_id: str
+    thread_id: str
+    session_id: str
+    assistant_id: str
+    selected_text: str
+    message_ids: list[str]
+    char_start: int
+    char_end: int
+    source_field: str  # 'user_text' | 'response_text' | 'both'
+
+class AssignCodeBody(BaseModel):
+    code_id: str
+
+
+# ---------------------------------------------------------------------------
+# Helper: count aggregates
+# ---------------------------------------------------------------------------
+
+def _list_with_counts(sb, list_id: str) -> dict:
+    """Fetch a single list row plus aggregate counts."""
+    row = sb.table("analysis_lists").select("*").eq("id", list_id).is_("deleted_at", None).maybe_single().execute()
+    if not row.data:
+        return None
+    data = row.data
+    item_count = sb.table("analysis_list_items").select("id", count="exact").eq("list_id", list_id).execute()
+    code_count = sb.table("analysis_codes").select("id", count="exact").eq("list_id", list_id).execute()
+    data["item_count"] = item_count.count or 0
+    data["code_count"] = code_count.count or 0
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Lists CRUD
+# ---------------------------------------------------------------------------
+
+@router.get("/lists")
+def get_lists(admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    rows = sb.table("analysis_lists").select("*").is_("deleted_at", None).order("created_at", desc=True).execute()
+    result = []
+    for row in (rows.data or []):
+        item_count = sb.table("analysis_list_items").select("id", count="exact").eq("list_id", row["id"]).execute()
+        code_count = sb.table("analysis_codes").select("id", count="exact").eq("list_id", row["id"]).execute()
+        row["item_count"] = item_count.count or 0
+        row["code_count"] = code_count.count or 0
+        result.append(row)
+    return result
+
+
+@router.post("/lists", status_code=201)
+def create_list(body: CreateListBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    row = sb.table("analysis_lists").insert({
+        "name": body.name,
+        "description": body.description,
+        "created_by": admin,
+    }).select().single().execute()
+    return row.data
+
+
+@router.get("/lists/{list_id}")
+def get_list(list_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    data = _list_with_counts(sb, list_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="List not found")
+    return data
+
+
+@router.patch("/lists/{list_id}")
+def update_list(list_id: str, body: UpdateListBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    updates: dict[str, Any] = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.description is not None:
+        updates["description"] = body.description
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    row = sb.table("analysis_lists").update(updates).eq("id", list_id).is_("deleted_at", None).select().single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="List not found")
+    return row.data
+
+
+@router.delete("/lists/{list_id}", status_code=204)
+def delete_list(list_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_lists").update({"deleted_at": datetime.utcnow().isoformat()}).eq("id", list_id).execute()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# List items
+# ---------------------------------------------------------------------------
+
+@router.get("/lists/{list_id}/items")
+def get_list_items(list_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    rows = sb.table("analysis_list_items").select("*, assistants(id, name, prompt_instruction, deleted_at)").eq("list_id", list_id).execute()
+    result = []
+    for row in (rows.data or []):
+        asst = row.get("assistants") or {}
+        if asst.get("deleted_at"):
+            continue  # skip soft-deleted assistants
+        result.append({
+            "id": row["id"],
+            "assistant_id": row["assistant_id"],
+            "assistant_name": asst.get("name"),
+            "assistant_system_prompt": asst.get("prompt_instruction"),
+            "added_by": row["added_by"],
+            "added_at": row["added_at"],
+        })
+    return result
+
+
+@router.post("/lists/{list_id}/items", status_code=201)
+def add_list_item(list_id: str, body: AddListItemBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    # Check duplicate
+    existing = sb.table("analysis_list_items").select("id").eq("list_id", list_id).eq("assistant_id", body.assistant_id).maybe_single().execute()
+    if existing.data:
+        raise HTTPException(status_code=409, detail="Assistant already in list")
+    row = sb.table("analysis_list_items").insert({
+        "list_id": list_id,
+        "assistant_id": body.assistant_id,
+        "added_by": admin,
+    }).select().single().execute()
+    return row.data
+
+
+@router.delete("/lists/{list_id}/items/{assistant_id}", status_code=204)
+def remove_list_item(list_id: str, assistant_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_list_items").delete().eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Assistants browse
+# ---------------------------------------------------------------------------
+
+@router.get("/assistants")
+def browse_assistants(
+    search: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    admin: str = Depends(require_admin),
+):
+    sb = get_supabase()
+    query = sb.table("assistants").select("id, name, prompt_instruction, created_at").is_("deleted_at", None)
+    if search:
+        query = query.ilike("name", f"%{search}%")
+    # Get total count
+    count_q = sb.table("assistants").select("id", count="exact").is_("deleted_at", None)
+    if search:
+        count_q = count_q.ilike("name", f"%{search}%")
+    total_res = count_q.execute()
+    total = total_res.count or 0
+
+    offset = (page - 1) * page_size
+    rows = query.order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+
+    # Fetch list memberships for each assistant
+    all_list_items = sb.table("analysis_list_items").select("assistant_id, list_id").execute()
+    membership_map: dict[str, list[str]] = {}
+    for item in (all_list_items.data or []):
+        membership_map.setdefault(item["assistant_id"], []).append(item["list_id"])
+
+    items = []
+    for row in (rows.data or []):
+        row["list_memberships"] = membership_map.get(row["id"], [])
+        items.append(row)
+
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
+
+
+# ---------------------------------------------------------------------------
+# Threads browser
+# ---------------------------------------------------------------------------
+
+@router.get("/lists/{list_id}/assistant/{assistant_id}/threads")
+def get_threads(list_id: str, assistant_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    # Get all sessions for this assistant
+    sessions = sb.table("assistant_sessions").select("id, current_thread_id, device_id, created_at, updated_at").eq("assistant_id", assistant_id).execute()
+
+    # Get highlight counts per thread for this list
+    highlights = sb.table("analysis_highlights").select("thread_id, session_id").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    highlight_count_map: dict[str, int] = {}
+    for h in (highlights.data or []):
+        key = h["thread_id"]
+        highlight_count_map[key] = highlight_count_map.get(key, 0) + 1
+
+    result = []
+    seen_threads: set[str] = set()
+    for s in (sessions.data or []):
+        thread_id = s.get("current_thread_id") or s["id"]
+        if thread_id in seen_threads:
+            continue
+        seen_threads.add(thread_id)
+
+        # Count messages for this thread
+        msg_count = sb.table("chat_messages").select("id", count="exact").eq("assistant_id", assistant_id).eq("thread_id", thread_id).execute()
+        # Get first/last message timestamps
+        first_msg = sb.table("chat_messages").select("created_at").eq("assistant_id", assistant_id).eq("thread_id", thread_id).order("created_at", desc=False).limit(1).maybe_single().execute()
+        last_msg = sb.table("chat_messages").select("created_at").eq("assistant_id", assistant_id).eq("thread_id", thread_id).order("created_at", desc=True).limit(1).maybe_single().execute()
+
+        hcount = highlight_count_map.get(thread_id, 0)
+        result.append({
+            "thread_id": thread_id,
+            "session_id": s["id"],
+            "device_id": s.get("device_id"),
+            "message_count": msg_count.count or 0,
+            "highlight_count": hcount,
+            "has_codes": hcount > 0,
+            "first_message_at": first_msg.data["created_at"] if first_msg.data else s["created_at"],
+            "last_message_at": last_msg.data["created_at"] if last_msg.data else s["updated_at"],
+        })
+
+    result.sort(key=lambda x: x["last_message_at"] or "", reverse=True)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Thread conversation (messages + highlights)
+# ---------------------------------------------------------------------------
+
+@router.get("/lists/{list_id}/thread/{thread_id}")
+def get_thread_conversation(list_id: str, thread_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+
+    messages = sb.table("chat_messages").select("id, session_id, assistant_id, user_text, response_text, created_at, reaction").eq("thread_id", thread_id).order("created_at", desc=False).execute()
+
+    assistant_id = None
+    if messages.data:
+        assistant_id = messages.data[0].get("assistant_id")
+
+    # Fetch highlights for this thread + list
+    highlights_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).eq("thread_id", thread_id).execute()
+
+    # For each highlight, fetch its codes
+    highlights = []
+    for h in (highlights_res.data or []):
+        codes_res = sb.table("analysis_highlight_codes").select("*, analysis_codes(id, name, color)").eq("highlight_id", h["id"]).execute()
+        codes = []
+        for c in (codes_res.data or []):
+            code_data = c.get("analysis_codes") or {}
+            codes.append({
+                "id": code_data.get("id"),
+                "name": code_data.get("name"),
+                "color": code_data.get("color"),
+                "assigned_by": c["assigned_by"],
+                "assigned_at": c["assigned_at"],
+            })
+        h["codes"] = codes
+        highlights.append(h)
+
+    return {
+        "thread_id": thread_id,
+        "assistant_id": assistant_id,
+        "messages": messages.data or [],
+        "highlights": highlights,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Code groups
+# ---------------------------------------------------------------------------
+
+@router.get("/lists/{list_id}/code-groups")
+def get_code_groups(list_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    rows = sb.table("analysis_code_groups").select("*").eq("list_id", list_id).order("created_at", desc=False).execute()
+    result = []
+    for row in (rows.data or []):
+        code_count = sb.table("analysis_codes").select("id", count="exact").eq("group_id", row["id"]).execute()
+        row["code_count"] = code_count.count or 0
+        result.append(row)
+    return result
+
+
+@router.post("/lists/{list_id}/code-groups", status_code=201)
+def create_code_group(list_id: str, body: CreateCodeGroupBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    row = sb.table("analysis_code_groups").insert({
+        "list_id": list_id,
+        "name": body.name,
+        "color": body.color,
+        "created_by": admin,
+    }).select().single().execute()
+    return row.data
+
+
+@router.patch("/lists/{list_id}/code-groups/{group_id}")
+def update_code_group(list_id: str, group_id: str, body: UpdateCodeGroupBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    updates: dict[str, Any] = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.color is not None:
+        updates["color"] = body.color
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    row = sb.table("analysis_code_groups").update(updates).eq("id", group_id).eq("list_id", list_id).select().single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Code group not found")
+    return row.data
+
+
+@router.delete("/lists/{list_id}/code-groups/{group_id}", status_code=204)
+def delete_code_group(list_id: str, group_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_code_groups").delete().eq("id", group_id).eq("list_id", list_id).execute()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Codes
+# ---------------------------------------------------------------------------
+
+@router.get("/lists/{list_id}/codes")
+def get_codes(list_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    rows = sb.table("analysis_codes").select("*, analysis_code_groups(id, name)").eq("list_id", list_id).order("created_at", desc=False).execute()
+    result = []
+    for row in (rows.data or []):
+        group = row.pop("analysis_code_groups", None) or {}
+        usage = sb.table("analysis_highlight_codes").select("id", count="exact").eq("code_id", row["id"]).execute()
+        row["group_name"] = group.get("name")
+        row["usage_count"] = usage.count or 0
+        result.append(row)
+    return result
+
+
+@router.post("/lists/{list_id}/codes", status_code=201)
+def create_code(list_id: str, body: CreateCodeBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    row = sb.table("analysis_codes").insert({
+        "list_id": list_id,
+        "group_id": body.group_id,
+        "name": body.name,
+        "color": body.color,
+        "description": body.description,
+        "created_by": admin,
+    }).select().single().execute()
+    return row.data
+
+
+@router.patch("/lists/{list_id}/codes/{code_id}")
+def update_code(list_id: str, code_id: str, body: UpdateCodeBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    updates: dict[str, Any] = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.color is not None:
+        updates["color"] = body.color
+    if body.description is not None:
+        updates["description"] = body.description
+    if body.group_id is not None:
+        updates["group_id"] = body.group_id if body.group_id != "" else None
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    row = sb.table("analysis_codes").update(updates).eq("id", code_id).eq("list_id", list_id).select().single().execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Code not found")
+    return row.data
+
+
+@router.delete("/lists/{list_id}/codes/{code_id}", status_code=204)
+def delete_code(list_id: str, code_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_codes").delete().eq("id", code_id).eq("list_id", list_id).execute()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Highlights
+# ---------------------------------------------------------------------------
+
+@router.post("/highlights", status_code=201)
+def create_highlight(body: CreateHighlightBody, admin: str = Depends(require_admin)):
+    if body.source_field not in ("user_text", "response_text", "both"):
+        raise HTTPException(status_code=400, detail="source_field must be user_text, response_text, or both")
+    if body.char_end <= body.char_start:
+        raise HTTPException(status_code=400, detail="char_end must be greater than char_start")
+    sb = get_supabase()
+    row = sb.table("analysis_highlights").insert({
+        "list_id": body.list_id,
+        "thread_id": body.thread_id,
+        "session_id": body.session_id,
+        "assistant_id": body.assistant_id,
+        "selected_text": body.selected_text,
+        "message_ids": body.message_ids,
+        "char_start": body.char_start,
+        "char_end": body.char_end,
+        "source_field": body.source_field,
+        "created_by": admin,
+    }).select().single().execute()
+    return row.data
+
+
+@router.delete("/highlights/{highlight_id}", status_code=204)
+def delete_highlight(highlight_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_highlights").delete().eq("id", highlight_id).execute()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Highlight–code assignments
+# ---------------------------------------------------------------------------
+
+@router.post("/highlights/{highlight_id}/codes", status_code=201)
+def assign_code(highlight_id: str, body: AssignCodeBody, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    existing = sb.table("analysis_highlight_codes").select("id").eq("highlight_id", highlight_id).eq("code_id", body.code_id).maybe_single().execute()
+    if existing.data:
+        raise HTTPException(status_code=409, detail="Code already assigned to this highlight")
+    row = sb.table("analysis_highlight_codes").insert({
+        "highlight_id": highlight_id,
+        "code_id": body.code_id,
+        "assigned_by": admin,
+    }).select().single().execute()
+    return row.data
+
+
+@router.delete("/highlights/{highlight_id}/codes/{code_id}", status_code=204)
+def unassign_code(highlight_id: str, code_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_highlight_codes").delete().eq("highlight_id", highlight_id).eq("code_id", code_id).execute()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+@router.get("/lists/{list_id}/export")
+def export_list(
+    list_id: str,
+    format: str = Query("json", pattern="^(json|csv)$"),
+    admin: str = Depends(require_admin),
+):
+    sb = get_supabase()
+
+    # Fetch list meta
+    list_row = sb.table("analysis_lists").select("name").eq("id", list_id).maybe_single().execute()
+    if not list_row.data:
+        raise HTTPException(status_code=404, detail="List not found")
+    list_name = list_row.data["name"]
+
+    # Fetch all codes in this list
+    codes_res = sb.table("analysis_codes").select("*, analysis_code_groups(name)").eq("list_id", list_id).execute()
+    codes_map: dict[str, dict] = {}
+    for c in (codes_res.data or []):
+        group = c.pop("analysis_code_groups", None) or {}
+        c["group_name"] = group.get("name")
+        codes_map[c["id"]] = c
+
+    # Fetch all highlights for this list
+    highlights_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).execute()
+    # Fetch assistant names
+    asst_ids = list({h["assistant_id"] for h in (highlights_res.data or [])})
+    asst_map: dict[str, str] = {}
+    if asst_ids:
+        asstants = sb.table("assistants").select("id, name").in_("id", asst_ids).execute()
+        for a in (asstants.data or []):
+            asst_map[a["id"]] = a["name"]
+
+    # Fetch messages for context (full text per message_id)
+    msg_ids: list[str] = []
+    for h in (highlights_res.data or []):
+        msg_ids.extend(h.get("message_ids") or [])
+    msg_ids = list(set(msg_ids))
+    msg_map: dict[str, dict] = {}
+    if msg_ids:
+        msgs = sb.table("chat_messages").select("id, user_text, response_text").in_("id", msg_ids).execute()
+        for m in (msgs.data or []):
+            msg_map[m["id"]] = m
+
+    # Fetch highlight-code assignments
+    hc_res = sb.table("analysis_highlight_codes").select("*").execute()
+    hc_map: dict[str, list[dict]] = {}
+    for hc in (hc_res.data or []):
+        hc_map.setdefault(hc["highlight_id"], []).append(hc)
+
+    # Build export structure
+    code_export: dict[str, dict] = {}
+    for code_id, code in codes_map.items():
+        code_export[code_id] = {
+            "code_id": code_id,
+            "code_name": code["name"],
+            "code_color": code["color"],
+            "group_name": code.get("group_name"),
+            "description": code.get("description"),
+            "usage_count": 0,
+            "quotes": [],
+        }
+
+    for h in (highlights_res.data or []):
+        msg_ids_h = h.get("message_ids") or []
+        # Collect full message text for context
+        full_user = " | ".join(msg_map[mid]["user_text"] or "" for mid in msg_ids_h if mid in msg_map and msg_map[mid].get("user_text")) or None
+        full_resp = " | ".join(msg_map[mid]["response_text"] or "" for mid in msg_ids_h if mid in msg_map and msg_map[mid].get("response_text")) or None
+
+        quote_base = {
+            "highlight_id": h["id"],
+            "selected_text": h["selected_text"],
+            "full_user_text": full_user,
+            "full_response_text": full_resp,
+            "assistant_name": asst_map.get(h["assistant_id"], "Unknown"),
+            "thread_id": h["thread_id"],
+            "session_id": h["session_id"],
+            "source_field": h["source_field"],
+            "created_by": h["created_by"],
+            "created_at": h["created_at"],
+        }
+
+        for hc in hc_map.get(h["id"], []):
+            code_id = hc["code_id"]
+            if code_id in code_export:
+                code_export[code_id]["usage_count"] += 1
+                code_export[code_id]["quotes"].append({
+                    **quote_base,
+                    "assigned_by": hc["assigned_by"],
+                })
+
+    exported_at = datetime.utcnow().isoformat()
+
+    if format == "json":
+        payload = {
+            "list_name": list_name,
+            "exported_at": exported_at,
+            "codes": list(code_export.values()),
+        }
+        return StreamingResponse(
+            io.BytesIO(json.dumps(payload, indent=2, ensure_ascii=False).encode()),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{list_name}-export.json"'},
+        )
+
+    # CSV export
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "code_name", "group_name", "selected_text",
+        "full_user_text", "full_response_text", "assistant_name",
+        "thread_id", "session_id", "source_field",
+        "highlight_created_by", "highlight_created_at", "assigned_by",
+    ])
+    for code in code_export.values():
+        for q in code["quotes"]:
+            writer.writerow([
+                code["code_name"],
+                code.get("group_name") or "",
+                q["selected_text"],
+                q.get("full_user_text") or "",
+                q.get("full_response_text") or "",
+                q["assistant_name"],
+                q["thread_id"],
+                q["session_id"],
+                q.get("source_field") or "",
+                q["created_by"],
+                q["created_at"],
+                q["assigned_by"],
+            ])
+    csv_bytes = output.getvalue().encode()
+    safe_name = list_name.replace(" ", "_")
+    return StreamingResponse(
+        io.BytesIO(csv_bytes),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}-export.csv"'},
+    )

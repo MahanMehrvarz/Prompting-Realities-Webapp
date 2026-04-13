@@ -1369,21 +1369,30 @@ export default function Home() {
       </header>
       {isAdmin && !checkingAdminStatus && (
         <section className="border-b-4 border-[var(--card-shell)] bg-[#fff9e6] px-6 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <p className="text-sm font-semibold text-[var(--ink-dark)]">Data Export</p>
+              <p className="text-sm font-semibold text-[var(--ink-dark)]">Admin Tools</p>
               <p className="text-xs text-[var(--ink-muted)]">
-                Export all system data for analysis and backup.
+                Export data or open the qualitative analysis workspace.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowExportModal(true)}
-              className="flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-5 py-2 text-sm font-semibold text-[var(--card-fill)] shadow-[5px_5px_0_var(--shadow-deep)] transition hover:-translate-y-1"
-            >
-              <Download className="h-4 w-4" />
-              Export Data
-            </button>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/admin/analysis"
+                className="flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[#2563eb] px-5 py-2 text-sm font-semibold text-white shadow-[3px_3px_0_var(--shadow-deep)] transition hover:-translate-y-1"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Analysis
+              </Link>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(true)}
+                className="flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-5 py-2 text-sm font-semibold text-[var(--card-fill)] shadow-[5px_5px_0_var(--shadow-deep)] transition hover:-translate-y-1"
+              >
+                <Download className="h-4 w-4" />
+                Export Data
+              </button>
+            </div>
           </div>
         </section>
       )}
