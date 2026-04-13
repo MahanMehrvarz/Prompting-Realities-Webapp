@@ -521,11 +521,15 @@ export const analysisApi = {
     apiFetch<void>(`/analysis/lists/${listId}/items/${assistantId}`, token, { method: "DELETE" }),
 
   // Assistants browse
-  browseAssistants: (params: { search?: string; page?: number; page_size?: number }, token: string) => {
+  browseAssistants: (params: { search?: string; page?: number; page_size?: number; sort_by?: string; sort_dir?: string; date_from?: string; date_to?: string }, token: string) => {
     const qs = new URLSearchParams();
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.page_size) qs.set("page_size", String(params.page_size));
+    if (params.sort_by) qs.set("sort_by", params.sort_by);
+    if (params.sort_dir) qs.set("sort_dir", params.sort_dir);
+    if (params.date_from) qs.set("date_from", params.date_from);
+    if (params.date_to) qs.set("date_to", params.date_to);
     return apiFetch<{ total: number; page: number; page_size: number; items: AssistantBrowseItem[] }>(
       `/analysis/assistants?${qs}`, token, { method: "GET" }
     );
@@ -534,6 +538,9 @@ export const analysisApi = {
   // Threads
   getThreads: (listId: string, assistantId: string, token: string) =>
     apiFetch<ThreadSummary[]>(`/analysis/lists/${listId}/assistant/${assistantId}/threads`, token, { method: "GET" }),
+
+  getThreadsStandalone: (assistantId: string, token: string) =>
+    apiFetch<ThreadSummary[]>(`/analysis/assistant/${assistantId}/threads`, token, { method: "GET" }),
 
   // Conversation
   getThreadConversation: (listId: string, threadId: string, token: string) =>

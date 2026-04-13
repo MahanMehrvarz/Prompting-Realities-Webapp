@@ -224,21 +224,34 @@ def browse_assistants(
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_by: str = Query("created_at", regex="^(created_at|last_used)$"),
+    sort_dir: str = Query("desc", regex="^(asc|desc)$"),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     admin: str = Depends(require_admin),
 ):
     sb = get_supabase()
     query = sb.table("assistants").select("id, name, prompt_instruction, created_at").is_("deleted_at", None)
     if search:
         query = query.ilike("name", f"%{search}%")
+    if date_from and sort_by == "created_at":
+        query = query.gte("created_at", date_from)
+    if date_to and sort_by == "created_at":
+        query = query.lte("created_at", date_to + "T23:59:59")
     # Get total count
     count_q = sb.table("assistants").select("id", count="exact").is_("deleted_at", None)
     if search:
         count_q = count_q.ilike("name", f"%{search}%")
+    if date_from and sort_by == "created_at":
+        count_q = count_q.gte("created_at", date_from)
+    if date_to and sort_by == "created_at":
+        count_q = count_q.lte("created_at", date_to + "T23:59:59")
     total_res = count_q.execute()
     total = total_res.count or 0
 
     offset = (page - 1) * page_size
-    rows = query.order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    # For last_used sort we fetch then sort in-memory after stats are computed
+    rows = query.order("created_at", desc=(sort_dir == "desc")).range(offset, offset + page_size - 1).execute()
 
     # Fetch list memberships for each assistant
     all_list_items = sb.table("analysis_list_items").select("assistant_id, list_id").execute()
@@ -272,6 +285,14 @@ def browse_assistants(
         row["thread_count"] = thread_count_map.get(aid, 0)
         row["last_used"] = last_used_map.get(aid)
         items.append(row)
+
+    # For last_used sort: filter by date range then sort in-memory
+    if sort_by == "last_used":
+        if date_from:
+            items = [i for i in items if i["last_used"] and i["last_used"] >= date_from]
+        if date_to:
+            items = [i for i in items if i["last_used"] and i["last_used"] <= date_to + "T23:59:59"]
+        items.sort(key=lambda i: i["last_used"] or "", reverse=(sort_dir == "desc"))
 
     return {"total": total, "page": page, "page_size": page_size, "items": items}
 
@@ -319,6 +340,41 @@ def get_threads(list_id: str, assistant_id: str, admin: str = Depends(require_ad
         t["has_codes"] = hcount > 0
         result.append(t)
 
+    result.sort(key=lambda x: x["last_message_at"] or "", reverse=True)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Standalone threads browser (no list context)
+# ---------------------------------------------------------------------------
+
+@router.get("/assistant/{assistant_id}/threads")
+def get_threads_standalone(assistant_id: str, admin: str = Depends(require_admin)):
+    """List threads for an assistant without requiring a list context."""
+    sb = get_supabase()
+    try:
+        msgs = sb.table("chat_messages").select("id, session_id, thread_id, device_id, created_at").eq("assistant_id", assistant_id).order("created_at", desc=False).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"messages query: {e}")
+
+    threads: dict[str, dict] = {}
+    for m in (msgs.data or []):
+        tid = m.get("thread_id") or m["session_id"] or m["id"]
+        if tid not in threads:
+            threads[tid] = {
+                "thread_id": tid,
+                "session_id": m.get("session_id") or tid,
+                "device_id": m.get("device_id"),
+                "message_count": 0,
+                "first_message_at": m["created_at"],
+                "last_message_at": m["created_at"],
+                "highlight_count": 0,
+                "has_codes": False,
+            }
+        threads[tid]["message_count"] += 1
+        threads[tid]["last_message_at"] = m["created_at"]
+
+    result = list(threads.values())
     result.sort(key=lambda x: x["last_message_at"] or "", reverse=True)
     return result
 

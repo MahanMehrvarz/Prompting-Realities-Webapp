@@ -14,6 +14,7 @@ import {
   CalendarDays,
   MessageSquare,
   Clock,
+  SlidersHorizontal,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { analysisApi, type AnalysisList, type AssistantBrowseItem } from "@/lib/backendApi";
@@ -188,8 +189,9 @@ function AssistantCard({ assistant, lists, onAddToList }: { assistant: Assistant
   const memberCount = assistant.list_memberships.length;
 
   const handleCardClick = () => {
-    if (memberCount === 0) return; // no list — do nothing, user should add to list
-    if (memberCount === 1) {
+    if (memberCount === 0) {
+      router.push(`/admin/analysis/assistant/${assistant.id}`);
+    } else if (memberCount === 1) {
       router.push(`/admin/analysis/lists/${assistant.list_memberships[0]}/assistant/${assistant.id}`);
     } else {
       setShowPicker((v) => !v);
@@ -198,7 +200,7 @@ function AssistantCard({ assistant, lists, onAddToList }: { assistant: Assistant
 
   return (
     <div
-      className={`relative rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[5px_5px_0_var(--card-shell)] flex flex-col gap-3 ${memberCount > 0 ? "cursor-pointer hover:shadow-[8px_8px_0_var(--shadow-deep)] transition" : ""}`}
+      className="relative rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[5px_5px_0_var(--card-shell)] flex flex-col gap-3 cursor-pointer hover:shadow-[8px_8px_0_var(--shadow-deep)] transition"
       onClick={handleCardClick}
     >
       {/* Dark header */}
@@ -279,6 +281,11 @@ export default function AnalysisPage() {
   const [showCreateList, setShowCreateList] = useState(false);
   const [deletingListId, setDeletingListId] = useState<string | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<"created_at" | "last_used">("created_at");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => { setCrumbs([]); }, [setCrumbs]);
 
@@ -298,9 +305,9 @@ export default function AnalysisPage() {
     try { setLists(await analysisApi.getLists(tok)); } catch { /* ignore */ }
   }, []);
 
-  const fetchAssistants = useCallback(async (tok: string, q: string, p: number) => {
+  const fetchAssistants = useCallback(async (tok: string, q: string, p: number, sb: string, sd: string, df: string, dt: string) => {
     try {
-      const data = await analysisApi.browseAssistants({ search: q || undefined, page: p, page_size: PAGE_SIZE }, tok);
+      const data = await analysisApi.browseAssistants({ search: q || undefined, page: p, page_size: PAGE_SIZE, sort_by: sb, sort_dir: sd, date_from: df || undefined, date_to: dt || undefined }, tok);
       setAssistants(data.items);
       setTotal(data.total);
     } catch { /* ignore */ }
@@ -309,15 +316,19 @@ export default function AnalysisPage() {
   useEffect(() => {
     if (!ready || !token) return;
     fetchLists(token);
-    fetchAssistants(token, search, page);
-  }, [ready, token, fetchLists, fetchAssistants, search, page]);
+    fetchAssistants(token, search, page, sortBy, sortDir, dateFrom, dateTo);
+  }, [ready, token, fetchLists, fetchAssistants, search, page, sortBy, sortDir, dateFrom, dateTo]);
 
   const handleSearch = (val: string) => {
     setSearch(val);
     setPage(1);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => { if (token) fetchAssistants(token, val, 1); }, 300);
+    searchTimeout.current = setTimeout(() => { if (token) fetchAssistants(token, val, 1, sortBy, sortDir, dateFrom, dateTo); }, 300);
   };
+
+  const hasActiveFilters = sortBy !== "created_at" || sortDir !== "desc" || dateFrom || dateTo;
+
+  const resetFilters = () => { setSortBy("created_at"); setSortDir("desc"); setDateFrom(""); setDateTo(""); };
 
   const handleDeleteList = async (listId: string) => {
     if (!token) return;
@@ -347,9 +358,20 @@ export default function AnalysisPage() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-[var(--card-fill)]">LLM Things</h2>
-            <span className="text-sm text-[var(--card-fill)]/70">{total} total</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[var(--card-fill)]/70">{total} total</span>
+              <button
+                onClick={() => setShowFilters((v) => !v)}
+                className={`flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition ${showFilters || hasActiveFilters ? "bg-[var(--ink-dark)] text-white shadow-[3px_3px_0_var(--shadow-deep)]" : "bg-white text-[var(--foreground)] hover:bg-[var(--card-fill)]"}`}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Filter & Sort
+              </button>
+            </div>
           </div>
-          <div className="relative mb-5">
+
+          {/* Search bar */}
+          <div className="relative mb-3">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ink-muted)]" />
             <input type="text" value={search} onChange={(e) => handleSearch(e.target.value)}
               placeholder="Search LLM things…"
@@ -360,6 +382,57 @@ export default function AnalysisPage() {
               </button>
             )}
           </div>
+
+          {/* Filter panel */}
+          {showFilters && (
+            <div className="mb-4 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[4px_4px_0_var(--card-shell)]">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">Sort by</label>
+                  <div className="flex gap-2">
+                    {(["created_at", "last_used"] as const).map((f) => (
+                      <button key={f} onClick={() => { setSortBy(f); setPage(1); }}
+                        className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1 text-xs font-medium transition ${sortBy === f ? "bg-[var(--ink-dark)] text-white" : "bg-white hover:bg-[var(--card-fill)]"}`}>
+                        {f === "created_at" ? "Date created" : "Last used"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">Order</label>
+                  <div className="flex gap-2">
+                    {(["desc", "asc"] as const).map((d) => (
+                      <button key={d} onClick={() => { setSortDir(d); setPage(1); }}
+                        className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1 text-xs font-medium transition ${sortDir === d ? "bg-[var(--ink-dark)] text-white" : "bg-white hover:bg-[var(--card-fill)]"}`}>
+                        {d === "desc" ? "Newest first" : "Oldest first"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">From</label>
+                  <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+                    className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">To</label>
+                  <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+                    className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]" />
+                </div>
+                {hasActiveFilters && (
+                  <button onClick={() => { resetFilters(); setPage(1); }}
+                    className="flex items-center gap-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white transition">
+                    <X className="h-3 w-3" />
+                    Reset
+                  </button>
+                )}
+              </div>
+              {(dateFrom || dateTo) && (
+                <p className="text-xs text-[var(--ink-muted)] mt-2">Filtering by <strong>{sortBy === "created_at" ? "date created" : "last used"}</strong></p>
+              )}
+            </div>
+          )}
+
           {assistants.length === 0 ? (
             <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-10 text-center">
               <p className="text-[var(--ink-muted)]">No LLM things found.</p>
@@ -439,7 +512,7 @@ export default function AnalysisPage() {
       {addToListTarget && token && (
         <AddToListModal assistant={addToListTarget} lists={lists} token={token}
           onClose={() => setAddToListTarget(null)}
-          onSaved={() => { if (token) { fetchAssistants(token, search, page); fetchLists(token); } }} />
+          onSaved={() => { if (token) { fetchAssistants(token, search, page, sortBy, sortDir, dateFrom, dateTo); fetchLists(token); } }} />
       )}
       {showCreateList && token && (
         <CreateListModal token={token} onClose={() => setShowCreateList(false)}
