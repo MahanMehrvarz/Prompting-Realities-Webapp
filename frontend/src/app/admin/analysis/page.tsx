@@ -11,6 +11,7 @@ import {
   BookOpen,
   ChevronRight,
   Tag,
+  CalendarDays,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { analysisApi, type AnalysisList, type AssistantBrowseItem } from "@/lib/backendApi";
@@ -148,16 +149,23 @@ function CreateListModal({ onClose, onCreated, token }: { onClose: () => void; o
 // ---------------------------------------------------------------------------
 // Assistant card
 // ---------------------------------------------------------------------------
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function AssistantCard({ assistant, lists, onAddToList }: { assistant: AssistantBrowseItem; lists: AnalysisList[]; onAddToList: (a: AssistantBrowseItem) => void }) {
   const memberCount = assistant.list_memberships.length;
   return (
     <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[5px_5px_0_var(--card-shell)] flex flex-col gap-3">
+      {/* Name */}
       <div className="rounded-[12px] bg-[var(--ink-dark)] px-4 py-3 text-[var(--card-fill)]">
         <h3 className="font-semibold truncate">{assistant.name}</h3>
-        <p className="text-xs text-[var(--card-fill)]/60 mt-1 line-clamp-2 leading-relaxed">
-          {assistant.prompt_instruction || "No system prompt"}
-        </p>
+        <div className="flex items-center gap-1 mt-1.5 text-[var(--card-fill)]/50">
+          <CalendarDays className="h-3 w-3 flex-shrink-0" />
+          <span className="text-xs">Created {fmtDate(assistant.created_at)}</span>
+        </div>
       </div>
+      {/* Footer */}
       <div className="flex items-center justify-between gap-2">
         {memberCount > 0 ? (
           <span className="rounded-full border-2 border-[var(--card-shell)] bg-[#e6fff5] px-2.5 py-1 text-xs font-semibold text-[#013022]">
