@@ -148,10 +148,11 @@ export function useVoiceRecorder({
         }, 1000);
 
         setRecordingState("recording");
+        recordingStateRef.current = "recording";
 
         // If the user already released before getUserMedia resolved (quick press),
         // cancel — we don't send empty/very-short recordings from accidental taps
-        if (recordingStateRef.current !== "recording") {
+        if (isCancellingRef.current) {
           isCancellingRef.current = true;
           recorder.stop();
         }
