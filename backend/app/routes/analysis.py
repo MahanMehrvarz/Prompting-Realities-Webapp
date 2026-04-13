@@ -120,12 +120,15 @@ def get_lists(admin: str = Depends(require_admin)):
 @router.post("/lists", status_code=201)
 def create_list(body: CreateListBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    row = sb.table("analysis_lists").insert({
-        "name": body.name,
-        "description": body.description,
-        "created_by": admin,
-    }).select().single().execute()
-    return row.data
+    try:
+        row = sb.table("analysis_lists").insert({
+            "name": body.name,
+            "description": body.description,
+            "created_by": admin,
+        }).select().single().execute()
+        return row.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/lists/{list_id}")
