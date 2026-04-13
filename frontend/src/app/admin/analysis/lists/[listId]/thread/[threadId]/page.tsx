@@ -245,7 +245,7 @@ function MessageBubble({
   text: string;
   field: "user_text" | "response_text";
   isSelected: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   highlights: AnalysisHighlight[];
   codes: AnalysisCode[];
 }) {
@@ -257,7 +257,7 @@ function MessageBubble({
   return (
     <div
       onClick={onToggle}
-      className={`relative cursor-pointer rounded-[16px] border-[3px] px-4 py-3 text-sm leading-relaxed transition select-none ${
+      className={`relative rounded-[16px] border-[3px] px-4 py-3 text-sm leading-relaxed transition select-none ${onToggle ? "cursor-pointer" : ""} ${
         isSelected
           ? "border-[var(--ink-dark)] shadow-[4px_4px_0_var(--ink-dark)] bg-[var(--card-fill)]"
           : isUser
@@ -333,29 +333,42 @@ export default function ThreadPage() {
     });
   }, [router]);
 
+  const readOnly = listId === "none";
+
   const fetchData = useCallback(async (tok: string) => {
     try {
-      const [convo, codesData, groupsData, items, listData] = await Promise.all([
-        analysisApi.getThreadConversation(listId, threadId, tok),
-        analysisApi.getCodes(listId, tok),
-        analysisApi.getCodeGroups(listId, tok),
-        analysisApi.getListItems(listId, tok),
-        analysisApi.getList(listId, tok),
-      ]);
+      const convo = await analysisApi.getThreadConversation(listId, threadId, tok);
       setConversation(convo);
-      setCodes(codesData);
-      setCodeGroups(groupsData);
-      const found = items.find((i) => i.assistant_id === (assistantId || convo.assistant_id));
-      const aName = found?.assistant_name || "LLM Thing";
-      setCrumbs([
-        { label: listData.name, href: `/admin/analysis/lists/${listId}` },
-        { label: aName, href: `/admin/analysis/lists/${listId}/assistant/${assistantId || convo.assistant_id}` },
-        { label: `…${threadId.slice(-8)}` },
-      ]);
+
+      if (!readOnly) {
+        const [codesData, groupsData, items, listData] = await Promise.all([
+          analysisApi.getCodes(listId, tok),
+          analysisApi.getCodeGroups(listId, tok),
+          analysisApi.getListItems(listId, tok),
+          analysisApi.getList(listId, tok),
+        ]);
+        setCodes(codesData);
+        setCodeGroups(groupsData);
+        const found = items.find((i) => i.assistant_id === (assistantId || convo.assistant_id));
+        const aName = found?.assistant_name || "LLM Thing";
+        setCrumbs([
+          { label: listData.name, href: `/admin/analysis/lists/${listId}` },
+          { label: aName, href: `/admin/analysis/lists/${listId}/assistant/${assistantId || convo.assistant_id}` },
+          { label: `…${threadId.slice(-8)}` },
+        ]);
+      } else {
+        // Read-only: fetch assistant name directly
+        const { data: aData } = await supabase.from("assistants").select("name").eq("id", assistantId || convo.assistant_id).maybeSingle();
+        const aName = aData?.name || "LLM Thing";
+        setCrumbs([
+          { label: aName, href: `/admin/analysis/assistant/${assistantId || convo.assistant_id}` },
+          { label: `…${threadId.slice(-8)}` },
+        ]);
+      }
     } catch {
-      router.push(`/admin/analysis/lists/${listId}`);
+      router.push(readOnly ? "/admin/analysis" : `/admin/analysis/lists/${listId}`);
     }
-  }, [listId, threadId, assistantId, router, setCrumbs]);
+  }, [listId, threadId, assistantId, readOnly, router, setCrumbs]);
 
   useEffect(() => {
     if (ready && token) fetchData(token);
@@ -436,15 +449,22 @@ export default function ThreadPage() {
       headerRight={
         <div className="flex items-center gap-2">
           <span className="text-xs text-[var(--ink-muted)]">{conversation.messages.length} messages</span>
-          <button
-            onClick={() => setCodebookOpen((o) => !o)}
-            className={`flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition ${
-              codebookOpen ? "bg-[var(--ink-dark)] text-white" : "bg-white text-[var(--foreground)] hover:bg-[var(--card-fill)]"
-            }`}
-          >
-            <PanelRight className="h-3.5 w-3.5" />
-            Codebook
-          </button>
+          {readOnly && (
+            <span className="rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1 text-xs text-[var(--ink-muted)]">
+              Read-only — add to a list to start coding
+            </span>
+          )}
+          {!readOnly && (
+            <button
+              onClick={() => setCodebookOpen((o) => !o)}
+              className={`flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition ${
+                codebookOpen ? "bg-[var(--ink-dark)] text-white" : "bg-white text-[var(--foreground)] hover:bg-[var(--card-fill)]"
+              }`}
+            >
+              <PanelRight className="h-3.5 w-3.5" />
+              Codebook
+            </button>
+          )}
         </div>
       }
     >
@@ -471,7 +491,7 @@ export default function ThreadPage() {
                       text={msg.user_text}
                       field="user_text"
                       isSelected={selectedMsgIds.has(msg.id)}
-                      onToggle={() => toggleMessage(msg.id)}
+                      onToggle={readOnly ? undefined : () => toggleMessage(msg.id)}
                       highlights={conversation.highlights}
                       codes={codes}
                     />
@@ -495,7 +515,7 @@ export default function ThreadPage() {
                       text={msg.response_text}
                       field="response_text"
                       isSelected={selectedMsgIds.has(msg.id)}
-                      onToggle={() => toggleMessage(msg.id)}
+                      onToggle={readOnly ? undefined : () => toggleMessage(msg.id)}
                       highlights={conversation.highlights}
                       codes={codes}
                     />
@@ -552,7 +572,7 @@ export default function ThreadPage() {
         </div>
 
         {/* Codebook sidebar */}
-        {codebookOpen && (
+        {!readOnly && codebookOpen && (
           <aside className="w-72 border-l-4 border-[var(--card-shell)] bg-[var(--card-fill)] flex-shrink-0 overflow-hidden flex flex-col">
             {token && (
               <CodebookPanel
@@ -568,7 +588,7 @@ export default function ThreadPage() {
       </div>
 
       {/* Floating action bar when messages are selected */}
-      {selectedMsgIds.size > 0 && (
+      {!readOnly && selectedMsgIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-5 py-3 shadow-[6px_6px_0_var(--shadow-deep)]">
           <span className="text-white text-sm font-semibold">
             {selectedMsgIds.size} message{selectedMsgIds.size !== 1 ? "s" : ""} selected
