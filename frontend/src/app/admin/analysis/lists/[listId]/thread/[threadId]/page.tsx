@@ -487,12 +487,21 @@ export default function ThreadPage() {
     const selectedText = sel.toString().trim();
     if (!selectedText) { setSelection(null); return; }
 
-    // Get the container text to compute char offsets
-    const container = (e.currentTarget as HTMLElement) || range.commonAncestorContainer.parentElement;
-    const fullText = container?.textContent || "";
-    // Walk to find start offset
+    // Get the container element (the text div the mouseup fired on)
+    const container = e.currentTarget as HTMLElement;
+    // Walk from the first text node of container to the selection start
     const preRange = document.createRange();
-    preRange.setStart(range.startContainer.parentElement?.closest("[data-msg]") || document.body, 0);
+    // Find the first text node inside container to anchor the range start
+    const firstTextNode = (function findFirst(node: Node): Node | null {
+      if (node.nodeType === Node.TEXT_NODE) return node;
+      for (const child of Array.from(node.childNodes)) {
+        const found = findFirst(child);
+        if (found) return found;
+      }
+      return null;
+    })(container);
+    if (!firstTextNode) { setSelection(null); return; }
+    preRange.setStart(firstTextNode, 0);
     preRange.setEnd(range.startContainer, range.startOffset);
     const charStart = preRange.toString().length;
     const charEnd = charStart + selectedText.length;

@@ -26,7 +26,7 @@ def get_supabase():
 def require_admin(email: str = Depends(get_current_user_email)) -> str:
     """Verify the caller is in admin_emails; return their email."""
     sb = get_supabase()
-    result = sb.table("admin_emails").select("email").eq("email", email).maybe_single().execute()
+    result = sb.table("admin_emails").select("email").eq("email", email).limit(1).execute()
     if not result.data:
         raise HTTPException(status_code=403, detail="Admin access required")
     return email
@@ -88,10 +88,10 @@ class AssignCodeBody(BaseModel):
 
 def _list_with_counts(sb, list_id: str) -> dict:
     """Fetch a single list row plus aggregate counts."""
-    row = sb.table("analysis_lists").select("*").eq("id", list_id).is_("deleted_at", None).maybe_single().execute()
-    if not row.data:
+    rows = sb.table("analysis_lists").select("*").eq("id", list_id).is_("deleted_at", None).limit(1).execute()
+    if not rows.data:
         return None
-    data = row.data
+    data = rows.data[0]
     item_count = sb.table("analysis_list_items").select("id", count="exact").eq("list_id", list_id).execute()
     code_count = sb.table("analysis_codes").select("id", count="exact").eq("list_id", list_id).execute()
     data["item_count"] = item_count.count or 0
@@ -191,7 +191,7 @@ def get_list_items(list_id: str, admin: str = Depends(require_admin)):
 def add_list_item(list_id: str, body: AddListItemBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
     try:
-        existing = sb.table("analysis_list_items").select("id").eq("list_id", list_id).eq("assistant_id", body.assistant_id).maybe_single().execute()
+        existing = sb.table("analysis_list_items").select("id").eq("list_id", list_id).eq("assistant_id", body.assistant_id).limit(1).execute()
         if existing.data:
             raise HTTPException(status_code=409, detail="Assistant already in list")
         res = sb.table("analysis_list_items").insert({
@@ -262,42 +262,40 @@ def browse_assistants(
 def get_threads(list_id: str, assistant_id: str, admin: str = Depends(require_admin)):
     sb = get_supabase()
     try:
-     sessions = sb.table("assistant_sessions").select("id, current_thread_id, device_id, created_at, updated_at").eq("assistant_id", assistant_id).execute()
+        # Derive threads from chat_messages — each unique thread_id is a thread
+        msgs = sb.table("chat_messages").select("id, session_id, thread_id, device_id, created_at").eq("assistant_id", assistant_id).order("created_at", desc=False).execute()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"sessions query: {e}")
+        raise HTTPException(status_code=500, detail=f"messages query: {e}")
 
     # Get highlight counts per thread for this list
-    highlights = sb.table("analysis_highlights").select("thread_id, session_id").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    highlights = sb.table("analysis_highlights").select("thread_id").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
     highlight_count_map: dict[str, int] = {}
     for h in (highlights.data or []):
         key = h["thread_id"]
         highlight_count_map[key] = highlight_count_map.get(key, 0) + 1
 
+    # Group messages by thread_id
+    threads: dict[str, dict] = {}
+    for m in (msgs.data or []):
+        tid = m.get("thread_id") or m["session_id"] or m["id"]
+        if tid not in threads:
+            threads[tid] = {
+                "thread_id": tid,
+                "session_id": m.get("session_id") or tid,
+                "device_id": m.get("device_id"),
+                "message_count": 0,
+                "first_message_at": m["created_at"],
+                "last_message_at": m["created_at"],
+            }
+        threads[tid]["message_count"] += 1
+        threads[tid]["last_message_at"] = m["created_at"]
+
     result = []
-    seen_threads: set[str] = set()
-    for s in (sessions.data or []):
-        thread_id = s.get("current_thread_id") or s["id"]
-        if thread_id in seen_threads:
-            continue
-        seen_threads.add(thread_id)
-
-        # Count messages for this thread
-        msg_count = sb.table("chat_messages").select("id", count="exact").eq("assistant_id", assistant_id).eq("thread_id", thread_id).execute()
-        # Get first/last message timestamps
-        first_msg = sb.table("chat_messages").select("created_at").eq("assistant_id", assistant_id).eq("thread_id", thread_id).order("created_at", desc=False).limit(1).maybe_single().execute()
-        last_msg = sb.table("chat_messages").select("created_at").eq("assistant_id", assistant_id).eq("thread_id", thread_id).order("created_at", desc=True).limit(1).maybe_single().execute()
-
-        hcount = highlight_count_map.get(thread_id, 0)
-        result.append({
-            "thread_id": thread_id,
-            "session_id": s["id"],
-            "device_id": s.get("device_id"),
-            "message_count": msg_count.count or 0,
-            "highlight_count": hcount,
-            "has_codes": hcount > 0,
-            "first_message_at": first_msg.data["created_at"] if first_msg.data else s["created_at"],
-            "last_message_at": last_msg.data["created_at"] if last_msg.data else s["updated_at"],
-        })
+    for tid, t in threads.items():
+        hcount = highlight_count_map.get(tid, 0)
+        t["highlight_count"] = hcount
+        t["has_codes"] = hcount > 0
+        result.append(t)
 
     result.sort(key=lambda x: x["last_message_at"] or "", reverse=True)
     return result
@@ -386,10 +384,10 @@ def update_code_group(list_id: str, group_id: str, body: UpdateCodeGroupBody, ad
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
     sb.table("analysis_code_groups").update(updates).eq("id", group_id).eq("list_id", list_id).execute()
-    row = sb.table("analysis_code_groups").select("*").eq("id", group_id).maybe_single().execute()
-    if not row.data:
+    rows = sb.table("analysis_code_groups").select("*").eq("id", group_id).limit(1).execute()
+    if not rows.data:
         raise HTTPException(status_code=404, detail="Code group not found")
-    return row.data
+    return rows.data[0]
 
 
 @router.delete("/lists/{list_id}/code-groups/{group_id}", status_code=204)
@@ -448,10 +446,10 @@ def update_code(list_id: str, code_id: str, body: UpdateCodeBody, admin: str = D
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
     sb.table("analysis_codes").update(updates).eq("id", code_id).eq("list_id", list_id).execute()
-    row = sb.table("analysis_codes").select("*").eq("id", code_id).maybe_single().execute()
-    if not row.data:
+    rows = sb.table("analysis_codes").select("*").eq("id", code_id).limit(1).execute()
+    if not rows.data:
         raise HTTPException(status_code=404, detail="Code not found")
-    return row.data
+    return rows.data[0]
 
 
 @router.delete("/lists/{list_id}/codes/{code_id}", status_code=204)
@@ -503,7 +501,7 @@ def delete_highlight(highlight_id: str, admin: str = Depends(require_admin)):
 @router.post("/highlights/{highlight_id}/codes", status_code=201)
 def assign_code(highlight_id: str, body: AssignCodeBody, admin: str = Depends(require_admin)):
     sb = get_supabase()
-    existing = sb.table("analysis_highlight_codes").select("id").eq("highlight_id", highlight_id).eq("code_id", body.code_id).maybe_single().execute()
+    existing = sb.table("analysis_highlight_codes").select("id").eq("highlight_id", highlight_id).eq("code_id", body.code_id).limit(1).execute()
     if existing.data:
         raise HTTPException(status_code=409, detail="Code already assigned to this highlight")
     res = sb.table("analysis_highlight_codes").insert({
@@ -536,10 +534,10 @@ def export_list(
     sb = get_supabase()
 
     # Fetch list meta
-    list_row = sb.table("analysis_lists").select("name").eq("id", list_id).maybe_single().execute()
-    if not list_row.data:
+    list_rows = sb.table("analysis_lists").select("name").eq("id", list_id).limit(1).execute()
+    if not list_rows.data:
         raise HTTPException(status_code=404, detail="List not found")
-    list_name = list_row.data["name"]
+    list_name = list_rows.data[0]["name"]
 
     # Fetch all codes in this list
     codes_res = sb.table("analysis_codes").select("*, analysis_code_groups(name)").eq("list_id", list_id).execute()
