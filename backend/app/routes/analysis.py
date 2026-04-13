@@ -422,25 +422,24 @@ def get_thread_conversation(list_id: str, thread_id: str, admin: str = Depends(r
     if messages.data:
         assistant_id = messages.data[0].get("assistant_id")
 
-    # Fetch highlights for this thread + list
-    highlights_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).eq("thread_id", thread_id).execute()
-
-    # For each highlight, fetch its codes
+    # Fetch highlights for this thread + list (skip when no list context)
     highlights = []
-    for h in (highlights_res.data or []):
-        codes_res = sb.table("analysis_highlight_codes").select("*, analysis_codes(id, name, color)").eq("highlight_id", h["id"]).execute()
-        codes = []
-        for c in (codes_res.data or []):
-            code_data = c.get("analysis_codes") or {}
-            codes.append({
-                "id": code_data.get("id"),
-                "name": code_data.get("name"),
-                "color": code_data.get("color"),
-                "assigned_by": c["assigned_by"],
-                "assigned_at": c["assigned_at"],
-            })
-        h["codes"] = codes
-        highlights.append(h)
+    if list_id != "none":
+        highlights_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).eq("thread_id", thread_id).execute()
+        for h in (highlights_res.data or []):
+            codes_res = sb.table("analysis_highlight_codes").select("*, analysis_codes(id, name, color)").eq("highlight_id", h["id"]).execute()
+            codes = []
+            for c in (codes_res.data or []):
+                code_data = c.get("analysis_codes") or {}
+                codes.append({
+                    "id": code_data.get("id"),
+                    "name": code_data.get("name"),
+                    "color": code_data.get("color"),
+                    "assigned_by": c["assigned_by"],
+                    "assigned_at": c["assigned_at"],
+                })
+            h["codes"] = codes
+            highlights.append(h)
 
     return {
         "thread_id": thread_id,

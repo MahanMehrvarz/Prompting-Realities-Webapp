@@ -5,14 +5,14 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  ArrowUpDown,
   BookOpen,
+  CalendarDays,
   Clock,
   Download,
   MessageSquare,
   Tag,
   Trash2,
-  X,
-  CalendarDays,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { analysisApi, type AnalysisList, type AnalysisListItem, type ThreadSummary } from "@/lib/backendApi";
@@ -64,9 +64,9 @@ function ExportButton({ listId, token }: { listId: string; token: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Assistant card — richer version
+// Assistant card — unified with main page design
 // ---------------------------------------------------------------------------
-type ThreadStats = { thread_count: number; last_used: string | null };
+type ThreadStats = { thread_count: number; message_count: number; last_used: string | null };
 
 function ListAssistantCard({
   item, listId, token, stats, onRemoved,
@@ -76,7 +76,9 @@ function ListAssistantCard({
 }) {
   const [removing, setRemoving] = useState(false);
 
-  const remove = async () => {
+  const remove = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm(`Remove "${item.assistant_name}" from this list?`)) return;
     setRemoving(true);
     try {
@@ -88,51 +90,61 @@ function ListAssistantCard({
   return (
     <Link
       href={`/admin/analysis/lists/${listId}/assistant/${item.assistant_id}`}
-      className="block rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-5 shadow-[5px_5px_0_var(--card-shell)] hover:shadow-[8px_8px_0_var(--shadow-deep)] transition group"
+      className="block rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[5px_5px_0_var(--card-shell)] hover:shadow-[8px_8px_0_var(--shadow-deep)] transition group"
     >
-      {/* Name */}
-      <div className="flex items-start justify-between gap-2 mb-4">
-        <h3 className="font-bold text-[var(--ink-dark)] text-base leading-tight group-hover:underline">{item.assistant_name}</h3>
-        <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); remove(); }}
-          disabled={removing}
-          className="rounded-full border-2 border-[var(--card-shell)] p-1.5 text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white transition disabled:opacity-50 flex-shrink-0"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+      {/* Dark header */}
+      <div className="rounded-[12px] bg-[var(--ink-dark)] px-4 py-3 text-[var(--card-fill)] mb-3">
+        <h3 className="font-bold truncate text-base">{item.assistant_name}</h3>
+        <div className="flex items-center gap-1 mt-1.5 text-[var(--card-fill)]/50">
+          <CalendarDays className="h-3 w-3 flex-shrink-0" />
+          <span className="text-xs">Added {fmt(item.added_at)}</span>
+        </div>
       </div>
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-[12px] bg-white border-2 border-[var(--card-shell)] px-3 py-2.5">
-          <div className="flex items-center gap-1.5 mb-1">
-            <MessageSquare className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
-            <span className="text-xs text-[var(--ink-muted)] font-medium">Threads</span>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-2 py-2">
+          <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
+            <MessageSquare className="h-3 w-3 flex-shrink-0" />
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Threads</span>
           </div>
-          <p className="text-xl font-black text-[var(--ink-dark)]">
-            {stats ? stats.thread_count : <span className="text-sm text-[var(--ink-muted)] animate-pulse">…</span>}
+          <p className="text-lg font-black text-[var(--ink-dark)] leading-none">
+            {stats ? stats.thread_count : <span className="text-sm animate-pulse">…</span>}
           </p>
         </div>
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-2 py-2">
+          <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
+            <ArrowUpDown className="h-3 w-3 flex-shrink-0" />
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Messages</span>
+          </div>
+          <p className="text-lg font-black text-[var(--ink-dark)] leading-none">
+            {stats ? stats.message_count : <span className="text-sm animate-pulse">…</span>}
+          </p>
+        </div>
+        <div className="rounded-[10px] bg-white border-2 border-[var(--card-shell)] px-2 py-2">
+          <div className="flex items-center gap-1 text-[var(--ink-muted)] mb-0.5">
+            <Clock className="h-3 w-3 flex-shrink-0" />
+            <span className="text-[10px] font-medium uppercase tracking-wide truncate">Last used</span>
+          </div>
+          <p className="text-[11px] font-semibold text-[var(--ink-dark)] leading-tight">
+            {stats ? (stats.last_used ? fmt(stats.last_used) : "—") : <span className="text-sm animate-pulse">…</span>}
+          </p>
+        </div>
+      </div>
 
-        <div className="rounded-[12px] bg-white border-2 border-[var(--card-shell)] px-3 py-2.5">
-          <div className="flex items-center gap-1.5 mb-1">
-            <Clock className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
-            <span className="text-xs text-[var(--ink-muted)] font-medium">Last used</span>
-          </div>
-          <p className="text-sm font-semibold text-[var(--ink-dark)]">
-            {stats ? fmt(stats.last_used) : <span className="text-sm text-[var(--ink-muted)] animate-pulse">…</span>}
-          </p>
-        </div>
-
-        <div className="col-span-2 rounded-[12px] bg-white border-2 border-[var(--card-shell)] px-3 py-2.5">
-          <div className="flex items-center gap-1.5 mb-1">
-            <CalendarDays className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
-            <span className="text-xs text-[var(--ink-muted)] font-medium">Added</span>
-          </div>
-          <p className="text-sm text-[var(--ink-dark)]">
-            {fmt(item.added_at)} <span className="text-[var(--ink-muted)]">by {item.added_by}</span>
-          </p>
-        </div>
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="rounded-full border-2 border-[var(--card-shell)] bg-[#e6fff5] px-2.5 py-1 text-xs font-semibold text-[#013022]">
+          In this list
+        </span>
+        <button
+          onClick={remove}
+          disabled={removing}
+          className="flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--accent-red)] hover:bg-[var(--accent-red)] hover:text-white transition disabled:opacity-50"
+        >
+          <Trash2 className="h-3 w-3" />
+          {removing ? "Removing…" : "Remove"}
+        </button>
       </div>
     </Link>
   );
@@ -188,14 +200,15 @@ export default function ListPage() {
               if (!max) return t.last_message_at;
               return t.last_message_at > max ? t.last_message_at : max;
             }, null);
-            return { assistant_id: item.assistant_id, thread_count: threads.length, last_used };
+            const message_count = threads.reduce((sum, t) => sum + (t.message_count ?? 0), 0);
+            return { assistant_id: item.assistant_id, thread_count: threads.length, message_count, last_used };
           } catch {
-            return { assistant_id: item.assistant_id, thread_count: 0, last_used: null };
+            return { assistant_id: item.assistant_id, thread_count: 0, message_count: 0, last_used: null };
           }
         })
       );
       const statsMap: Record<string, ThreadStats> = {};
-      for (const s of statsResults) statsMap[s.assistant_id] = { thread_count: s.thread_count, last_used: s.last_used };
+      for (const s of statsResults) statsMap[s.assistant_id] = { thread_count: s.thread_count, message_count: s.message_count, last_used: s.last_used };
       setThreadStats(statsMap);
     } catch {
       router.push("/admin/analysis");
