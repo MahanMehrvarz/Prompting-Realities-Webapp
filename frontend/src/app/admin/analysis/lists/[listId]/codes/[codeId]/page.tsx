@@ -80,12 +80,34 @@ export default function CodeHighlightsPage() {
     );
   }
 
-  // Group highlights by thread_id
+  // Group highlights by thread_id, sorted by created_at
   const byThread = highlights.reduce<Record<string, CodeHighlight[]>>((acc, h) => {
     if (!acc[h.thread_id]) acc[h.thread_id] = [];
     acc[h.thread_id].push(h);
     return acc;
   }, {});
+  // Sort each thread's highlights chronologically
+  for (const arr of Object.values(byThread)) {
+    arr.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+
+  // Merge consecutive highlights (within 5 min) into "runs" for a single card
+  type HighlightRun = { highlights: CodeHighlight[]; isMerged: boolean };
+  function buildRuns(hs: CodeHighlight[]): HighlightRun[] {
+    const runs: HighlightRun[] = [];
+    for (const h of hs) {
+      const last = runs[runs.length - 1];
+      const lastH = last?.highlights[last.highlights.length - 1];
+      const gap = lastH ? (new Date(h.created_at).getTime() - new Date(lastH.created_at).getTime()) / 1000 : Infinity;
+      if (last && gap < 300) {
+        last.highlights.push(h);
+        last.isMerged = true;
+      } else {
+        runs.push({ highlights: [h], isMerged: false });
+      }
+    }
+    return runs;
+  }
 
   return (
     <AnalysisShell>
@@ -134,59 +156,83 @@ export default function CodeHighlightsPage() {
                   </span>
                 </div>
 
-                {/* Quotation cards */}
+                {/* Quotation cards — consecutive highlights merged into one card */}
                 <div className="space-y-3 pl-4 border-l-2 border-[var(--card-shell)]">
-                  {threadHighlights.map((h) => (
-                    <div
-                      key={h.highlight_id}
-                      className="rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[4px_4px_0_var(--card-shell)]"
-                      style={{ borderLeftColor: code.color, borderLeftWidth: 4 }}
-                    >
-                      {/* Message texts */}
-                      {h.message_texts.map((mt) => (
-                        <div key={mt.message_id} className="space-y-2 mb-3">
-                          {mt.user_text && (
-                            <div className="flex justify-end">
-                              <div className="max-w-[85%]">
-                                <div className="flex items-center gap-1 justify-end mb-1">
-                                  <span className="text-xs text-[var(--ink-muted)]">User</span>
-                                  <User className="h-3 w-3 text-[var(--ink-muted)]" />
-                                </div>
-                                <div
-                                  className="rounded-[12px] rounded-tr-[4px] px-3 py-2 text-sm"
-                                  style={{ backgroundColor: hexToRgba(code.color, 0.25), border: `2px solid ${hexToRgba(code.color, 0.5)}` }}
-                                >
-                                  {mt.user_text}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                          {mt.response_text && (
-                            <div className="flex justify-start">
-                              <div className="max-w-[85%]">
-                                <div className="flex items-center gap-1 mb-1">
-                                  <Bot className="h-3 w-3 text-[var(--ink-muted)]" />
-                                  <span className="text-xs text-[var(--ink-muted)]">Assistant</span>
-                                </div>
-                                <div
-                                  className="rounded-[12px] rounded-tl-[4px] px-3 py-2 text-sm"
-                                  style={{ backgroundColor: hexToRgba(code.color, 0.25), border: `2px solid ${hexToRgba(code.color, 0.5)}` }}
-                                >
-                                  {mt.response_text}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                  {buildRuns(threadHighlights).map((run, ri) => {
+                    const first = run.highlights[0];
+                    const last = run.highlights[run.highlights.length - 1];
+                    return (
+                      <div
+                        key={`run-${ri}`}
+                        className="rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-4 shadow-[4px_4px_0_var(--card-shell)]"
+                        style={{ borderLeftColor: code.color, borderLeftWidth: 4 }}
+                      >
+                        {/* Sequence label if merged */}
+                        {run.isMerged && (
+                          <div className="flex items-center gap-1.5 mb-3">
+                            <span
+                              className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                              style={{ backgroundColor: hexToRgba(code.color, 0.3), color: "var(--ink-dark)" }}
+                            >
+                              {run.highlights.length} messages · continuous dialogue
+                            </span>
+                          </div>
+                        )}
 
-                      {/* Meta */}
-                      <div className="flex items-center justify-between pt-2 border-t border-[var(--card-shell)]/30">
-                        <span className="text-xs text-[var(--ink-muted)]">by {h.created_by}</span>
-                        <span className="text-xs text-[var(--ink-muted)]">{fmt(h.created_at)}</span>
+                        {/* All messages in this run */}
+                        {run.highlights.map((h, hi) => (
+                          <div key={h.highlight_id}>
+                            {/* Divider between merged highlights */}
+                            {hi > 0 && (
+                              <div className="my-2 border-t border-dashed border-[var(--card-shell)]/50" />
+                            )}
+                            {h.message_texts.map((mt) => (
+                              <div key={mt.message_id} className="space-y-2 mb-2">
+                                {mt.user_text && (
+                                  <div className="flex justify-end">
+                                    <div className="max-w-[85%]">
+                                      <div className="flex items-center gap-1 justify-end mb-1">
+                                        <span className="text-xs text-[var(--ink-muted)]">User</span>
+                                        <User className="h-3 w-3 text-[var(--ink-muted)]" />
+                                      </div>
+                                      <div
+                                        className="rounded-[12px] rounded-tr-[4px] px-3 py-2 text-sm"
+                                        style={{ backgroundColor: hexToRgba(code.color, 0.25), border: `2px solid ${hexToRgba(code.color, 0.5)}` }}
+                                      >
+                                        {mt.user_text}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                {mt.response_text && (
+                                  <div className="flex justify-start">
+                                    <div className="max-w-[85%]">
+                                      <div className="flex items-center gap-1 mb-1">
+                                        <Bot className="h-3 w-3 text-[var(--ink-muted)]" />
+                                        <span className="text-xs text-[var(--ink-muted)]">Assistant</span>
+                                      </div>
+                                      <div
+                                        className="rounded-[12px] rounded-tl-[4px] px-3 py-2 text-sm"
+                                        style={{ backgroundColor: hexToRgba(code.color, 0.25), border: `2px solid ${hexToRgba(code.color, 0.5)}` }}
+                                      >
+                                        {mt.response_text}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+
+                        {/* Meta */}
+                        <div className="flex items-center justify-between pt-2 border-t border-[var(--card-shell)]/30 mt-2">
+                          <span className="text-xs text-[var(--ink-muted)]">by {first.created_by}</span>
+                          <span className="text-xs text-[var(--ink-muted)]">{fmt(run.isMerged ? last.created_at : first.created_at)}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
