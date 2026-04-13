@@ -107,12 +107,27 @@ def _list_with_counts(sb, list_id: str) -> dict:
 def get_lists(admin: str = Depends(require_admin)):
     sb = get_supabase()
     rows = sb.table("analysis_lists").select("*").is_("deleted_at", None).order("created_at", desc=True).execute()
+    if not rows.data:
+        return []
+
+    list_ids = [r["id"] for r in rows.data]
+
+    # Batch fetch item counts and code counts in 2 queries instead of 2N
+    all_items = sb.table("analysis_list_items").select("list_id").in_("list_id", list_ids).execute()
+    all_codes = sb.table("analysis_codes").select("list_id").in_("list_id", list_ids).execute()
+
+    item_count_map: dict[str, int] = {}
+    for r in (all_items.data or []):
+        item_count_map[r["list_id"]] = item_count_map.get(r["list_id"], 0) + 1
+
+    code_count_map: dict[str, int] = {}
+    for r in (all_codes.data or []):
+        code_count_map[r["list_id"]] = code_count_map.get(r["list_id"], 0) + 1
+
     result = []
-    for row in (rows.data or []):
-        item_count = sb.table("analysis_list_items").select("id", count="exact").eq("list_id", row["id"]).execute()
-        code_count = sb.table("analysis_codes").select("id", count="exact").eq("list_id", row["id"]).execute()
-        row["item_count"] = item_count.count or 0
-        row["code_count"] = code_count.count or 0
+    for row in rows.data:
+        row["item_count"] = item_count_map.get(row["id"], 0)
+        row["code_count"] = code_count_map.get(row["id"], 0)
         result.append(row)
     return result
 
@@ -429,10 +444,19 @@ def get_thread_conversation(list_id: str, thread_id: str, admin: str = Depends(r
 def get_code_groups(list_id: str, admin: str = Depends(require_admin)):
     sb = get_supabase()
     rows = sb.table("analysis_code_groups").select("*").eq("list_id", list_id).order("created_at", desc=False).execute()
+    if not rows.data:
+        return []
+
+    group_ids = [r["id"] for r in rows.data]
+    all_codes = sb.table("analysis_codes").select("group_id").in_("group_id", group_ids).execute()
+    count_map: dict[str, int] = {}
+    for c in (all_codes.data or []):
+        gid = c["group_id"]
+        count_map[gid] = count_map.get(gid, 0) + 1
+
     result = []
-    for row in (rows.data or []):
-        code_count = sb.table("analysis_codes").select("id", count="exact").eq("group_id", row["id"]).execute()
-        row["code_count"] = code_count.count or 0
+    for row in rows.data:
+        row["code_count"] = count_map.get(row["id"], 0)
         result.append(row)
     return result
 
@@ -483,12 +507,22 @@ def delete_code_group(list_id: str, group_id: str, admin: str = Depends(require_
 def get_codes(list_id: str, admin: str = Depends(require_admin)):
     sb = get_supabase()
     rows = sb.table("analysis_codes").select("*, analysis_code_groups(id, name)").eq("list_id", list_id).order("created_at", desc=False).execute()
+    if not rows.data:
+        return []
+
+    code_ids = [r["id"] for r in rows.data]
+
+    # Batch fetch usage counts in 1 query instead of N
+    usages = sb.table("analysis_highlight_codes").select("code_id").in_("code_id", code_ids).execute()
+    usage_map: dict[str, int] = {}
+    for u in (usages.data or []):
+        usage_map[u["code_id"]] = usage_map.get(u["code_id"], 0) + 1
+
     result = []
-    for row in (rows.data or []):
+    for row in rows.data:
         group = row.pop("analysis_code_groups", None) or {}
-        usage = sb.table("analysis_highlight_codes").select("id", count="exact").eq("code_id", row["id"]).execute()
         row["group_name"] = group.get("name")
-        row["usage_count"] = usage.count or 0
+        row["usage_count"] = usage_map.get(row["id"], 0)
         result.append(row)
     return result
 
