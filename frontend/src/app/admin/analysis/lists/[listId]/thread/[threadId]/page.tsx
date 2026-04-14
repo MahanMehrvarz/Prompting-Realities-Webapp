@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
+  BookOpen,
   Bot,
   Check,
   ChevronDown,
@@ -22,6 +23,7 @@ import {
   type AnalysisCode,
   type AnalysisCodeGroup,
   type AnalysisHighlight,
+  type AnalysisList,
   type ThreadConversation,
 } from "@/lib/backendApi";
 import AnalysisShell from "../../../../AnalysisShell";
@@ -299,6 +301,86 @@ function MessageBubble({
 }
 
 // ---------------------------------------------------------------------------
+// Add-to-list modal (shown in read-only mode so user can start coding)
+// ---------------------------------------------------------------------------
+function AddToListModal({
+  assistantId, token, onClose, onAdded,
+}: {
+  assistantId: string; token: string;
+  onClose: () => void; onAdded: (listId: string) => void;
+}) {
+  const [lists, setLists] = useState<AnalysisList[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    analysisApi.getLists(token).then((data) => { setLists(data); setLoading(false); }).catch(() => setLoading(false));
+  }, [token]);
+
+  const save = async () => {
+    if (!selectedId || saving) return;
+    setSaving(true);
+    try {
+      await analysisApi.addListItem(selectedId, assistantId, token).catch(() => null); // ok if already in list
+      onAdded(selectedId);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-6 shadow-[8px_8px_0_var(--shadow-deep)] w-full max-w-sm mx-4">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-[var(--ink-dark)]">Add to List</h2>
+            <p className="text-xs text-[var(--ink-muted)] mt-0.5">Choose a list to enable coding on this conversation</p>
+          </div>
+          <button onClick={onClose} className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--ink-dark)] hover:text-white transition">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-[var(--ink-muted)] animate-pulse">Loading lists…</div>
+        ) : lists.length === 0 ? (
+          <p className="text-sm text-[var(--ink-muted)] py-4 text-center">No lists yet. Create one first from the analysis page.</p>
+        ) : (
+          <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
+            {lists.map((list) => (
+              <button key={list.id} onClick={() => setSelectedId(list.id)}
+                className={`w-full flex items-center gap-3 rounded-[12px] border-2 px-3 py-2.5 text-left transition ${
+                  selectedId === list.id
+                    ? "border-[var(--ink-dark)] bg-[var(--ink-dark)] text-white"
+                    : "border-[var(--card-shell)] bg-white hover:bg-[var(--card-fill)] text-[var(--ink-dark)]"
+                }`}>
+                <BookOpen className="h-4 w-4 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate">{list.name}</p>
+                  {list.item_count !== undefined && (
+                    <p className={`text-xs ${selectedId === list.id ? "text-white/70" : "text-[var(--ink-muted)]"}`}>
+                      {list.item_count} assistant{list.item_count !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                </div>
+                {selectedId === list.id && <Check className="h-4 w-4 flex-shrink-0" />}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <button onClick={onClose} className="flex-1 rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2 text-sm font-semibold hover:bg-[var(--card-fill)] transition">Cancel</button>
+          <button onClick={save} disabled={!selectedId || saving || lists.length === 0}
+            className="flex-1 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-2 text-sm font-semibold text-white shadow-[3px_3px_0_var(--shadow-deep)] hover:-translate-y-0.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            {saving ? "Adding…" : "Add & Start Coding"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main thread page
 // ---------------------------------------------------------------------------
 export default function ThreadPage() {
@@ -320,6 +402,7 @@ export default function ThreadPage() {
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
   const [showCodeTooltip, setShowCodeTooltip] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showAddToList, setShowAddToList] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -450,9 +533,13 @@ export default function ThreadPage() {
         <div className="flex items-center gap-2">
           <span className="text-xs text-[var(--ink-muted)]">{conversation.messages.length} messages</span>
           {readOnly && (
-            <span className="rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1 text-xs text-[var(--ink-muted)]">
-              Read-only — add to a list to start coding
-            </span>
+            <button
+              onClick={() => setShowAddToList(true)}
+              className="flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] px-3 py-1.5 text-xs font-semibold text-[var(--ink-dark)] shadow-[3px_3px_0_var(--shadow-deep)] hover:-translate-y-0.5 transition"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add to List & Code
+            </button>
           )}
           {!readOnly && (
             <button
@@ -617,6 +704,21 @@ export default function ThreadPage() {
           onCodeSelect={handleCodeSelect}
           onCodeCreate={handleCodeCreate}
           onDismiss={() => setShowCodeTooltip(false)}
+        />
+      )}
+
+      {/* Add-to-list modal (read-only mode only) */}
+      {showAddToList && token && (
+        <AddToListModal
+          assistantId={assistantId || conversation.assistant_id || ""}
+          token={token}
+          onClose={() => setShowAddToList(false)}
+          onAdded={(chosenListId) => {
+            // Navigate to this same thread but now under the real list — coding mode activates
+            router.push(
+              `/admin/analysis/lists/${chosenListId}/thread/${threadId}?session=${sessionId}&assistant=${assistantId || conversation.assistant_id || ""}`
+            );
+          }}
         />
       )}
     </AnalysisShell>
