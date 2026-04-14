@@ -266,15 +266,29 @@ def browse_assistants(
 
     all_ids = [r["id"] for r in all_rows]
 
-    # 2. Batch fetch message stats for all matched assistants in one query
-    # Use limit(10000) to avoid the default 1000-row Supabase cap
-    msgs_res = sb.table("chat_messages").select("assistant_id, thread_id, created_at").in_("assistant_id", all_ids).limit(10000).execute()
+    # 2. Fetch message stats — paginate to bypass Supabase's default 1000-row cap
+    CHUNK = 1000
+    all_msgs: list[dict] = []
+    offset_m = 0
+    while True:
+        chunk = (
+            sb.table("chat_messages")
+            .select("assistant_id, thread_id, created_at")
+            .in_("assistant_id", all_ids)
+            .range(offset_m, offset_m + CHUNK - 1)
+            .execute()
+        )
+        batch = chunk.data or []
+        all_msgs.extend(batch)
+        if len(batch) < CHUNK:
+            break
+        offset_m += CHUNK
 
     thread_sets: dict[str, set] = {}
     msg_count_map: dict[str, int] = {}
     last_used_map: dict[str, str] = {}
 
-    for m in (msgs_res.data or []):
+    for m in all_msgs:
         aid = m["assistant_id"]
         tid = m.get("thread_id") or m.get("session_id") or m.get("id")
         msg_count_map[aid] = msg_count_map.get(aid, 0) + 1
