@@ -260,17 +260,15 @@ function MessageBubble({
     <div
       onClick={onToggle}
       className={`relative rounded-[16px] border-[3px] px-4 py-3 text-sm leading-relaxed transition select-none ${onToggle ? "cursor-pointer" : ""} ${
-        isSelected
-          ? "border-[var(--ink-dark)] shadow-[4px_4px_0_var(--ink-dark)] bg-[var(--card-fill)]"
-          : isUser
-          ? "border-transparent bg-[var(--ink-dark)] text-[var(--card-fill)] hover:border-[var(--ink-dark)]/40"
-          : "border-[var(--card-shell)] bg-[var(--card-fill)] text-[var(--ink-dark)] hover:border-[var(--ink-dark)]/40"
+        isUser
+          ? `bg-[var(--ink-dark)] text-[var(--card-fill)] ${isSelected ? "border-[var(--accent-green)] shadow-[4px_4px_0_var(--accent-green)]" : "border-transparent hover:border-[var(--ink-dark)]/40"}`
+          : `bg-[var(--card-fill)] text-[var(--ink-dark)] ${isSelected ? "border-[var(--ink-dark)] shadow-[4px_4px_0_var(--ink-dark)]" : "border-[var(--card-shell)] hover:border-[var(--ink-dark)]/40"}`
       }`}
     >
       {/* Selected checkmark */}
       {isSelected && (
-        <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-[var(--ink-dark)] flex items-center justify-center">
-          <Check className="h-3 w-3 text-white" />
+        <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center ${isUser ? "bg-[var(--accent-green)]" : "bg-[var(--ink-dark)]"}`}>
+          <Check className={`h-3 w-3 ${isUser ? "text-[var(--ink-dark)]" : "text-white"}`} />
         </span>
       )}
 
