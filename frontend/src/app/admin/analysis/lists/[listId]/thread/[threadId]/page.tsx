@@ -389,6 +389,7 @@ export default function ThreadPage() {
   const threadId = params.threadId as string;
   const sessionId = searchParams.get("session") || "";
   const assistantId = searchParams.get("assistant") || "";
+  const backTo = searchParams.get("back"); // "codes" → back button returns to codes page
   const { setCrumbs } = useAnalysisBreadcrumb();
 
   const [ready, setReady] = useState(false);
@@ -529,6 +530,14 @@ export default function ThreadPage() {
       fullBleed
       headerRight={
         <div className="flex items-center gap-2">
+          {backTo === "codes" && (
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs font-semibold text-[var(--ink-dark)] hover:bg-[var(--card-fill)] transition"
+            >
+              ← Back to Codes
+            </button>
+          )}
           <span className="text-xs text-[var(--ink-muted)]">{conversation.messages.length} messages</span>
           {readOnly && (
             <button

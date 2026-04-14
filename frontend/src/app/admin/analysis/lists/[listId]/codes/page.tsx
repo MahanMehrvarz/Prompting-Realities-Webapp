@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { Bot, MessageSquare, Tag, User } from "lucide-react";
+import { BookOpen, Bot, MessageSquare, Tag, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   analysisApi,
+  type AnalysisList,
   type AnalysisCode,
   type AnalysisCodeGroup,
   type CodeHighlight,
@@ -56,6 +57,9 @@ function CodeChip({ code, selected, onToggle }: { code: AnalysisCode; selected: 
 
 // Quotation card — shows one highlight with all its code chips + message context
 function QuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId: string }) {
+  const isMulti = highlight.message_texts.length > 1;
+  const threadHref = `/admin/analysis/lists/${listId}/thread/${highlight.thread_id}?session=${highlight.session_id}&assistant=${highlight.assistant_id}&back=codes`;
+
   return (
     <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[5px_5px_0_var(--card-shell)] overflow-hidden">
       {/* Header: code chips + meta */}
@@ -72,39 +76,55 @@ function QuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId
             </span>
           ))}
         </div>
-        <span className="text-xs text-[var(--ink-muted)] flex-shrink-0">{highlight.assistant_name}</span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isMulti && (
+            <span className="rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] px-2 py-0.5 text-[10px] font-bold">
+              {highlight.message_texts.length} messages
+            </span>
+          )}
+          <span className="text-xs text-[var(--ink-muted)]">{highlight.assistant_name}</span>
+        </div>
       </div>
 
-      {/* Message context */}
-      <div className="px-4 py-3 space-y-2">
-        {highlight.message_texts.map((mt) => (
-          <div key={mt.message_id} className="space-y-1.5">
-            {mt.user_text && (
-              <div className="flex justify-end">
-                <div className="max-w-[80%]">
-                  <div className="flex items-center gap-1 justify-end mb-0.5">
-                    <span className="text-[10px] text-[var(--ink-muted)]">User</span>
-                    <User className="h-3 w-3 text-[var(--ink-muted)]" />
-                  </div>
-                  <div className="rounded-[12px] bg-[var(--ink-dark)] text-[var(--card-fill)] px-3 py-2 text-sm leading-relaxed">
-                    {mt.user_text}
-                  </div>
-                </div>
+      {/* Message context — each message_text is one exchange, show with dividers if multiple */}
+      <div className="px-4 py-3 space-y-3">
+        {highlight.message_texts.map((mt, idx) => (
+          <div key={mt.message_id}>
+            {idx > 0 && (
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex-1 border-t-2 border-dashed border-[var(--card-shell)]" />
+                <span className="text-[10px] text-[var(--ink-muted)] font-semibold uppercase tracking-wider flex-shrink-0">continued</span>
+                <div className="flex-1 border-t-2 border-dashed border-[var(--card-shell)]" />
               </div>
             )}
-            {mt.response_text && (
-              <div className="flex justify-start">
-                <div className="max-w-[80%]">
-                  <div className="flex items-center gap-1 mb-0.5">
-                    <Bot className="h-3 w-3 text-[var(--ink-muted)]" />
-                    <span className="text-[10px] text-[var(--ink-muted)]">Assistant</span>
-                  </div>
-                  <div className="rounded-[12px] border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)] px-3 py-2 text-sm leading-relaxed">
-                    {mt.response_text}
+            <div className="space-y-1.5">
+              {mt.user_text && (
+                <div className="flex justify-end">
+                  <div className="max-w-[80%]">
+                    <div className="flex items-center gap-1 justify-end mb-0.5">
+                      <span className="text-[10px] text-[var(--ink-muted)]">User</span>
+                      <User className="h-3 w-3 text-[var(--ink-muted)]" />
+                    </div>
+                    <div className="rounded-[12px] bg-[var(--ink-dark)] text-[var(--card-fill)] px-3 py-2 text-sm leading-relaxed">
+                      {mt.user_text}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+              {mt.response_text && (
+                <div className="flex justify-start">
+                  <div className="max-w-[80%]">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <Bot className="h-3 w-3 text-[var(--ink-muted)]" />
+                      <span className="text-[10px] text-[var(--ink-muted)]">Assistant</span>
+                    </div>
+                    <div className="rounded-[12px] border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)] px-3 py-2 text-sm leading-relaxed">
+                      {mt.response_text}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -112,7 +132,7 @@ function QuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId
       {/* Footer: thread link + timestamp */}
       <div className="px-4 pb-3 flex items-center justify-between">
         <Link
-          href={`/admin/analysis/lists/${listId}/thread/${highlight.thread_id}?session=${highlight.session_id}&assistant=${highlight.assistant_id}`}
+          href={threadHref}
           className="text-xs font-semibold text-[#2563eb] hover:underline flex items-center gap-1"
         >
           <MessageSquare className="h-3 w-3" />
@@ -133,6 +153,7 @@ export default function CodesOverviewPage() {
 
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
+  const [list, setList] = useState<AnalysisList | null>(null);
   const [codes, setCodes] = useState<AnalysisCode[]>([]);
   const [groups, setGroups] = useState<AnalysisCodeGroup[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -160,6 +181,7 @@ export default function CodesOverviewPage() {
       ]);
       setCodes(codesData);
       setGroups(groupsData);
+      setList(listData);
       setCrumbs([
         { label: listData.name, href: `/admin/analysis/lists/${listId}` },
         { label: "Codes & Quotations" },
@@ -215,6 +237,25 @@ export default function CodesOverviewPage() {
   return (
     <AnalysisShell fullBleed>
       <div className="flex flex-col h-full overflow-hidden">
+        {/* List header — same as list page */}
+        {list && (
+          <div className="px-6 pt-8 pb-0">
+            <h1 className="text-3xl font-black text-[var(--card-fill)] uppercase tracking-[0.06em]">{list.name}</h1>
+            {list.description && <p className="text-sm text-[var(--card-fill)]/70 mt-1">{list.description}</p>}
+            <p className="text-xs text-[var(--card-fill)]/50 mt-1">Created by {list.created_by}</p>
+            <div className="flex gap-3 mt-3">
+              <span className="flex items-center gap-1.5 rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1 text-xs font-medium">
+                <BookOpen className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
+                {list.item_count ?? 0} LLM thing{(list.item_count ?? 0) !== 1 ? "s" : ""}
+              </span>
+              <span className="flex items-center gap-1.5 rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1 text-xs font-medium">
+                <Tag className="h-3.5 w-3.5 text-[var(--ink-muted)]" />
+                {codes.length} codes
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Tab strip */}
         <div className="px-6 pt-6">
           <ListTabStrip listId={listId} />
