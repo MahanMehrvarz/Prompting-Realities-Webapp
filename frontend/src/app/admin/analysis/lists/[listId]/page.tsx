@@ -18,6 +18,7 @@ import { supabase } from "@/lib/supabase";
 import { analysisApi, type AnalysisList, type AnalysisListItem, type ThreadSummary } from "@/lib/backendApi";
 import AnalysisShell from "../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../AnalysisBreadcrumbContext";
+import ListTabStrip from "@/components/analysis/ListTabStrip";
 
 const TOKEN_KEY = "pr-auth-token";
 
@@ -274,6 +275,9 @@ export default function ListPage() {
           </div>
         )}
       </div>
+
+      {/* Tab strip */}
+      <ListTabStrip listId={listId} />
 
       {/* Cards */}
       <div className="flex items-center justify-between mb-5">

@@ -693,6 +693,22 @@ def get_code_highlights(list_id: str, code_id: str, admin: str = Depends(require
         for m in (msg_res.data or []):
             msg_map[m["id"]] = m
 
+    # Fetch all codes for each highlight
+    all_hl_ids = [h["id"] for h in highlights]
+    codes_by_highlight: dict[str, list] = {}
+    if all_hl_ids:
+        all_hc = sb.table("analysis_highlight_codes").select(
+            "highlight_id, code_id, analysis_codes(id, name, color)"
+        ).in_("highlight_id", all_hl_ids).execute()
+        for hc in (all_hc.data or []):
+            hid = hc["highlight_id"]
+            code_data = hc.get("analysis_codes") or {}
+            codes_by_highlight.setdefault(hid, []).append({
+                "id": code_data.get("id"),
+                "name": code_data.get("name"),
+                "color": code_data.get("color"),
+            })
+
     result = []
     for h in highlights:
         result.append({
@@ -713,8 +729,96 @@ def get_code_highlights(list_id: str, code_id: str, admin: str = Depends(require
                 }
                 for mid in (h.get("message_ids") or [])
             ],
+            "codes": codes_by_highlight.get(h["id"], []),
         })
     return result
+
+
+@router.get("/lists/{list_id}/highlights")
+def get_list_highlights(
+    list_id: str,
+    code_ids: str | None = Query(None),
+    admin: str = Depends(require_admin),
+):
+    """Return highlights for a list filtered by code_ids (OR logic). Each highlight includes all its codes."""
+    if not code_ids:
+        return []
+
+    sb = get_supabase()
+    code_id_list = [c.strip() for c in code_ids.split(",") if c.strip()]
+    if not code_id_list:
+        return []
+
+    # Find highlight_ids matching any of the code_ids (OR logic)
+    hc_res = sb.table("analysis_highlight_codes").select("highlight_id").in_("code_id", code_id_list).execute()
+    highlight_ids = list({row["highlight_id"] for row in (hc_res.data or [])})  # deduplicate
+    if not highlight_ids:
+        return []
+
+    # Fetch those highlights scoped to this list
+    hl_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).in_("id", highlight_ids).order("created_at", desc=True).execute()
+    if not hl_res.data:
+        return []
+
+    # For each highlight, fetch ALL its codes (not just the matched ones)
+    all_hl_ids = [h["id"] for h in hl_res.data]
+    all_hc = sb.table("analysis_highlight_codes").select("highlight_id, code_id, assigned_by, assigned_at, analysis_codes(id, name, color)").in_("highlight_id", all_hl_ids).execute()
+
+    codes_by_highlight: dict[str, list] = {}
+    for hc in (all_hc.data or []):
+        hid = hc["highlight_id"]
+        code_data = hc.get("analysis_codes") or {}
+        codes_by_highlight.setdefault(hid, []).append({
+            "id": code_data.get("id"),
+            "name": code_data.get("name"),
+            "color": code_data.get("color"),
+        })
+
+    # Fetch assistant names
+    assistant_ids = list({h["assistant_id"] for h in hl_res.data if h.get("assistant_id")})
+    assistant_names: dict[str, str] = {}
+    if assistant_ids:
+        a_res = sb.table("assistants").select("id, name").in_("id", assistant_ids).execute()
+        for a in (a_res.data or []):
+            assistant_names[a["id"]] = a["name"]
+
+    # Hydrate message texts — batch fetch all relevant message IDs
+    all_message_ids: list[str] = []
+    for h in hl_res.data:
+        all_message_ids.extend(h.get("message_ids") or [])
+    all_message_ids = list(set(all_message_ids))
+
+    msg_map: dict[str, dict] = {}
+    if all_message_ids:
+        msgs = sb.table("chat_messages").select("id, user_text, response_text").in_("id", all_message_ids).execute()
+        for m in (msgs.data or []):
+            msg_map[m["id"]] = m
+
+    results = []
+    for h in hl_res.data:
+        message_texts = []
+        for mid in (h.get("message_ids") or []):
+            m = msg_map.get(mid, {})
+            message_texts.append({
+                "message_id": mid,
+                "user_text": m.get("user_text"),
+                "response_text": m.get("response_text"),
+            })
+        results.append({
+            "highlight_id": h["id"],
+            "thread_id": h["thread_id"],
+            "session_id": h["session_id"],
+            "assistant_id": h["assistant_id"],
+            "assistant_name": assistant_names.get(h["assistant_id"], "LLM Thing"),
+            "selected_text": h["selected_text"],
+            "source_field": h["source_field"],
+            "created_by": h["created_by"],
+            "created_at": h["created_at"],
+            "message_texts": message_texts,
+            "codes": codes_by_highlight.get(h["id"], []),
+        })
+
+    return results
 
 
 # ---------------------------------------------------------------------------

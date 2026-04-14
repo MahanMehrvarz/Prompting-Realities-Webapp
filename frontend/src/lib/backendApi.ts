@@ -453,6 +453,7 @@ export type CodeHighlight = {
     user_text: string | null;
     response_text: string | null;
   }[];
+  codes: { id: string; name: string; color: string }[];
 };
 
 export type AssistantBrowseItem = {
@@ -612,6 +613,13 @@ export const analysisApi = {
 
   getCodeHighlights: (listId: string, codeId: string, token: string) =>
     apiFetch<CodeHighlight[]>(`/analysis/lists/${listId}/codes/${codeId}/highlights`, token, { method: "GET" }),
+
+  getListHighlights: (listId: string, codeIds: string[], token: string) =>
+    apiFetch<CodeHighlight[]>(
+      `/analysis/lists/${listId}/highlights${codeIds.length ? `?code_ids=${codeIds.join(",")}` : ""}`,
+      token,
+      { method: "GET" }
+    ),
 
   // Export (returns a download URL — call via window.location or fetch+blob)
   getExportUrl: (listId: string, format: "json" | "csv") =>
