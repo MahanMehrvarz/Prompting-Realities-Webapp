@@ -31,7 +31,7 @@ export default function AssistantThreadsPage() {
 
   // Filters
   const [showOnlyCoded, setShowOnlyCoded] = useState(false);
-  const [sortField, setSortField] = useState<"first_message_at" | "last_message_at">("last_message_at");
+  const [sortField, setSortField] = useState<"first_message_at" | "last_message_at" | "message_count">("last_message_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
@@ -77,16 +77,13 @@ export default function AssistantThreadsPage() {
   // Derive visible threads
   let visible = [...threads];
   if (showOnlyCoded) visible = visible.filter((t) => t.has_codes);
-  if (filterFrom) visible = visible.filter((t) => {
-    const val = t[sortField];
-    return val ? val >= filterFrom : false;
-  });
-  if (filterTo) visible = visible.filter((t) => {
-    const val = t[sortField];
-    const toEnd = filterTo + "T23:59:59";
-    return val ? val <= toEnd : false;
-  });
+  // Date filters always apply to last_message_at
+  if (filterFrom) visible = visible.filter((t) => { const v = t.last_message_at; return v ? v >= filterFrom : false; });
+  if (filterTo) visible = visible.filter((t) => { const v = t.last_message_at; return v ? v <= filterTo + "T23:59:59" : false; });
   visible.sort((a, b) => {
+    if (sortField === "message_count") {
+      return sortDir === "asc" ? a.message_count - b.message_count : b.message_count - a.message_count;
+    }
     const av = a[sortField] ?? "";
     const bv = b[sortField] ?? "";
     return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -145,10 +142,14 @@ export default function AssistantThreadsPage() {
             <div>
               <label className="block text-xs font-semibold text-[var(--ink-dark)] mb-1.5">Sort by</label>
               <div className="flex gap-2">
-                {(["first_message_at", "last_message_at"] as const).map((f) => (
+                {([
+                  ["first_message_at", "Date started"],
+                  ["last_message_at", "Last activity"],
+                  ["message_count", "Message count"],
+                ] as const).map(([f, label]) => (
                   <button key={f} onClick={() => setSortField(f)}
                     className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1 text-xs font-medium transition ${sortField === f ? "bg-[var(--ink-dark)] text-white" : "bg-white hover:bg-[var(--card-fill)]"}`}>
-                    {f === "first_message_at" ? "Date started" : "Last activity"}
+                    {label}
                   </button>
                 ))}
               </div>
@@ -161,7 +162,9 @@ export default function AssistantThreadsPage() {
                 {(["desc", "asc"] as const).map((d) => (
                   <button key={d} onClick={() => setSortDir(d)}
                     className={`rounded-full border-2 border-[var(--card-shell)] px-3 py-1 text-xs font-medium transition ${sortDir === d ? "bg-[var(--ink-dark)] text-white" : "bg-white hover:bg-[var(--card-fill)]"}`}>
-                    {d === "desc" ? "Newest first" : "Oldest first"}
+                    {sortField === "message_count"
+                      ? d === "desc" ? "High to low" : "Low to high"
+                      : d === "desc" ? "Newest first" : "Oldest first"}
                   </button>
                 ))}
               </div>
