@@ -267,7 +267,8 @@ def browse_assistants(
     all_ids = [r["id"] for r in all_rows]
 
     # 2. Batch fetch message stats for all matched assistants in one query
-    msgs_res = sb.table("chat_messages").select("assistant_id, thread_id, created_at").in_("assistant_id", all_ids).execute()
+    # Use limit(10000) to avoid the default 1000-row Supabase cap
+    msgs_res = sb.table("chat_messages").select("assistant_id, thread_id, created_at").in_("assistant_id", all_ids).limit(10000).execute()
 
     thread_sets: dict[str, set] = {}
     msg_count_map: dict[str, int] = {}
