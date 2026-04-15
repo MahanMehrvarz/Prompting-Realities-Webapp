@@ -16,7 +16,7 @@ export default function AnalysisShell({
   const { crumbs } = useAnalysisBreadcrumb();
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col">
+    <div className={`${fullBleed ? "h-screen" : "min-h-screen"} bg-[var(--background)] text-[var(--foreground)] flex flex-col`}>
       {/* Persistent header */}
       <header className="sticky top-0 z-30 border-b-4 border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[0_4px_0_var(--card-shell)]">
         <div className="w-full max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
