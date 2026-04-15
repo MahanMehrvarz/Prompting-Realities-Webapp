@@ -321,7 +321,11 @@ def browse_assistants(
         row["thread_count"] = thread_count_map.get(aid, 0)
         row["message_count"] = msg_count_map.get(aid, 0)
         row["last_used"] = last_used_map.get(aid)
-        row["instruction_version_count"] = instruction_count_map.get(aid, 0)
+        # If no saved history, count as 1 if the assistant has a prompt (the "current" fallback)
+        hist_count = instruction_count_map.get(aid, 0)
+        if hist_count == 0 and row.get("prompt_instruction"):
+            hist_count = 1
+        row["instruction_version_count"] = hist_count
         items.append(row)
 
     # 5. Apply date filter — always on created_at, independent of sort field
@@ -437,10 +441,23 @@ def get_threads_standalone(assistant_id: str, admin: str = Depends(require_admin
 
 @router.get("/assistant/{assistant_id}/instruction-history")
 def get_instruction_history(assistant_id: str, admin: str = Depends(require_admin)):
-    """Return all saved instruction versions for an assistant, newest first."""
+    """Return all saved instruction versions for an assistant, newest first.
+    If no history exists, falls back to the assistant's current prompt_instruction."""
     sb = get_supabase()
     res = sb.table("instruction_history").select("*").eq("assistant_id", assistant_id).order("saved_at", desc=True).execute()
-    return res.data or []
+    history = res.data or []
+    if not history:
+        a_res = sb.table("assistants").select("name, prompt_instruction, created_at").eq("id", assistant_id).maybeSingle().execute()
+        a = a_res.data
+        if a and a.get("prompt_instruction"):
+            history = [{
+                "id": f"current-{assistant_id}",
+                "assistant_id": assistant_id,
+                "assistant_name": a.get("name", ""),
+                "instruction_text": a["prompt_instruction"],
+                "saved_at": a.get("created_at", ""),
+            }]
+    return history
 
 
 # ---------------------------------------------------------------------------
