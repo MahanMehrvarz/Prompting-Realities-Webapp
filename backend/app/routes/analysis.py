@@ -877,7 +877,7 @@ def create_instruction_highlight(body: CreateInstructionHighlightBody, admin: st
     if body.char_end <= body.char_start:
         raise HTTPException(status_code=400, detail="char_end must be greater than char_start")
     sb = get_supabase()
-    res = sb.table("analysis_instruction_highlights").insert({
+    row = {
         "list_id": body.list_id,
         "assistant_id": body.assistant_id,
         "older_version_id": body.older_version_id,
@@ -886,28 +886,13 @@ def create_instruction_highlight(body: CreateInstructionHighlightBody, admin: st
         "char_start": body.char_start,
         "char_end": body.char_end,
         "created_by": admin,
-    }).execute()
+    }
+    if body.code_id:
+        row["code_id"] = body.code_id
+    res = sb.table("analysis_instruction_highlights").insert(row).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Insert failed")
-    highlight = res.data[0]
-    # Assign code in the same request if provided
-    if body.code_id:
-        try:
-            code_res = sb.table("analysis_highlight_codes").insert({
-                "highlight_id": highlight["id"],
-                "code_id": body.code_id,
-                "assigned_by": admin,
-            }).execute()
-            if not code_res.data:
-                # Rollback the highlight
-                sb.table("analysis_instruction_highlights").delete().eq("id", highlight["id"]).execute()
-                raise HTTPException(status_code=500, detail="Failed to assign code to instruction highlight")
-        except HTTPException:
-            raise
-        except Exception as e:
-            sb.table("analysis_instruction_highlights").delete().eq("id", highlight["id"]).execute()
-            raise HTTPException(status_code=500, detail=f"Failed to assign code: {str(e)}")
-    return highlight
+    return res.data[0]
 
 
 @router.delete("/instruction-highlights/{highlight_id}", status_code=204)
@@ -930,26 +915,21 @@ def get_instruction_highlights(
     if not highlights:
         return []
 
-    # Fetch codes for each highlight
-    hl_ids = [h["id"] for h in highlights]
-    hc_res = sb.table("analysis_highlight_codes").select(
-        "highlight_id, code_id, assigned_by, assigned_at, analysis_codes(id, name, color)"
-    ).in_("highlight_id", hl_ids).execute()
-
-    codes_by_hl: dict[str, list] = {}
-    for hc in (hc_res.data or []):
-        hid = hc["highlight_id"]
-        code_data = hc.get("analysis_codes") or {}
-        codes_by_hl.setdefault(hid, []).append({
-            "id": code_data.get("id"),
-            "name": code_data.get("name"),
-            "color": code_data.get("color"),
-            "assigned_by": hc.get("assigned_by"),
-            "assigned_at": hc.get("assigned_at"),
-        })
+    # Fetch code details for highlights that have a code_id
+    code_ids = list({h["code_id"] for h in highlights if h.get("code_id")})
+    code_map: dict[str, dict] = {}
+    if code_ids:
+        codes_res = sb.table("analysis_codes").select("id, name, color").in_("id", code_ids).execute()
+        for c in (codes_res.data or []):
+            code_map[c["id"]] = c
 
     for h in highlights:
-        h["codes"] = codes_by_hl.get(h["id"], [])
+        cid = h.get("code_id")
+        if cid and cid in code_map:
+            c = code_map[cid]
+            h["codes"] = [{"id": c["id"], "name": c["name"], "color": c["color"], "assigned_by": h["created_by"], "assigned_at": h["created_at"]}]
+        else:
+            h["codes"] = []
 
     return highlights
 
