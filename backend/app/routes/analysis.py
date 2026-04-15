@@ -306,6 +306,13 @@ def browse_assistants(
     for item in (all_items.data or []):
         membership_map.setdefault(item["assistant_id"], []).append(item["list_id"])
 
+    # 3b. Fetch instruction version counts (one query for all)
+    ih_res = sb.table("instruction_history").select("assistant_id").in_("assistant_id", all_ids).execute()
+    instruction_count_map: dict[str, int] = {}
+    for ih in (ih_res.data or []):
+        aid = ih["assistant_id"]
+        instruction_count_map[aid] = instruction_count_map.get(aid, 0) + 1
+
     # 4. Build enriched list
     items: list[dict] = []
     for row in all_rows:
@@ -314,6 +321,7 @@ def browse_assistants(
         row["thread_count"] = thread_count_map.get(aid, 0)
         row["message_count"] = msg_count_map.get(aid, 0)
         row["last_used"] = last_used_map.get(aid)
+        row["instruction_version_count"] = instruction_count_map.get(aid, 0)
         items.append(row)
 
     # 5. Apply date filter — always on created_at, independent of sort field
@@ -421,6 +429,18 @@ def get_threads_standalone(assistant_id: str, admin: str = Depends(require_admin
     result = list(threads.values())
     result.sort(key=lambda x: x["last_message_at"] or "", reverse=True)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Instruction history for an assistant
+# ---------------------------------------------------------------------------
+
+@router.get("/assistant/{assistant_id}/instruction-history")
+def get_instruction_history(assistant_id: str, admin: str = Depends(require_admin)):
+    """Return all saved instruction versions for an assistant, newest first."""
+    sb = get_supabase()
+    res = sb.table("instruction_history").select("*").eq("assistant_id", assistant_id).order("saved_at", desc=True).execute()
+    return res.data or []
 
 
 # ---------------------------------------------------------------------------

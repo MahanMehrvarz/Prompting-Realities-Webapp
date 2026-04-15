@@ -464,6 +464,15 @@ export type AssistantBrowseItem = {
   thread_count: number;
   message_count: number;
   last_used: string | null;
+  instruction_version_count: number;
+};
+
+export type InstructionVersion = {
+  id: string;
+  assistant_id: string;
+  assistant_name: string;
+  instruction_text: string;
+  saved_at: string;
 };
 
 export type ThreadConversation = {
@@ -542,6 +551,9 @@ export const analysisApi = {
 
   getThreadsStandalone: (assistantId: string, token: string) =>
     apiFetch<ThreadSummary[]>(`/analysis/assistant/${assistantId}/threads`, token, { method: "GET" }),
+
+  getInstructionHistory: (assistantId: string, token: string) =>
+    apiFetch<InstructionVersion[]>(`/analysis/assistant/${assistantId}/instruction-history`, token, { method: "GET" }),
 
   // Conversation
   getThreadConversation: (listId: string, threadId: string, token: string) =>

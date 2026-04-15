@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Tag,
   CalendarDays,
+  FileText,
   MessageSquare,
   Clock,
   SlidersHorizontal,
@@ -214,9 +215,17 @@ function AssistantCard({ assistant, lists, onAddToList }: { assistant: Assistant
       {/* Dark header */}
       <div className="rounded-[12px] bg-[var(--ink-dark)] px-4 py-3 text-[var(--card-fill)]">
         <h3 className="font-bold truncate text-base">{assistant.name}</h3>
-        <div className="flex items-center gap-1 mt-1.5 text-[var(--card-fill)]/50">
-          <CalendarDays className="h-3 w-3 flex-shrink-0" />
-          <span className="text-xs">Created {fmtDate(assistant.created_at)}</span>
+        <div className="flex items-center justify-between mt-1.5">
+          <div className="flex items-center gap-1 text-[var(--card-fill)]/50">
+            <CalendarDays className="h-3 w-3 flex-shrink-0" />
+            <span className="text-xs">Created {fmtDate(assistant.created_at)}</span>
+          </div>
+          {(assistant.instruction_version_count ?? 0) > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--card-fill)]">
+              <FileText className="h-2.5 w-2.5" />
+              {assistant.instruction_version_count} version{assistant.instruction_version_count !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
       </div>
 
