@@ -63,7 +63,7 @@ export default function AnalysisShell({
 
       {/* Body */}
       {fullBleed ? (
-        <div className="flex-1 flex flex-col overflow-hidden w-full max-w-screen-2xl mx-auto">
+        <div className="flex-1 flex flex-col overflow-hidden w-full">
           {children}
         </div>
       ) : (

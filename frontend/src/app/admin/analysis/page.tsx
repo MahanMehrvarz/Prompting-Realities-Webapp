@@ -165,46 +165,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-// List-picker popover shown when assistant is in multiple lists
-function ListPickerPopover({
-  assistant, lists, onClose,
-}: {
-  assistant: AssistantBrowseItem; lists: AnalysisList[]; onClose: () => void;
-}) {
-  const memberLists = lists.filter((l) => assistant.list_memberships.includes(l.id));
-  return (
-    <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute left-0 top-full mt-2 z-50 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[5px_5px_0_var(--card-shell)] overflow-hidden min-w-[220px]">
-        <p className="px-4 pt-3 pb-1 text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">Select a list to open</p>
-        {memberLists.map((l) => (
-          <Link
-            key={l.id}
-            href={`/admin/analysis/lists/${l.id}/assistant/${assistant.id}`}
-            className="flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--ink-dark)] hover:bg-white transition border-t border-[var(--card-shell)]/30 first:border-t-0"
-          >
-            <span className="truncate">{l.name}</span>
-            <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 ml-2 text-[var(--ink-muted)]" />
-          </Link>
-        ))}
-      </div>
-    </>
-  );
-}
-
 function AssistantCard({ assistant, lists, onAddToList }: { assistant: AssistantBrowseItem; lists: AnalysisList[]; onAddToList: (a: AssistantBrowseItem) => void }) {
   const router = useRouter();
-  const [showPicker, setShowPicker] = useState(false);
   const memberCount = assistant.list_memberships.length;
 
   const handleCardClick = () => {
-    if (memberCount === 0) {
-      router.push(`/admin/analysis/assistant/${assistant.id}`);
-    } else if (memberCount === 1) {
-      router.push(`/admin/analysis/lists/${assistant.list_memberships[0]}/assistant/${assistant.id}`);
-    } else {
-      setShowPicker((v) => !v);
-    }
+    router.push(`/admin/analysis/assistant/${assistant.id}`);
   };
 
   return (
@@ -275,14 +241,6 @@ function AssistantCard({ assistant, lists, onAddToList }: { assistant: Assistant
         </button>
       </div>
 
-      {/* Multi-list picker */}
-      {showPicker && (
-        <ListPickerPopover
-          assistant={assistant}
-          lists={lists}
-          onClose={() => setShowPicker(false)}
-        />
-      )}
     </div>
   );
 }
