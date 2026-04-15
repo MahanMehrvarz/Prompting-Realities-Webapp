@@ -658,6 +658,7 @@ export const analysisApi = {
     list_id: string; assistant_id: string;
     older_version_id: string; newer_version_id: string;
     selected_text: string; char_start: number; char_end: number;
+    code_id?: string;
   }, token: string) =>
     apiFetch<InstructionHighlight>("/analysis/instruction-highlights", token, {
       method: "POST",

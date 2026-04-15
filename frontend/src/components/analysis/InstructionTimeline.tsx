@@ -6,8 +6,7 @@ import { analysisApi, type InstructionVersion, type InstructionHighlight, type A
 import { computeWordDiff, diffStats, type DiffSegment } from "@/lib/textDiff";
 
 const PRESET_COLORS = ["#fde68a", "#a7f3d0", "#bfdbfe", "#fecaca", "#ddd6fe", "#fed7aa", "#e9d5ff", "#99f6e4"];
-let colorIdx = 0;
-function nextColor() { const c = PRESET_COLORS[colorIdx % PRESET_COLORS.length]; colorIdx++; return c; }
+function randomColor() { return PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)]; }
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -30,12 +29,14 @@ function wordCount(text: string) {
 function CodeTooltip({
   codes,
   position,
+  saving = false,
   onCodeSelect,
   onCodeCreate,
   onDismiss,
 }: {
   codes: AnalysisCode[];
   position: { x: number; y: number };
+  saving?: boolean;
   onCodeSelect: (codeId: string) => void;
   onCodeCreate: (name: string, color: string) => Promise<string>;
   onDismiss: () => void;
@@ -49,17 +50,17 @@ function CodeTooltip({
 
   const handleCreate = async () => {
     if (!query.trim()) return;
-    const color = nextColor();
+    const color = randomColor();
     const id = await onCodeCreate(query.trim(), color);
     onCodeSelect(id);
   };
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onMouseDown={onDismiss} />
+      <div className="fixed inset-0 z-40" onMouseDown={saving ? undefined : onDismiss} />
       <div
         className="fixed z-50 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[8px_8px_0_var(--shadow-deep)] overflow-hidden"
-        style={{ left: position.x, top: position.y, width: 280, maxHeight: 320 }}
+        style={{ left: position.x, top: position.y, width: 280, maxHeight: 320, opacity: saving ? 0.6 : 1, pointerEvents: saving ? "none" : "auto" }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-3 py-2.5 border-b-2 border-[var(--card-shell)]">
@@ -185,7 +186,7 @@ function DiffView({
     if (!pendingSelection || !listId || !token || saving) return;
     setSaving(true);
     try {
-      const hl = await analysisApi.createInstructionHighlight({
+      await analysisApi.createInstructionHighlight({
         list_id: listId,
         assistant_id: assistantId,
         older_version_id: older.id,
@@ -193,8 +194,8 @@ function DiffView({
         selected_text: pendingSelection.text.slice(0, 200),
         char_start: pendingSelection.start,
         char_end: pendingSelection.end,
+        code_id: codeId,
       }, token);
-      await analysisApi.assignCode(hl.id, codeId, token);
       window.getSelection()?.removeAllRanges();
       setTooltipPos(null);
       setPendingSelection(null);
@@ -207,9 +208,9 @@ function DiffView({
   };
 
   const dismissTooltip = () => {
+    window.getSelection()?.removeAllRanges();
     setTooltipPos(null);
     setPendingSelection(null);
-    window.getSelection()?.removeAllRanges();
   };
 
   // Build highlighted text with inline code chips
@@ -388,6 +389,7 @@ function DiffView({
         <CodeTooltip
           codes={codes}
           position={tooltipPos}
+          saving={saving}
           onCodeSelect={handleCodeSelect}
           onCodeCreate={onCodeCreate}
           onDismiss={dismissTooltip}
@@ -406,6 +408,235 @@ function DiffSpan({ segment }: { segment: DiffSegment }) {
   }
   return (
     <span className="bg-[#fee2e2] text-[#991b1b] line-through rounded-sm px-0.5">{segment.text}</span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Single-version reader with text selection + coding
+// ---------------------------------------------------------------------------
+function ReaderView({
+  version,
+  instructions,
+  highlights,
+  codes,
+  listId,
+  token,
+  assistantId,
+  onHighlightCreated,
+  onCodeCreate,
+  onDeleteHighlight,
+}: {
+  version: InstructionVersion;
+  instructions: InstructionVersion[];
+  highlights: InstructionHighlight[];
+  codes: AnalysisCode[];
+  listId: string | null;
+  token: string | null;
+  assistantId: string;
+  onHighlightCreated: () => void;
+  onCodeCreate: (name: string, color: string) => Promise<string>;
+  onDeleteHighlight: (id: string) => void;
+}) {
+  const readerRef = useRef<HTMLPreElement>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const [pendingSelection, setPendingSelection] = useState<{ text: string; start: number; end: number } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // For single-version highlights, we use the version as both older and newer
+  const versionHighlights = highlights.filter(
+    (h) => h.older_version_id === version.id && h.newer_version_id === version.id
+  );
+
+  const handleMouseUp = useCallback(() => {
+    if (!listId || !token) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !readerRef.current) return;
+
+    const range = sel.getRangeAt(0);
+    if (!readerRef.current.contains(range.commonAncestorContainer)) return;
+
+    const text = sel.toString().trim();
+    if (!text) return;
+
+    const preRange = document.createRange();
+    preRange.setStart(readerRef.current, 0);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    const charStart = preRange.toString().length;
+    const charEnd = charStart + sel.toString().length;
+
+    const rect = range.getBoundingClientRect();
+    setTooltipPos({ x: Math.min(rect.left, window.innerWidth - 300), y: rect.bottom + 8 });
+    setPendingSelection({ text, start: charStart, end: charEnd });
+  }, [listId, token]);
+
+  useEffect(() => {
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => document.removeEventListener("mouseup", handleMouseUp);
+  }, [handleMouseUp]);
+
+  const handleCodeSelect = async (codeId: string) => {
+    if (!pendingSelection || !listId || !token || saving) return;
+    setSaving(true);
+    try {
+      await analysisApi.createInstructionHighlight({
+        list_id: listId,
+        assistant_id: assistantId,
+        older_version_id: version.id,
+        newer_version_id: version.id,
+        selected_text: pendingSelection.text.slice(0, 200),
+        char_start: pendingSelection.start,
+        char_end: pendingSelection.end,
+        code_id: codeId,
+      }, token);
+      window.getSelection()?.removeAllRanges();
+      setTooltipPos(null);
+      setPendingSelection(null);
+      onHighlightCreated();
+    } catch {
+      alert("Failed to save highlight.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dismissTooltip = () => {
+    window.getSelection()?.removeAllRanges();
+    setTooltipPos(null);
+    setPendingSelection(null);
+  };
+
+  const vIdx = instructions.findIndex((v) => v.id === version.id);
+
+  // Render text with highlights
+  const renderText = () => {
+    const text = version.instruction_text;
+    if (versionHighlights.length === 0) return text;
+
+    type HlMark = { highlight: InstructionHighlight; code: InstructionHighlight["codes"][0] };
+    const marks: (HlMark | null)[] = new Array(text.length).fill(null);
+    for (const hl of versionHighlights) {
+      for (let i = hl.char_start; i < hl.char_end && i < marks.length; i++) {
+        if (!marks[i] && hl.codes.length > 0) {
+          marks[i] = { highlight: hl, code: hl.codes[0] };
+        }
+      }
+    }
+
+    const parts: React.ReactNode[] = [];
+    let runStart = 0;
+    let currentMark: HlMark | null = marks[0];
+
+    for (let i = 1; i <= text.length; i++) {
+      const m = i < text.length ? marks[i] : null;
+      if (m?.highlight.id !== currentMark?.highlight.id || i === text.length) {
+        const chunk = text.slice(runStart, i);
+        if (currentMark) {
+          parts.push(
+            <span
+              key={runStart}
+              className="rounded-sm px-0.5"
+              style={{ backgroundColor: hexToRgba(currentMark.code.color, 0.35), borderBottom: `2px solid ${currentMark.code.color}` }}
+              title={currentMark.code.name}
+            >
+              {chunk}
+            </span>
+          );
+        } else {
+          parts.push(<span key={runStart}>{chunk}</span>);
+        }
+        runStart = i;
+        currentMark = m;
+      }
+    }
+    return parts;
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto px-6 py-6">
+      {/* Reader header */}
+      <div className="flex items-center gap-3 mb-5">
+        <span className="rounded-full bg-[var(--card-shell)] px-2.5 py-1 text-[10px] font-bold text-[var(--card-fill)]">
+          v{instructions.length - vIdx}
+        </span>
+        <span className="text-sm font-medium text-[var(--ink-dark)]">
+          {formatDateShort(version.saved_at)}
+        </span>
+        <span className="text-xs text-[var(--ink-muted)]">
+          {wordCount(version.instruction_text)} words
+        </span>
+        {vIdx === 0 && (
+          <span className="rounded-full bg-[var(--accent-green)] px-2.5 py-1 text-[10px] font-bold text-[var(--ink-dark)]">
+            current
+          </span>
+        )}
+        {listId && (
+          <span className="rounded-full bg-white border-2 border-[var(--card-shell)] px-2.5 py-1 text-xs text-[var(--ink-muted)]">
+            Select text to code
+          </span>
+        )}
+      </div>
+
+      {/* Instruction text */}
+      <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white p-6 shadow-[4px_4px_0_var(--card-shell)]">
+        <pre ref={readerRef} className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-[var(--ink-dark)]">
+          {renderText()}
+        </pre>
+      </div>
+
+      {/* Coded quotes for this version */}
+      {versionHighlights.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-xs font-black text-[var(--ink-dark)] uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Tag className="h-3.5 w-3.5" />
+            Coded quotes ({versionHighlights.length})
+          </h3>
+          <div className="space-y-2">
+            {versionHighlights.map((hl) => (
+              <div
+                key={hl.id}
+                className="rounded-[12px] border-2 border-[var(--card-shell)] bg-[var(--card-fill)] p-3 flex items-start gap-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {hl.codes.map((c) => (
+                      <span
+                        key={c.id}
+                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                        style={{ backgroundColor: hexToRgba(c.color, 0.35), color: "#1d1d1d" }}
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                        {c.name}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-[var(--ink-muted)] line-clamp-2 italic">
+                    &ldquo;{hl.selected_text}&rdquo;
+                  </p>
+                </div>
+                <button
+                  onClick={() => onDeleteHighlight(hl.id)}
+                  className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--accent-red)] hover:text-white hover:border-[var(--accent-red)] transition flex-shrink-0"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Code tooltip */}
+      {tooltipPos && pendingSelection && listId && (
+        <CodeTooltip
+          codes={codes}
+          position={tooltipPos}
+          saving={saving}
+          onCodeSelect={handleCodeSelect}
+          onCodeCreate={onCodeCreate}
+          onDismiss={dismissTooltip}
+        />
+      )}
+    </div>
   );
 }
 
@@ -715,32 +946,18 @@ export default function InstructionTimeline({
           onDeleteHighlight={handleDeleteHighlight}
         />
       ) : selected ? (
-        <div className="flex-1 overflow-y-auto px-6 py-6">
-          {/* Reader header */}
-          <div className="flex items-center gap-3 mb-5">
-            <span className="rounded-full bg-[var(--card-shell)] px-2.5 py-1 text-[10px] font-bold text-[var(--card-fill)]">
-              v{instructions.length - instructions.findIndex((v) => v.id === selected.id)}
-            </span>
-            <span className="text-sm font-medium text-[var(--ink-dark)]">
-              {formatDateShort(selected.saved_at)}
-            </span>
-            <span className="text-xs text-[var(--ink-muted)]">
-              {wordCount(selected.instruction_text)} words
-            </span>
-            {instructions.findIndex((v) => v.id === selected.id) === 0 && (
-              <span className="rounded-full bg-[var(--accent-green)] px-2.5 py-1 text-[10px] font-bold text-[var(--ink-dark)]">
-                current
-              </span>
-            )}
-          </div>
-
-          {/* Instruction text */}
-          <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white p-6 shadow-[4px_4px_0_var(--card-shell)]">
-            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans text-[var(--ink-dark)]">
-              {selected.instruction_text}
-            </pre>
-          </div>
-        </div>
+        <ReaderView
+          version={selected}
+          instructions={instructions}
+          highlights={highlights}
+          codes={codes}
+          listId={listId}
+          token={token}
+          assistantId={assistantId}
+          onHighlightCreated={fetchHighlights}
+          onCodeCreate={handleCodeCreate}
+          onDeleteHighlight={handleDeleteHighlight}
+        />
       ) : (
         <div className="flex-1 flex items-center justify-center text-center px-6">
           <p className="text-sm text-[var(--ink-muted)]">Select a version to read it.</p>

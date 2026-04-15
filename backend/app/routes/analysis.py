@@ -86,6 +86,7 @@ class CreateInstructionHighlightBody(BaseModel):
     selected_text: str
     char_start: int
     char_end: int
+    code_id: str | None = None
 
 class AssignCodeBody(BaseModel):
     code_id: str
@@ -888,7 +889,25 @@ def create_instruction_highlight(body: CreateInstructionHighlightBody, admin: st
     }).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Insert failed")
-    return res.data[0]
+    highlight = res.data[0]
+    # Assign code in the same request if provided
+    if body.code_id:
+        try:
+            code_res = sb.table("analysis_highlight_codes").insert({
+                "highlight_id": highlight["id"],
+                "code_id": body.code_id,
+                "assigned_by": admin,
+            }).execute()
+            if not code_res.data:
+                # Rollback the highlight
+                sb.table("analysis_instruction_highlights").delete().eq("id", highlight["id"]).execute()
+                raise HTTPException(status_code=500, detail="Failed to assign code to instruction highlight")
+        except HTTPException:
+            raise
+        except Exception as e:
+            sb.table("analysis_instruction_highlights").delete().eq("id", highlight["id"]).execute()
+            raise HTTPException(status_code=500, detail=f"Failed to assign code: {str(e)}")
+    return highlight
 
 
 @router.delete("/instruction-highlights/{highlight_id}", status_code=204)
