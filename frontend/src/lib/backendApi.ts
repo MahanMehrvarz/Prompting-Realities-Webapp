@@ -475,6 +475,26 @@ export type InstructionVersion = {
   saved_at: string;
 };
 
+export type InstructionHighlight = {
+  id: string;
+  list_id: string;
+  assistant_id: string;
+  older_version_id: string;
+  newer_version_id: string;
+  selected_text: string;
+  char_start: number;
+  char_end: number;
+  created_by: string;
+  created_at: string;
+  codes: {
+    id: string;
+    name: string;
+    color: string;
+    assigned_by: string;
+    assigned_at: string;
+  }[];
+};
+
 export type ThreadConversation = {
   thread_id: string;
   assistant_id: string;
@@ -629,6 +649,27 @@ export const analysisApi = {
   getListHighlights: (listId: string, codeIds: string[], token: string) =>
     apiFetch<CodeHighlight[]>(
       `/analysis/lists/${listId}/highlights${codeIds.length ? `?code_ids=${codeIds.join(",")}` : ""}`,
+      token,
+      { method: "GET" }
+    ),
+
+  // Instruction highlights
+  createInstructionHighlight: (body: {
+    list_id: string; assistant_id: string;
+    older_version_id: string; newer_version_id: string;
+    selected_text: string; char_start: number; char_end: number;
+  }, token: string) =>
+    apiFetch<InstructionHighlight>("/analysis/instruction-highlights", token, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  deleteInstructionHighlight: (highlightId: string, token: string) =>
+    apiFetch<void>(`/analysis/instruction-highlights/${highlightId}`, token, { method: "DELETE" }),
+
+  getInstructionHighlights: (assistantId: string, listId: string, token: string) =>
+    apiFetch<InstructionHighlight[]>(
+      `/analysis/assistant/${assistantId}/instruction-highlights?list_id=${listId}`,
       token,
       { method: "GET" }
     ),

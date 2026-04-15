@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { Clock, FileText, MessageSquare, SlidersHorizontal, Tag, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { analysisApi, type ThreadSummary, type InstructionVersion } from "@/lib/backendApi";
+import { analysisApi, type ThreadSummary, type InstructionVersion, type AnalysisCode, type AnalysisList } from "@/lib/backendApi";
 import AnalysisShell from "../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../AnalysisBreadcrumbContext";
 import InstructionTimeline from "@/components/analysis/InstructionTimeline";
@@ -29,6 +29,9 @@ export default function AssistantThreadsStandalonePage() {
   const [assistantName, setAssistantName] = useState<string>("");
   const [instructions, setInstructions] = useState<InstructionVersion[]>([]);
   const [activeTab, setActiveTab] = useState<"sessions" | "instructions">("sessions");
+  const [lists, setLists] = useState<AnalysisList[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [codes, setCodes] = useState<AnalysisCode[]>([]);
 
   // Filters
   const [sortField, setSortField] = useState<"first_message_at" | "last_message_at" | "message_count">("last_message_at");
@@ -51,16 +54,22 @@ export default function AssistantThreadsStandalonePage() {
 
   const fetchData = useCallback(async (tok: string) => {
     try {
-      const [threadsData, { data: aData }, instructionsData] = await Promise.all([
+      const [threadsData, { data: aData }, instructionsData, listsData] = await Promise.all([
         analysisApi.getThreadsStandalone(assistantId, tok),
         supabase.from("assistants").select("name").eq("id", assistantId).maybeSingle(),
         analysisApi.getInstructionHistory(assistantId, tok),
+        analysisApi.getLists(tok),
       ]);
       setThreads(threadsData);
       const name = aData?.name || "LLM Thing";
       setAssistantName(name);
       setCrumbs([{ label: name }]);
       setInstructions(instructionsData);
+      setLists(listsData);
+      // Auto-select first list if available
+      if (listsData.length > 0 && !selectedListId) {
+        setSelectedListId(listsData[0].id);
+      }
     } catch {
       router.push("/admin/analysis");
     }
@@ -69,6 +78,12 @@ export default function AssistantThreadsStandalonePage() {
   useEffect(() => {
     if (ready && token) fetchData(token);
   }, [ready, token, fetchData]);
+
+  // Fetch codes when list selection changes
+  useEffect(() => {
+    if (!selectedListId || !token) { setCodes([]); return; }
+    analysisApi.getCodes(selectedListId, token).then(setCodes).catch(() => setCodes([]));
+  }, [selectedListId, token]);
 
   // Client-side filter + sort
   let visible = [...threads];
@@ -261,7 +276,31 @@ export default function AssistantThreadsStandalonePage() {
             )}
           </div>
         ) : (
-          <InstructionTimeline instructions={instructions} />
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* List picker for codebook context */}
+            {lists.length > 0 && (
+              <div className="px-6 pt-3 pb-0 flex items-center gap-2">
+                <span className="text-xs text-[var(--ink-muted)]">Codebook:</span>
+                <select
+                  value={selectedListId || ""}
+                  onChange={(e) => setSelectedListId(e.target.value || null)}
+                  className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]"
+                >
+                  {lists.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <InstructionTimeline
+              instructions={instructions}
+              listId={selectedListId}
+              token={token}
+              assistantId={assistantId}
+              codes={codes}
+              onCodesChange={setCodes}
+            />
+          </div>
         )}
 
       </div>

@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { Clock, FileText, MessageSquare, SlidersHorizontal, Tag, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { analysisApi, type ThreadSummary, type InstructionVersion } from "@/lib/backendApi";
+import { analysisApi, type ThreadSummary, type InstructionVersion, type AnalysisCode } from "@/lib/backendApi";
 import AnalysisShell from "../../../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../../../AnalysisBreadcrumbContext";
 import InstructionTimeline from "@/components/analysis/InstructionTimeline";
@@ -29,6 +29,7 @@ export default function AssistantThreadsPage() {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [assistantName, setAssistantName] = useState<string>("");
   const [instructions, setInstructions] = useState<InstructionVersion[]>([]);
+  const [codes, setCodes] = useState<AnalysisCode[]>([]);
   const [activeTab, setActiveTab] = useState<"sessions" | "instructions">("sessions");
 
   // Filters
@@ -53,17 +54,19 @@ export default function AssistantThreadsPage() {
 
   const fetchData = useCallback(async (tok: string) => {
     try {
-      const [threadsData, items, listData, instructionsData] = await Promise.all([
+      const [threadsData, items, listData, instructionsData, codesData] = await Promise.all([
         analysisApi.getThreads(listId, assistantId, tok),
         analysisApi.getListItems(listId, tok),
         analysisApi.getList(listId, tok),
         analysisApi.getInstructionHistory(assistantId, tok),
+        analysisApi.getCodes(listId, tok),
       ]);
       setThreads(threadsData);
       const found = items.find((i) => i.assistant_id === assistantId);
       const aName = found?.assistant_name || "LLM Thing";
       setAssistantName(aName);
       setInstructions(instructionsData);
+      setCodes(codesData);
       setCrumbs([
         { label: listData.name, href: `/admin/analysis/lists/${listId}` },
         { label: aName },
@@ -289,7 +292,14 @@ export default function AssistantThreadsPage() {
             )}
           </div>
         ) : (
-          <InstructionTimeline instructions={instructions} />
+          <InstructionTimeline
+            instructions={instructions}
+            listId={listId}
+            token={token}
+            assistantId={assistantId}
+            codes={codes}
+            onCodesChange={setCodes}
+          />
         )}
 
       </div>

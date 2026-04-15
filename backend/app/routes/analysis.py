@@ -78,6 +78,15 @@ class CreateHighlightBody(BaseModel):
     char_end: int
     source_field: str  # 'user_text' | 'response_text' | 'both'
 
+class CreateInstructionHighlightBody(BaseModel):
+    list_id: str
+    assistant_id: str
+    older_version_id: str
+    newer_version_id: str
+    selected_text: str
+    char_start: int
+    char_end: int
+
 class AssignCodeBody(BaseModel):
     code_id: str
 
@@ -856,6 +865,74 @@ def get_list_highlights(
         })
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Instruction highlights (coding diffs between instruction versions)
+# ---------------------------------------------------------------------------
+
+@router.post("/instruction-highlights", status_code=201)
+def create_instruction_highlight(body: CreateInstructionHighlightBody, admin: str = Depends(require_admin)):
+    if body.char_end <= body.char_start:
+        raise HTTPException(status_code=400, detail="char_end must be greater than char_start")
+    sb = get_supabase()
+    res = sb.table("analysis_instruction_highlights").insert({
+        "list_id": body.list_id,
+        "assistant_id": body.assistant_id,
+        "older_version_id": body.older_version_id,
+        "newer_version_id": body.newer_version_id,
+        "selected_text": body.selected_text,
+        "char_start": body.char_start,
+        "char_end": body.char_end,
+        "created_by": admin,
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert failed")
+    return res.data[0]
+
+
+@router.delete("/instruction-highlights/{highlight_id}", status_code=204)
+def delete_instruction_highlight(highlight_id: str, admin: str = Depends(require_admin)):
+    sb = get_supabase()
+    sb.table("analysis_instruction_highlights").delete().eq("id", highlight_id).execute()
+    return None
+
+
+@router.get("/assistant/{assistant_id}/instruction-highlights")
+def get_instruction_highlights(
+    assistant_id: str,
+    list_id: str = Query(...),
+    admin: str = Depends(require_admin),
+):
+    """Return all instruction highlights for an assistant within a list, with codes."""
+    sb = get_supabase()
+    res = sb.table("analysis_instruction_highlights").select("*").eq("assistant_id", assistant_id).eq("list_id", list_id).order("created_at", desc=True).execute()
+    highlights = res.data or []
+    if not highlights:
+        return []
+
+    # Fetch codes for each highlight
+    hl_ids = [h["id"] for h in highlights]
+    hc_res = sb.table("analysis_highlight_codes").select(
+        "highlight_id, code_id, assigned_by, assigned_at, analysis_codes(id, name, color)"
+    ).in_("highlight_id", hl_ids).execute()
+
+    codes_by_hl: dict[str, list] = {}
+    for hc in (hc_res.data or []):
+        hid = hc["highlight_id"]
+        code_data = hc.get("analysis_codes") or {}
+        codes_by_hl.setdefault(hid, []).append({
+            "id": code_data.get("id"),
+            "name": code_data.get("name"),
+            "color": code_data.get("color"),
+            "assigned_by": hc.get("assigned_by"),
+            "assigned_at": hc.get("assigned_at"),
+        })
+
+    for h in highlights:
+        h["codes"] = codes_by_hl.get(h["id"], [])
+
+    return highlights
 
 
 # ---------------------------------------------------------------------------
