@@ -715,12 +715,13 @@ def get_code_highlights(list_id: str, code_id: str, admin: str = Depends(require
     # Get all highlight-code assignments for this code
     assignments = sb.table("analysis_highlight_codes").select("highlight_id").eq("code_id", code_id).execute()
     highlight_ids = [row["highlight_id"] for row in (assignments.data or [])]
-    if not highlight_ids:
-        return []
 
-    # Fetch highlights filtered by list_id
-    hl_res = sb.table("analysis_highlights").select("*").in_("id", highlight_ids).eq("list_id", list_id).order("created_at", desc=True).execute()
-    highlights = hl_res.data or []
+    # Fetch message highlights filtered by list_id (may be empty if code only has instruction highlights)
+    if highlight_ids:
+        hl_res = sb.table("analysis_highlights").select("*").in_("id", highlight_ids).eq("list_id", list_id).order("created_at", desc=True).execute()
+        highlights = hl_res.data or []
+    else:
+        highlights = []
 
     # Fetch assistant names for context
     assistant_ids = list({h["assistant_id"] for h in highlights})
@@ -828,33 +829,33 @@ def get_list_highlights(
     if not code_id_list:
         return []
 
-    # Find highlight_ids matching any of the code_ids (OR logic)
+    # Find highlight_ids matching any of the code_ids (OR logic) for message highlights
     hc_res = sb.table("analysis_highlight_codes").select("highlight_id").in_("code_id", code_id_list).execute()
     highlight_ids = list({row["highlight_id"] for row in (hc_res.data or [])})  # deduplicate
-    if not highlight_ids:
-        return []
 
     # Fetch those highlights scoped to this list
-    hl_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).in_("id", highlight_ids).order("created_at", desc=True).execute()
-    if not hl_res.data:
-        return []
+    if highlight_ids:
+        hl_res = sb.table("analysis_highlights").select("*").eq("list_id", list_id).in_("id", highlight_ids).order("created_at", desc=True).execute()
+        message_highlights = hl_res.data or []
+    else:
+        message_highlights = []
 
     # For each highlight, fetch ALL its codes (not just the matched ones)
-    all_hl_ids = [h["id"] for h in hl_res.data]
-    all_hc = sb.table("analysis_highlight_codes").select("highlight_id, code_id, assigned_by, assigned_at, analysis_codes(id, name, color)").in_("highlight_id", all_hl_ids).execute()
-
     codes_by_highlight: dict[str, list] = {}
-    for hc in (all_hc.data or []):
-        hid = hc["highlight_id"]
-        code_data = hc.get("analysis_codes") or {}
-        codes_by_highlight.setdefault(hid, []).append({
-            "id": code_data.get("id"),
-            "name": code_data.get("name"),
-            "color": code_data.get("color"),
-        })
+    if message_highlights:
+        all_hl_ids = [h["id"] for h in message_highlights]
+        all_hc = sb.table("analysis_highlight_codes").select("highlight_id, code_id, assigned_by, assigned_at, analysis_codes(id, name, color)").in_("highlight_id", all_hl_ids).execute()
+        for hc in (all_hc.data or []):
+            hid = hc["highlight_id"]
+            code_data = hc.get("analysis_codes") or {}
+            codes_by_highlight.setdefault(hid, []).append({
+                "id": code_data.get("id"),
+                "name": code_data.get("name"),
+                "color": code_data.get("color"),
+            })
 
     # Fetch assistant names
-    assistant_ids = list({h["assistant_id"] for h in hl_res.data if h.get("assistant_id")})
+    assistant_ids = list({h["assistant_id"] for h in message_highlights if h.get("assistant_id")})
     assistant_names: dict[str, str] = {}
     if assistant_ids:
         a_res = sb.table("assistants").select("id, name").in_("id", assistant_ids).execute()
@@ -863,7 +864,7 @@ def get_list_highlights(
 
     # Hydrate message texts — batch fetch all relevant message IDs
     all_message_ids: list[str] = []
-    for h in hl_res.data:
+    for h in message_highlights:
         all_message_ids.extend(h.get("message_ids") or [])
     all_message_ids = list(set(all_message_ids))
 
@@ -874,7 +875,7 @@ def get_list_highlights(
             msg_map[m["id"]] = m
 
     results = []
-    for h in hl_res.data:
+    for h in message_highlights:
         message_texts = []
         for mid in (h.get("message_ids") or []):
             m = msg_map.get(mid, {})
