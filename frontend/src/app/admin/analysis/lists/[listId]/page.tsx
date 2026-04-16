@@ -81,11 +81,34 @@ function ListAssistantCard({
   const remove = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm(`Remove "${item.assistant_name}" from this list?`)) return;
     setRemoving(true);
     try {
-      await analysisApi.removeListItem(listId, item.assistant_id, token);
+      // Ask the backend first how many highlights this assistant has in
+      // this list. Removing silently would orphan them (see bug 2). The
+      // user gets an honest count before deciding.
+      let counts = { total: 0, message_highlights: 0, instruction_highlights: 0 };
+      try {
+        counts = await analysisApi.getListItemHighlightCounts(listId, item.assistant_id, token);
+      } catch {
+        // If the count fetch fails, fall back to the simple confirm — we
+        // still block the silent delete path.
+      }
+      if (counts.total > 0) {
+        const ok = confirm(
+          `"${item.assistant_name}" has ${counts.total} coded quote${counts.total === 1 ? "" : "s"} ` +
+          `(${counts.message_highlights} message, ${counts.instruction_highlights} instruction) in this list.\n\n` +
+          `Removing it from the list will also DELETE those quotes permanently. This cannot be undone.\n\n` +
+          `Continue?`
+        );
+        if (!ok) { setRemoving(false); return; }
+        await analysisApi.removeListItem(listId, item.assistant_id, token, { cascade: true });
+      } else {
+        if (!confirm(`Remove "${item.assistant_name}" from this list?`)) { setRemoving(false); return; }
+        await analysisApi.removeListItem(listId, item.assistant_id, token);
+      }
       onRemoved(item.assistant_id);
+    } catch {
+      alert("Could not remove from list. Try again.");
     } finally { setRemoving(false); }
   };
 

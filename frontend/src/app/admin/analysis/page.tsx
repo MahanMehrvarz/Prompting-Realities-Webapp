@@ -37,16 +37,44 @@ const SORT_LABELS: Record<"created_at" | "last_used" | "thread_count" | "message
 // Add-to-list modal
 // ---------------------------------------------------------------------------
 function AddToListModal({
-  assistant, lists, onClose, onSaved, token,
+  assistant, lists, onClose, onSaved, token, onListCreated,
 }: {
   assistant: AssistantBrowseItem; lists: AnalysisList[];
   onClose: () => void; onSaved: () => void; token: string;
+  /** Propagate newly-created list to parent so its state stays in sync. */
+  onListCreated?: (list: AnalysisList) => void;
 }) {
   const [checked, setChecked] = useState<Set<string>>(new Set(assistant.list_memberships));
   const [saving, setSaving] = useState(false);
+  // Inline create flow — bug 1 fix. Opens a small input row at top of the
+  // list picker so the user can add a new list without losing the
+  // assistant they were in the middle of adding.
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [createErr, setCreateErr] = useState<string | null>(null);
 
   const toggle = (id: string) => {
     setChecked((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  };
+
+  const submitNewList = async () => {
+    const trimmed = newName.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setCreateErr(null);
+    try {
+      const list = await analysisApi.createList({ name: trimmed }, token);
+      onListCreated?.(list);
+      // Auto-check the freshly created list so Save will actually add the
+      // assistant to it — this is the whole point of the inline flow.
+      setChecked((prev) => { const next = new Set(prev); next.add(list.id); return next; });
+      setNewName("");
+      setCreatingNew(false);
+    } catch {
+      setCreateErr("Could not create list. Check the name and try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const save = async () => {
@@ -75,8 +103,50 @@ function AddToListModal({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Inline "new list" row: button expands to an input + confirm. */}
+        {!creatingNew ? (
+          <button
+            type="button"
+            onClick={() => setCreatingNew(true)}
+            className="w-full flex items-center gap-2 rounded-[12px] border-2 border-dashed border-[var(--card-shell)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--ink-dark)] hover:bg-[var(--card-fill)] transition mb-3"
+          >
+            <Plus className="h-4 w-4" /> New list
+          </button>
+        ) : (
+          <div className="mb-3 rounded-[12px] border-2 border-[var(--card-shell)] bg-white p-3 space-y-2">
+            <input
+              type="text"
+              value={newName}
+              autoFocus
+              maxLength={200}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submitNewList(); }
+                if (e.key === "Escape") { setCreatingNew(false); setNewName(""); setCreateErr(null); }
+              }}
+              placeholder="New list name"
+              className="w-full rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-2 text-sm placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]"
+            />
+            {createErr && <p className="text-xs text-red-700">{createErr}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setCreatingNew(false); setNewName(""); setCreateErr(null); }}
+                className="flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[var(--card-fill)] transition"
+              >Cancel</button>
+              <button
+                type="button"
+                onClick={submitNewList}
+                disabled={!newName.trim() || saving}
+                className="flex-1 rounded-full border-2 border-[var(--card-shell)] bg-[var(--ink-dark)] px-3 py-1.5 text-xs font-semibold text-white shadow-[2px_2px_0_var(--shadow-deep)] disabled:opacity-50"
+              >{saving ? "Creating…" : "Create"}</button>
+            </div>
+          </div>
+        )}
+
         {lists.length === 0 ? (
-          <p className="text-sm text-[var(--ink-muted)] py-4 text-center">No lists yet. Create one first.</p>
+          <p className="text-sm text-[var(--ink-muted)] py-4 text-center">No lists yet. Use &ldquo;New list&rdquo; above.</p>
         ) : (
           <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
             {lists.map((list) => (
@@ -95,7 +165,7 @@ function AddToListModal({
         )}
         <div className="flex gap-2 pt-2">
           <button onClick={onClose} className="flex-1 rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2 text-sm font-semibold hover:bg-[var(--card-fill)] transition">Cancel</button>
-          <button onClick={save} disabled={saving || lists.length === 0}
+          <button onClick={save} disabled={saving}
             className="flex-1 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-2 text-sm font-semibold text-white shadow-[3px_3px_0_var(--shadow-deep)] hover:-translate-y-0.5 transition disabled:opacity-50 disabled:cursor-not-allowed">
             {saving ? "Saving…" : "Save"}
           </button>
@@ -531,6 +601,7 @@ export default function AnalysisPage() {
       {addToListTarget && token && (
         <AddToListModal assistant={addToListTarget} lists={lists} token={token}
           onClose={() => setAddToListTarget(null)}
+          onListCreated={(list) => setLists((prev) => [list, ...prev])}
           onSaved={() => { if (token) { fetchAssistants(token, search, page, sortBy, sortDir, dateFrom, dateTo); fetchLists(token); } }} />
       )}
       {showCreateList && token && (

@@ -232,9 +232,58 @@ def add_list_item(list_id: str, body: AddListItemBody, admin: str = Depends(requ
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/lists/{list_id}/items/{assistant_id}", status_code=204)
-def remove_list_item(list_id: str, assistant_id: str, admin: str = Depends(require_admin)):
+@router.get("/lists/{list_id}/items/{assistant_id}/highlight-counts")
+def list_item_highlight_counts(list_id: str, assistant_id: str, admin: str = Depends(require_admin)):
+    """Return how many highlights this assistant has accumulated inside this list.
+
+    Used by the frontend before removing an item from a list, so the user
+    can be warned that confirming will also delete their coded quotes.
+    Counts both message-highlights and instruction-highlights.
+    """
     sb = get_supabase()
+    msg = sb.table("analysis_highlights").select("id", count="exact").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    instr = sb.table("analysis_instruction_highlights").select("id", count="exact").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    return {
+        "message_highlights": msg.count or 0,
+        "instruction_highlights": instr.count or 0,
+        "total": (msg.count or 0) + (instr.count or 0),
+    }
+
+
+@router.delete("/lists/{list_id}/items/{assistant_id}", status_code=204)
+def remove_list_item(
+    list_id: str,
+    assistant_id: str,
+    cascade: bool = Query(False, description="Also delete highlights this assistant has in this list"),
+    admin: str = Depends(require_admin),
+):
+    """Remove an assistant from a list.
+
+    By default this refuses when the assistant has highlights in the list,
+    because a silent delete would leave those highlights stranded — codes
+    still exist and quotes still exist in the DB, but nothing in the UI
+    can show them. The caller must pass ``cascade=true`` to also delete
+    the highlights, after confirming with the user.
+    """
+    sb = get_supabase()
+    msg = sb.table("analysis_highlights").select("id").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    instr = sb.table("analysis_instruction_highlights").select("id").eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    total = len(msg.data or []) + len(instr.data or [])
+    if total > 0 and not cascade:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{total} highlight(s) exist for this assistant in this list. Pass cascade=true to delete them together.",
+        )
+    if cascade and total > 0:
+        # Message-highlight children: analysis_highlight_codes. Fetch hl ids
+        # and drop their code assignments first, then the highlights.
+        hl_ids = [h["id"] for h in (msg.data or [])]
+        if hl_ids:
+            sb.table("analysis_highlight_codes").delete().in_("highlight_id", hl_ids).execute()
+            sb.table("analysis_highlights").delete().in_("id", hl_ids).execute()
+        ihl_ids = [h["id"] for h in (instr.data or [])]
+        if ihl_ids:
+            sb.table("analysis_instruction_highlights").delete().in_("id", ihl_ids).execute()
     sb.table("analysis_list_items").delete().eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
     return None
 
@@ -586,11 +635,19 @@ def get_codes(list_id: str, admin: str = Depends(require_admin)):
 
     code_ids = [r["id"] for r in rows.data]
 
-    # Batch fetch usage counts in 1 query instead of N
-    usages = sb.table("analysis_highlight_codes").select("code_id").in_("code_id", code_ids).execute()
+    # Batch fetch usage counts. Message highlights live in
+    # analysis_highlight_codes; instruction highlights store code_id directly
+    # on analysis_instruction_highlights. Both must be summed or codes used
+    # only for instruction coding show a false "×0" in every UI chip.
     usage_map: dict[str, int] = {}
-    for u in (usages.data or []):
+    msg_usages = sb.table("analysis_highlight_codes").select("code_id").in_("code_id", code_ids).execute()
+    for u in (msg_usages.data or []):
         usage_map[u["code_id"]] = usage_map.get(u["code_id"], 0) + 1
+    instr_usages = sb.table("analysis_instruction_highlights").select("code_id").in_("code_id", code_ids).execute()
+    for u in (instr_usages.data or []):
+        cid = u.get("code_id")
+        if cid:
+            usage_map[cid] = usage_map.get(cid, 0) + 1
 
     result = []
     for row in rows.data:
@@ -656,6 +713,27 @@ def create_highlight(body: CreateHighlightBody, admin: str = Depends(require_adm
     if body.char_end <= body.char_start:
         raise HTTPException(status_code=400, detail="char_end must be greater than char_start")
     sb = get_supabase()
+
+    # Dedup: if a highlight with the exact same (list, thread, selection
+    # bounds, source_field, message_ids) already exists, return it instead
+    # of inserting a duplicate row. This is the other half of the bug-3 fix:
+    # assign_code already rejects double-assigning the same code to the same
+    # highlight, but two separate highlight rows can be created for the same
+    # selection, which then both show up in Codes & Quotations.
+    existing = (
+        sb.table("analysis_highlights")
+        .select("*")
+        .eq("list_id", body.list_id)
+        .eq("thread_id", body.thread_id)
+        .eq("source_field", body.source_field)
+        .eq("char_start", body.char_start)
+        .eq("char_end", body.char_end)
+        .execute()
+    )
+    for row in (existing.data or []):
+        if (row.get("message_ids") or []) == (body.message_ids or []):
+            return row
+
     res = sb.table("analysis_highlights").insert({
         "list_id": body.list_id,
         "thread_id": body.thread_id,
@@ -953,6 +1031,28 @@ def create_instruction_highlight(body: CreateInstructionHighlightBody, admin: st
     if body.char_end <= body.char_start:
         raise HTTPException(status_code=400, detail="char_end must be greater than char_start")
     sb = get_supabase()
+
+    # Dedup: same (list, versions, bounds, code) = return existing row. Same
+    # rationale as create_highlight. code_id is stored directly on the row,
+    # so the dedup key includes it.
+    dedup_q = (
+        sb.table("analysis_instruction_highlights")
+        .select("*")
+        .eq("list_id", body.list_id)
+        .eq("assistant_id", body.assistant_id)
+        .eq("older_version_id", body.older_version_id)
+        .eq("newer_version_id", body.newer_version_id)
+        .eq("char_start", body.char_start)
+        .eq("char_end", body.char_end)
+    )
+    if body.code_id:
+        dedup_q = dedup_q.eq("code_id", body.code_id)
+    else:
+        dedup_q = dedup_q.is_("code_id", None)
+    existing = dedup_q.limit(1).execute()
+    if existing.data:
+        return existing.data[0]
+
     row = {
         "list_id": body.list_id,
         "assistant_id": body.assistant_id,
@@ -1060,11 +1160,16 @@ def export_list(
         for m in (msgs.data or []):
             msg_map[m["id"]] = m
 
-    # Fetch highlight-code assignments
-    hc_res = sb.table("analysis_highlight_codes").select("*").execute()
+    # Fetch highlight-code assignments. Previously this fetched EVERY row in
+    # the table (D5) — at scale that silently truncated at Supabase's 1000-row
+    # cap, producing incomplete exports. Filter by the highlights we actually
+    # loaded for this list.
+    highlight_ids_for_list = [h["id"] for h in (highlights_res.data or [])]
     hc_map: dict[str, list[dict]] = {}
-    for hc in (hc_res.data or []):
-        hc_map.setdefault(hc["highlight_id"], []).append(hc)
+    if highlight_ids_for_list:
+        hc_res = sb.table("analysis_highlight_codes").select("*").in_("highlight_id", highlight_ids_for_list).execute()
+        for hc in (hc_res.data or []):
+            hc_map.setdefault(hc["highlight_id"], []).append(hc)
 
     # Build export structure
     code_export: dict[str, dict] = {}
@@ -1086,6 +1191,7 @@ def export_list(
         full_resp = " | ".join(msg_map[mid]["response_text"] or "" for mid in msg_ids_h if mid in msg_map and msg_map[mid].get("response_text")) or None
 
         quote_base = {
+            "kind": "message",
             "highlight_id": h["id"],
             "selected_text": h["selected_text"],
             "full_user_text": full_user,
@@ -1107,6 +1213,41 @@ def export_list(
                     "assigned_by": hc["assigned_by"],
                 })
 
+    # Also include instruction-coded highlights. Previously the export only
+    # pulled analysis_highlights (message highlights), so researchers who
+    # coded instruction diffs got a blank or drastically incomplete export.
+    ih_res = sb.table("analysis_instruction_highlights").select("*").eq("list_id", list_id).execute()
+    instr_highlights = ih_res.data or []
+    # Extend assistant name map for any new assistant_ids
+    missing_asst = list({h["assistant_id"] for h in instr_highlights} - set(asst_map.keys()))
+    if missing_asst:
+        more = sb.table("assistants").select("id, name").in_("id", missing_asst).execute()
+        for a in (more.data or []):
+            asst_map[a["id"]] = a["name"]
+    for h in instr_highlights:
+        code_id = h.get("code_id")
+        if not code_id or code_id not in code_export:
+            continue
+        code_export[code_id]["usage_count"] += 1
+        code_export[code_id]["quotes"].append({
+            "kind": "instruction",
+            "highlight_id": h["id"],
+            "selected_text": h.get("selected_text"),
+            "full_user_text": None,
+            "full_response_text": None,
+            "assistant_name": asst_map.get(h["assistant_id"], "Unknown"),
+            "thread_id": None,
+            "session_id": None,
+            "source_field": "instruction",
+            "older_version_id": h.get("older_version_id"),
+            "newer_version_id": h.get("newer_version_id"),
+            "char_start": h.get("char_start"),
+            "char_end": h.get("char_end"),
+            "created_by": h.get("created_by"),
+            "created_at": h.get("created_at"),
+            "assigned_by": h.get("created_by"),
+        })
+
     exported_at = datetime.utcnow().isoformat()
 
     if format == "json":
@@ -1125,26 +1266,30 @@ def export_list(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "code_name", "group_name", "selected_text",
+        "kind", "code_name", "group_name", "selected_text",
         "full_user_text", "full_response_text", "assistant_name",
         "thread_id", "session_id", "source_field",
+        "older_version_id", "newer_version_id",
         "highlight_created_by", "highlight_created_at", "assigned_by",
     ])
     for code in code_export.values():
         for q in code["quotes"]:
             writer.writerow([
+                q.get("kind") or "message",
                 code["code_name"],
                 code.get("group_name") or "",
-                q["selected_text"],
+                q.get("selected_text") or "",
                 q.get("full_user_text") or "",
                 q.get("full_response_text") or "",
-                q["assistant_name"],
-                q["thread_id"],
-                q["session_id"],
+                q.get("assistant_name") or "",
+                q.get("thread_id") or "",
+                q.get("session_id") or "",
                 q.get("source_field") or "",
-                q["created_by"],
-                q["created_at"],
-                q["assigned_by"],
+                q.get("older_version_id") or "",
+                q.get("newer_version_id") or "",
+                q.get("created_by") or "",
+                q.get("created_at") or "",
+                q.get("assigned_by") or "",
             ])
     csv_bytes = output.getvalue().encode()
     safe_name = list_name.replace(" ", "_")

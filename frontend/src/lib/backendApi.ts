@@ -555,8 +555,17 @@ export const analysisApi = {
       body: JSON.stringify({ assistant_id: assistantId }),
     }),
 
-  removeListItem: (listId: string, assistantId: string, token: string) =>
-    apiFetch<void>(`/analysis/lists/${listId}/items/${assistantId}`, token, { method: "DELETE" }),
+  removeListItem: (listId: string, assistantId: string, token: string, opts?: { cascade?: boolean }) =>
+    apiFetch<void>(
+      `/analysis/lists/${listId}/items/${assistantId}${opts?.cascade ? "?cascade=true" : ""}`,
+      token,
+      { method: "DELETE" },
+    ),
+
+  getListItemHighlightCounts: (listId: string, assistantId: string, token: string) =>
+    apiFetch<{ message_highlights: number; instruction_highlights: number; total: number }>(
+      `/analysis/lists/${listId}/items/${assistantId}/highlight-counts`, token, { method: "GET" }
+    ),
 
   // Assistants browse
   browseAssistants: (params: { search?: string; page?: number; page_size?: number; sort_by?: string; sort_dir?: string; date_from?: string; date_to?: string }, token: string) => {

@@ -48,12 +48,17 @@ function hexToRgba(hex: string, alpha: number): string {
 // ---------------------------------------------------------------------------
 function CodeTooltip({
   codes,
+  assignedCodeIds,
   onCodeSelect,
+  onCodeUnassign,
   onCodeCreate,
   onDismiss,
 }: {
   codes: AnalysisCode[];
+  /** Codes currently assigned to ALL selected messages — click toggles off. */
+  assignedCodeIds: Set<string>;
   onCodeSelect: (codeId: string) => void;
+  onCodeUnassign: (codeId: string) => void;
   onCodeCreate: (name: string, color: string) => Promise<string>;
   onDismiss: () => void;
 }) {
@@ -71,10 +76,23 @@ function CodeTooltip({
     onCodeSelect(id);
   };
 
+  // Clicking a code in the picker toggles assignment: if it's already on
+  // every selected message, we call unassign; otherwise we assign. This
+  // removes the "how do I uncode this" dead-end the user flagged.
+  const handleRowClick = (codeId: string) => {
+    if (assignedCodeIds.has(codeId)) {
+      onCodeUnassign(codeId);
+    } else {
+      onCodeSelect(codeId);
+    }
+  };
+
   return (
     <>
       <div className="fixed inset-0 z-40" onMouseDown={onDismiss} />
       <div
+        role="dialog"
+        aria-label="Assign code"
         className="fixed z-50 bottom-24 left-1/2 -translate-x-1/2 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[8px_8px_0_var(--shadow-deep)] overflow-hidden"
         style={{ width: 300, maxHeight: 340 }}
         onMouseDown={(e) => e.stopPropagation()}
@@ -88,24 +106,34 @@ function CodeTooltip({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") onDismiss();
-              if (e.key === "Enter" && filtered.length === 1) onCodeSelect(filtered[0].id);
-              if (e.key === "Enter" && filtered.length === 0 && query.trim()) handleCreate();
+              // Enter on exact match toggles that code; Enter on no-match
+              // requires the explicit "Create" button press to avoid the
+              // user accidentally spawning stray codes by hitting Enter on
+              // a partial query.
+              if (e.key === "Enter" && filtered.length === 1) handleRowClick(filtered[0].id);
             }}
             placeholder="Search or create code…"
             className="flex-1 bg-transparent text-sm outline-none text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)]"
           />
         </div>
         <div className="max-h-60 overflow-y-auto">
-          {filtered.map((code) => (
-            <button key={code.id} onClick={() => onCodeSelect(code.id)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-white transition group">
-              <span className="w-3 h-3 rounded-full flex-shrink-0 border border-black/10" style={{ backgroundColor: code.color }} />
-              <span className="flex-1 text-[var(--ink-dark)] font-medium truncate">{code.name}</span>
-              {code.usage_count !== undefined && (
-                <span className="text-xs text-[var(--ink-muted)] group-hover:text-[var(--ink-dark)]">×{code.usage_count}</span>
-              )}
-            </button>
-          ))}
+          {filtered.map((code) => {
+            const isAssigned = assignedCodeIds.has(code.id);
+            return (
+              <button key={code.id} onClick={() => handleRowClick(code.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition group ${
+                  isAssigned ? "bg-[var(--card-shell)]/15 hover:bg-[var(--card-shell)]/25" : "hover:bg-white"
+                }`}
+                title={isAssigned ? "Click to remove this code from selection" : "Click to assign this code"}>
+                <span className="w-3 h-3 rounded-full flex-shrink-0 border border-black/10" style={{ backgroundColor: code.color }} />
+                <span className="flex-1 text-[var(--ink-dark)] font-medium truncate">{code.name}</span>
+                {isAssigned && <Check className="h-3.5 w-3.5 text-[var(--ink-dark)] flex-shrink-0" />}
+                {!isAssigned && code.usage_count !== undefined && (
+                  <span className="text-xs text-[var(--ink-muted)] group-hover:text-[var(--ink-dark)]">×{code.usage_count}</span>
+                )}
+              </button>
+            );
+          })}
           {!exactMatch && query.trim() && (
             <>
               {filtered.length > 0 && <div className="border-t border-[var(--card-shell)]/50" />}
@@ -312,10 +340,32 @@ function AddToListModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Inline create flow — bug 1 fix. Same pattern as dashboard modal.
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [createErr, setCreateErr] = useState<string | null>(null);
 
   useEffect(() => {
     analysisApi.getLists(token).then((data) => { setLists(data); setLoading(false); }).catch(() => setLoading(false));
   }, [token]);
+
+  const submitNewList = async () => {
+    const trimmed = newName.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setCreateErr(null);
+    try {
+      const list = await analysisApi.createList({ name: trimmed }, token);
+      setLists((prev) => [list, ...prev]);
+      setSelectedId(list.id);
+      setNewName("");
+      setCreatingNew(false);
+    } catch {
+      setCreateErr("Could not create list. Check the name and try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const save = async () => {
     if (!selectedId || saving) return;
@@ -339,10 +389,46 @@ function AddToListModal({
           </button>
         </div>
 
+        {/* Inline "new list" row — user can create without leaving this modal. */}
+        {!creatingNew ? (
+          <button
+            type="button"
+            onClick={() => setCreatingNew(true)}
+            className="w-full flex items-center gap-2 rounded-[12px] border-2 border-dashed border-[var(--card-shell)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--ink-dark)] hover:bg-[var(--card-fill)] transition mb-3"
+          >
+            <Plus className="h-4 w-4" /> New list
+          </button>
+        ) : (
+          <div className="mb-3 rounded-[12px] border-2 border-[var(--card-shell)] bg-white p-3 space-y-2">
+            <input
+              type="text"
+              value={newName}
+              autoFocus
+              maxLength={200}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); submitNewList(); }
+                if (e.key === "Escape") { setCreatingNew(false); setNewName(""); setCreateErr(null); }
+              }}
+              placeholder="New list name"
+              className="w-full rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-3 py-2 text-sm placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]"
+            />
+            {createErr && <p className="text-xs text-red-700">{createErr}</p>}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => { setCreatingNew(false); setNewName(""); setCreateErr(null); }}
+                className="flex-1 rounded-full border-2 border-[var(--card-shell)] bg-white px-3 py-1.5 text-xs font-semibold hover:bg-[var(--card-fill)] transition"
+              >Cancel</button>
+              <button type="button" onClick={submitNewList} disabled={!newName.trim() || saving}
+                className="flex-1 rounded-full border-2 border-[var(--card-shell)] bg-[var(--ink-dark)] px-3 py-1.5 text-xs font-semibold text-white shadow-[2px_2px_0_var(--shadow-deep)] disabled:opacity-50"
+              >{saving ? "Creating…" : "Create"}</button>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="py-8 text-center text-sm text-[var(--ink-muted)] animate-pulse">Loading lists…</div>
         ) : lists.length === 0 ? (
-          <p className="text-sm text-[var(--ink-muted)] py-4 text-center">No lists yet. Create one first from the analysis page.</p>
+          <p className="text-sm text-[var(--ink-muted)] py-4 text-center">No lists yet. Use &ldquo;New list&rdquo; above.</p>
         ) : (
           <div className="space-y-2 max-h-64 overflow-y-auto mb-4">
             {lists.map((list) => (
@@ -506,6 +592,55 @@ export default function ThreadPage() {
     setCodes((prev) => [...prev, { ...code, usage_count: 0 }]);
     return code.id;
   };
+
+  // Toggle-off path for bug 3. Finds all highlights attached to the current
+  // message selection that carry `codeId` and unassigns it from each. If
+  // the highlight then has no remaining codes, we delete the highlight so
+  // the user isn't left with orphaned "No codes" cards in Codes &
+  // Quotations (paired with D1 in the audit).
+  const handleCodeUnassign = async (codeId: string) => {
+    if (!token || !conversation || selectedMsgIds.size === 0 || saving) return;
+    setSaving(true);
+    setShowCodeTooltip(false);
+    try {
+      const relevant = conversation.highlights.filter(
+        (h) => (h.message_ids || []).some((mid) => selectedMsgIds.has(mid)) && (h.codes || []).some((c) => c.id === codeId)
+      );
+      await Promise.all(
+        relevant.map(async (h) => {
+          await analysisApi.unassignCode(h.id, codeId, token);
+          const remaining = (h.codes || []).filter((c) => c.id !== codeId);
+          if (remaining.length === 0) {
+            await analysisApi.deleteHighlight(h.id, token);
+          }
+        })
+      );
+      setSelectedMsgIds(new Set());
+      await fetchData(token);
+    } catch {
+      alert("Failed to remove code.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Codes that are assigned to EVERY currently-selected message. Used by
+  // the picker to mark check-rows and flip click behaviour to unassign.
+  const assignedCodeIds = (() => {
+    if (!conversation || selectedMsgIds.size === 0) return new Set<string>();
+    const perMsg: Map<string, Set<string>> = new Map();
+    for (const mid of selectedMsgIds) perMsg.set(mid, new Set());
+    for (const h of conversation.highlights) {
+      for (const mid of h.message_ids || []) {
+        if (!perMsg.has(mid)) continue;
+        for (const c of h.codes || []) perMsg.get(mid)!.add(c.id);
+      }
+    }
+    const sets = Array.from(perMsg.values());
+    if (sets.length === 0) return new Set<string>();
+    const [first, ...rest] = sets;
+    return new Set(Array.from(first).filter((id) => rest.every((s) => s.has(id))));
+  })();
 
   const deleteHighlight = async (highlightId: string) => {
     if (!token) return;
@@ -708,7 +843,9 @@ export default function ThreadPage() {
       {showCodeTooltip && (
         <CodeTooltip
           codes={codes}
+          assignedCodeIds={assignedCodeIds}
           onCodeSelect={handleCodeSelect}
+          onCodeUnassign={handleCodeUnassign}
           onCodeCreate={handleCodeCreate}
           onDismiss={() => setShowCodeTooltip(false)}
         />

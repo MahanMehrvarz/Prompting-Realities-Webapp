@@ -59,6 +59,8 @@ function CodeTooltip({
     <>
       <div className="fixed inset-0 z-40" onMouseDown={saving ? undefined : onDismiss} />
       <div
+        role="dialog"
+        aria-label="Assign code"
         className="fixed z-50 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[8px_8px_0_var(--shadow-deep)] overflow-hidden"
         style={{ left: position.x, top: position.y, width: 280, maxHeight: 320, opacity: saving ? 0.6 : 1, pointerEvents: saving ? "none" : "auto" }}
         onMouseDown={(e) => e.stopPropagation()}
@@ -71,9 +73,12 @@ function CodeTooltip({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // Enter on exact single match assigns. Enter on an empty /
+              // partial query requires the explicit "Create" button so
+              // users don't accidentally spawn stray codes mid-typing —
+              // same rule as the thread-page picker.
               if (e.key === "Escape") onDismiss();
               if (e.key === "Enter" && filtered.length === 1) onCodeSelect(filtered[0].id);
-              if (e.key === "Enter" && filtered.length === 0 && query.trim()) handleCreate();
             }}
             placeholder="Search or create code…"
             className="flex-1 bg-transparent text-sm outline-none text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)]"

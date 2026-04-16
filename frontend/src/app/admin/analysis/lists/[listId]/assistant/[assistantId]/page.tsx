@@ -123,13 +123,22 @@ export default function AssistantThreadsPage() {
           <div className="flex gap-1 border-b-[3px] border-[var(--card-shell)]">
             <button
               onClick={() => setActiveTab("sessions")}
-              className={`px-4 py-2 text-sm font-bold transition rounded-t-[10px] -mb-[3px] border-[3px] border-b-0 ${
+              className={`px-4 py-2 text-sm font-bold transition rounded-t-[10px] -mb-[3px] border-[3px] border-b-0 flex items-center gap-2 ${
                 activeTab === "sessions"
                   ? "border-[var(--card-shell)] bg-[var(--card-fill)] text-[var(--ink-dark)]"
                   : "border-transparent text-[var(--card-fill)]/70 hover:text-[var(--card-fill)]"
               }`}
             >
               Sessions
+              {threads.length > 0 && (
+                <span className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 ${
+                  activeTab === "sessions"
+                    ? "bg-[var(--ink-dark)] text-[var(--card-fill)]"
+                    : "bg-white/20 text-[var(--card-fill)]"
+                }`}>
+                  {threads.length}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveTab("instructions")}
