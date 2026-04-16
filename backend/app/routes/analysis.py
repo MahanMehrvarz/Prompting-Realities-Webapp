@@ -759,6 +759,7 @@ def get_code_highlights(list_id: str, code_id: str, admin: str = Depends(require
     result = []
     for h in highlights:
         result.append({
+            "kind": "message",
             "highlight_id": h["id"],
             "thread_id": h["thread_id"],
             "session_id": h["session_id"],
@@ -778,6 +779,37 @@ def get_code_highlights(list_id: str, code_id: str, admin: str = Depends(require
             ],
             "codes": codes_by_highlight.get(h["id"], []),
         })
+
+    # Include instruction highlights for this code
+    ih_res = sb.table("analysis_instruction_highlights").select("*").eq("list_id", list_id).eq("code_id", code_id).order("created_at", desc=True).execute()
+    instruction_highlights = ih_res.data or []
+    if instruction_highlights:
+        # Reuse asst_map, add missing assistants
+        missing = list({h["assistant_id"] for h in instruction_highlights} - set(asst_map.keys()))
+        if missing:
+            a_res = sb.table("assistants").select("id, name").in_("id", missing).execute()
+            for a in (a_res.data or []):
+                asst_map[a["id"]] = a.get("name", "")
+        # Fetch the one code
+        c_res = sb.table("analysis_codes").select("id, name, color").eq("id", code_id).limit(1).execute()
+        c_data = (c_res.data or [{}])[0]
+        code_info = {"id": c_data.get("id"), "name": c_data.get("name"), "color": c_data.get("color")} if c_data.get("id") else None
+        for h in instruction_highlights:
+            result.append({
+                "kind": "instruction",
+                "highlight_id": h["id"],
+                "assistant_id": h["assistant_id"],
+                "assistant_name": asst_map.get(h["assistant_id"], ""),
+                "selected_text": h["selected_text"],
+                "older_version_id": h["older_version_id"],
+                "newer_version_id": h["newer_version_id"],
+                "char_start": h["char_start"],
+                "char_end": h["char_end"],
+                "created_by": h["created_by"],
+                "created_at": h["created_at"],
+                "codes": [code_info] if code_info else [],
+            })
+    result.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     return result
 
 
@@ -852,6 +884,7 @@ def get_list_highlights(
                 "response_text": m.get("response_text"),
             })
         results.append({
+            "kind": "message",
             "highlight_id": h["id"],
             "thread_id": h["thread_id"],
             "session_id": h["session_id"],
@@ -865,6 +898,49 @@ def get_list_highlights(
             "codes": codes_by_highlight.get(h["id"], []),
         })
 
+    # --- Also include instruction highlights matching selected codes ---
+    ih_res = sb.table("analysis_instruction_highlights").select("*").eq("list_id", list_id).in_("code_id", code_id_list).order("created_at", desc=True).execute()
+    instruction_highlights = ih_res.data or []
+
+    if instruction_highlights:
+        # Fetch code details
+        ih_code_ids = list({h["code_id"] for h in instruction_highlights if h.get("code_id")})
+        ih_code_map: dict[str, dict] = {}
+        if ih_code_ids:
+            codes_res = sb.table("analysis_codes").select("id, name, color").in_("id", ih_code_ids).execute()
+            for c in (codes_res.data or []):
+                ih_code_map[c["id"]] = c
+
+        # Fetch assistant names for any not already cached
+        ih_asst_ids = list({h["assistant_id"] for h in instruction_highlights} - set(assistant_names.keys()))
+        if ih_asst_ids:
+            a_res = sb.table("assistants").select("id, name").in_("id", ih_asst_ids).execute()
+            for a in (a_res.data or []):
+                assistant_names[a["id"]] = a["name"]
+
+        for h in instruction_highlights:
+            cid = h.get("code_id")
+            codes_list = []
+            if cid and cid in ih_code_map:
+                c = ih_code_map[cid]
+                codes_list = [{"id": c["id"], "name": c["name"], "color": c["color"]}]
+            results.append({
+                "kind": "instruction",
+                "highlight_id": h["id"],
+                "assistant_id": h["assistant_id"],
+                "assistant_name": assistant_names.get(h["assistant_id"], "LLM Thing"),
+                "selected_text": h["selected_text"],
+                "older_version_id": h["older_version_id"],
+                "newer_version_id": h["newer_version_id"],
+                "char_start": h["char_start"],
+                "char_end": h["char_end"],
+                "created_by": h["created_by"],
+                "created_at": h["created_at"],
+                "codes": codes_list,
+            })
+
+    # Sort by created_at desc
+    results.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     return results
 
 
@@ -905,12 +981,15 @@ def delete_instruction_highlight(highlight_id: str, admin: str = Depends(require
 @router.get("/assistant/{assistant_id}/instruction-highlights")
 def get_instruction_highlights(
     assistant_id: str,
-    list_id: str = Query(...),
+    list_id: str | None = Query(None),
     admin: str = Depends(require_admin),
 ):
-    """Return all instruction highlights for an assistant within a list, with codes."""
+    """Return all instruction highlights for an assistant. If list_id is provided, filter to that list."""
     sb = get_supabase()
-    res = sb.table("analysis_instruction_highlights").select("*").eq("assistant_id", assistant_id).eq("list_id", list_id).order("created_at", desc=True).execute()
+    q = sb.table("analysis_instruction_highlights").select("*").eq("assistant_id", assistant_id)
+    if list_id:
+        q = q.eq("list_id", list_id)
+    res = q.order("created_at", desc=True).execute()
     highlights = res.data or []
     if not highlights:
         return []

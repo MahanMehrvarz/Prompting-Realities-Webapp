@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { BookOpen, Bot, MessageSquare, Tag, User } from "lucide-react";
+import { BookOpen, Bot, FileText, MessageSquare, Tag, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   analysisApi,
@@ -55,9 +55,64 @@ function CodeChip({ code, selected, onToggle }: { code: AnalysisCode; selected: 
   );
 }
 
+// Instruction quotation card — shows a coded instruction passage
+function InstructionQuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId: string }) {
+  const isDiff = highlight.older_version_id !== highlight.newer_version_id;
+  const assistantHref = `/admin/analysis/lists/${listId}/assistant/${highlight.assistant_id}`;
+
+  return (
+    <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[5px_5px_0_var(--card-shell)] overflow-hidden">
+      <div className="px-4 pt-3 pb-2 border-b-2 border-[var(--card-shell)] flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1.5 flex-1">
+          {(highlight.codes || []).map((c) => (
+            <span
+              key={c.id}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold border border-black/10"
+              style={{ backgroundColor: hexToRgba(c.color, 0.35) }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: c.color }} />
+              {c.name}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="flex items-center gap-1 rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] px-2 py-0.5 text-[10px] font-bold">
+            <FileText className="h-3 w-3" />
+            {isDiff ? "Instruction diff" : "Instruction"}
+          </span>
+          <span className="text-xs text-[var(--ink-muted)]">{highlight.assistant_name}</span>
+        </div>
+      </div>
+
+      <div className="px-4 py-3">
+        <div className="rounded-[12px] border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)] px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap">
+          &ldquo;{highlight.selected_text}&rdquo;
+        </div>
+      </div>
+
+      <div className="px-4 pb-3 flex items-center justify-between">
+        <Link
+          href={assistantHref}
+          className="text-xs font-semibold text-[#2563eb] hover:underline flex items-center gap-1"
+        >
+          <FileText className="h-3 w-3" />
+          View instruction
+        </Link>
+        <span className="text-xs text-[var(--ink-muted)]">{fmtDate(highlight.created_at)}</span>
+      </div>
+    </div>
+  );
+}
+
 // Quotation card — shows one highlight with all its code chips + message context
 function QuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId: string }) {
-  const isMulti = highlight.message_texts.length > 1;
+  // Route to instruction variant when kind is instruction
+  if (highlight.kind === "instruction") {
+    return <InstructionQuotationCard highlight={highlight} listId={listId} />;
+  }
+
+  const messageTexts = highlight.message_texts || [];
+  const isMulti = messageTexts.length > 1;
   const threadHref = `/admin/analysis/lists/${listId}/thread/${highlight.thread_id}?session=${highlight.session_id}&assistant=${highlight.assistant_id}&back=codes`;
 
   return (
@@ -79,7 +134,7 @@ function QuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId
         <div className="flex items-center gap-2 flex-shrink-0">
           {isMulti && (
             <span className="rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] px-2 py-0.5 text-[10px] font-bold">
-              {highlight.message_texts.length} messages
+              {messageTexts.length} messages
             </span>
           )}
           <span className="text-xs text-[var(--ink-muted)]">{highlight.assistant_name}</span>
@@ -88,7 +143,7 @@ function QuotationCard({ highlight, listId }: { highlight: CodeHighlight; listId
 
       {/* Message context — each message_text is one exchange, show with dividers if multiple */}
       <div className="px-4 py-3 space-y-3">
-        {highlight.message_texts.map((mt, idx) => (
+        {messageTexts.map((mt, idx) => (
           <div key={mt.message_id}>
             {idx > 0 && (
               <div className="flex items-center gap-2 mb-3">

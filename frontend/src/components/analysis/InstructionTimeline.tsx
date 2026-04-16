@@ -372,12 +372,14 @@ function DiffView({
                     &ldquo;{hl.selected_text}&rdquo;
                   </p>
                 </div>
-                <button
-                  onClick={() => onDeleteHighlight(hl.id)}
-                  className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--accent-red)] hover:text-white hover:border-[var(--accent-red)] transition flex-shrink-0"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                {listId && (
+                  <button
+                    onClick={() => onDeleteHighlight(hl.id)}
+                    className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--accent-red)] hover:text-white hover:border-[var(--accent-red)] transition flex-shrink-0"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -613,12 +615,14 @@ function ReaderView({
                     &ldquo;{hl.selected_text}&rdquo;
                   </p>
                 </div>
-                <button
-                  onClick={() => onDeleteHighlight(hl.id)}
-                  className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--accent-red)] hover:text-white hover:border-[var(--accent-red)] transition flex-shrink-0"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                {listId && (
+                  <button
+                    onClick={() => onDeleteHighlight(hl.id)}
+                    className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--accent-red)] hover:text-white hover:border-[var(--accent-red)] transition flex-shrink-0"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -673,7 +677,7 @@ export default function InstructionTimeline({
 
   // Fetch instruction highlights
   const fetchHighlights = useCallback(async () => {
-    if (!listId || !token || !assistantId) return;
+    if (!token || !assistantId) return;
     try {
       const data = await analysisApi.getInstructionHighlights(assistantId, listId, token);
       setHighlights(data);
@@ -945,6 +949,15 @@ export default function InstructionTimeline({
           onCodeCreate={handleCodeCreate}
           onDeleteHighlight={handleDeleteHighlight}
         />
+      ) : compareMode ? (
+        <div className="flex-1 flex items-center justify-center text-center px-6">
+          <div>
+            <GitCompareArrows className="h-10 w-10 text-[var(--ink-muted)] mx-auto mb-3" />
+            <p className="text-sm text-[var(--ink-muted)] font-medium">
+              {!compareA ? "Select a version (A) from the timeline" : "Select a second version (B) to see the diff"}
+            </p>
+          </div>
+        </div>
       ) : selected ? (
         <ReaderView
           version={selected}

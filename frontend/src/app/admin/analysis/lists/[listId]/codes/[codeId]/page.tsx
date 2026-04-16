@@ -80,10 +80,13 @@ export default function CodeHighlightsPage() {
     );
   }
 
+  // Only message highlights are shown on this code detail page (instruction highlights are on the main codes overview)
+  const messageHighlights = highlights.filter((h) => h.kind !== "instruction" && h.thread_id);
   // Group highlights by thread_id, sorted by created_at
-  const byThread = highlights.reduce<Record<string, CodeHighlight[]>>((acc, h) => {
-    if (!acc[h.thread_id]) acc[h.thread_id] = [];
-    acc[h.thread_id].push(h);
+  const byThread = messageHighlights.reduce<Record<string, CodeHighlight[]>>((acc, h) => {
+    const tid = h.thread_id!;
+    if (!acc[tid]) acc[tid] = [];
+    acc[tid].push(h);
     return acc;
   }, {});
   // Sort each thread's highlights chronologically
@@ -186,7 +189,7 @@ export default function CodeHighlightsPage() {
                             {hi > 0 && (
                               <div className="my-2 border-t border-dashed border-[var(--card-shell)]/50" />
                             )}
-                            {h.message_texts.map((mt) => (
+                            {(h.message_texts || []).map((mt) => (
                               <div key={mt.message_id} className="space-y-2 mb-2">
                                 {mt.user_text && (
                                   <div className="flex justify-end">

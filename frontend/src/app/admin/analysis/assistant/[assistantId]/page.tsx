@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { Clock, FileText, MessageSquare, SlidersHorizontal, Tag, X } from "lucide-react";
+import { Clock, FileText, MessageSquare, Plus, SlidersHorizontal, Tag, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { analysisApi, type ThreadSummary, type InstructionVersion, type AnalysisCode, type AnalysisList } from "@/lib/backendApi";
+import { analysisApi, type ThreadSummary, type InstructionVersion, type AnalysisList } from "@/lib/backendApi";
 import AnalysisShell from "../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../AnalysisBreadcrumbContext";
 import InstructionTimeline from "@/components/analysis/InstructionTimeline";
@@ -30,8 +30,9 @@ export default function AssistantThreadsStandalonePage() {
   const [instructions, setInstructions] = useState<InstructionVersion[]>([]);
   const [activeTab, setActiveTab] = useState<"sessions" | "instructions">("sessions");
   const [lists, setLists] = useState<AnalysisList[]>([]);
-  const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const [codes, setCodes] = useState<AnalysisCode[]>([]);
+  const [memberships, setMemberships] = useState<string[]>([]);
+  const [showAddToList, setShowAddToList] = useState(false);
+  const [addingList, setAddingList] = useState<string | null>(null);
 
   // Filters
   const [sortField, setSortField] = useState<"first_message_at" | "last_message_at" | "message_count">("last_message_at");
@@ -66,10 +67,16 @@ export default function AssistantThreadsStandalonePage() {
       setCrumbs([{ label: name }]);
       setInstructions(instructionsData);
       setLists(listsData);
-      // Auto-select first list if available
-      if (listsData.length > 0 && !selectedListId) {
-        setSelectedListId(listsData[0].id);
-      }
+      // Compute memberships by checking each list's items
+      const membershipChecks = await Promise.all(
+        listsData.map(async (l) => {
+          try {
+            const items = await analysisApi.getListItems(l.id, tok);
+            return items.some((i) => i.assistant_id === assistantId) ? l.id : null;
+          } catch { return null; }
+        })
+      );
+      setMemberships(membershipChecks.filter((x): x is string => !!x));
     } catch {
       router.push("/admin/analysis");
     }
@@ -79,11 +86,19 @@ export default function AssistantThreadsStandalonePage() {
     if (ready && token) fetchData(token);
   }, [ready, token, fetchData]);
 
-  // Fetch codes when list selection changes
-  useEffect(() => {
-    if (!selectedListId || !token) { setCodes([]); return; }
-    analysisApi.getCodes(selectedListId, token).then(setCodes).catch(() => setCodes([]));
-  }, [selectedListId, token]);
+  const handleAddToList = async (listId: string) => {
+    if (!token || addingList) return;
+    setAddingList(listId);
+    try {
+      await analysisApi.addListItem(listId, assistantId, token);
+      setMemberships((prev) => [...prev, listId]);
+      setShowAddToList(false);
+    } catch {
+      alert("Failed to add to list.");
+    } finally {
+      setAddingList(null);
+    }
+  };
 
   // Client-side filter + sort
   let visible = [...threads];
@@ -159,8 +174,32 @@ export default function AssistantThreadsStandalonePage() {
         {activeTab === "sessions" ? (
           <div className="flex-1 overflow-y-auto px-6 py-6">
             {/* Session controls */}
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <p className="text-xs text-[var(--card-fill)]/40">Not in any list — add to a list to start coding</p>
+            <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                {memberships.length === 0 ? (
+                  <>
+                    <span className="text-xs text-[var(--card-fill)]/70">Not in any list</span>
+                    <button
+                      onClick={() => setShowAddToList(true)}
+                      className="flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] px-3 py-1 text-xs font-semibold text-[var(--ink-dark)] shadow-[3px_3px_0_var(--shadow-deep)] hover:-translate-y-0.5 transition"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add to list to code
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xs text-[var(--card-fill)]/70">In {memberships.length} list{memberships.length !== 1 ? "s" : ""}</span>
+                    <button
+                      onClick={() => setShowAddToList(true)}
+                      className="flex items-center gap-1.5 rounded-full border-2 border-[var(--card-shell)] bg-white px-2.5 py-0.5 text-xs font-semibold text-[var(--ink-dark)] hover:bg-[var(--card-fill)] transition"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add to another list
+                    </button>
+                  </>
+                )}
+              </div>
               <button
                 onClick={() => setShowFilters((v) => !v)}
                 className={`flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] px-3 py-1.5 text-xs font-semibold transition flex-shrink-0 ${
@@ -277,33 +316,86 @@ export default function AssistantThreadsStandalonePage() {
           </div>
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* List picker for codebook context */}
-            {lists.length > 0 && (
-              <div className="px-6 pt-3 pb-0 flex items-center gap-2">
-                <span className="text-xs text-[var(--ink-muted)]">Codebook:</span>
-                <select
-                  value={selectedListId || ""}
-                  onChange={(e) => setSelectedListId(e.target.value || null)}
-                  className="rounded-[10px] border-2 border-[var(--card-shell)] bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)]"
-                >
-                  {lists.map((l) => (
-                    <option key={l.id} value={l.id}>{l.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Read-only notice + add to list */}
+            <div className="px-6 pt-3 pb-2 flex items-center gap-3 flex-wrap">
+              {memberships.length === 0 ? (
+                <>
+                  <span className="text-xs text-[var(--card-fill)]/70">
+                    Read-only. Add to a list to code instructions.
+                  </span>
+                  <button
+                    onClick={() => setShowAddToList(true)}
+                    className="flex items-center gap-1.5 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] px-3 py-1 text-xs font-semibold text-[var(--ink-dark)] shadow-[3px_3px_0_var(--shadow-deep)] hover:-translate-y-0.5 transition"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Add to list
+                  </button>
+                </>
+              ) : (
+                <span className="text-xs text-[var(--card-fill)]/70">
+                  Read-only overview. Open this LLM Thing inside a list to code instructions.
+                </span>
+              )}
+            </div>
             <InstructionTimeline
               instructions={instructions}
-              listId={selectedListId}
+              listId={null}
               token={token}
               assistantId={assistantId}
-              codes={codes}
-              onCodesChange={setCodes}
+              codes={[]}
             />
           </div>
         )}
 
       </div>
+
+      {/* Add to list modal */}
+      {showAddToList && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => !addingList && setShowAddToList(false)}>
+          <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-6 shadow-[8px_8px_0_var(--shadow-deep)] w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-black text-[var(--ink-dark)] uppercase tracking-wider">Add to list</h2>
+                <p className="text-xs text-[var(--ink-muted)] mt-0.5">Pick a list to enable coding for this LLM Thing</p>
+              </div>
+              <button
+                onClick={() => !addingList && setShowAddToList(false)}
+                className="rounded-full border-2 border-[var(--card-shell)] bg-white p-1.5 hover:bg-[var(--ink-dark)] hover:text-white transition"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            {lists.length === 0 ? (
+              <p className="text-sm text-[var(--ink-muted)] text-center py-6">You don&apos;t have any lists yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {lists.map((l) => {
+                  const isMember = memberships.includes(l.id);
+                  return (
+                    <button
+                      key={l.id}
+                      disabled={isMember || !!addingList}
+                      onClick={() => handleAddToList(l.id)}
+                      className={`w-full flex items-center justify-between gap-3 rounded-[12px] border-2 border-[var(--card-shell)] px-3 py-2.5 text-left transition ${
+                        isMember ? "bg-[var(--card-shell)]/10 text-[var(--ink-muted)] cursor-not-allowed" : "bg-white hover:bg-[var(--card-fill)]"
+                      }`}
+                    >
+                      <span className="text-sm font-semibold text-[var(--ink-dark)] truncate">{l.name}</span>
+                      {isMember ? (
+                        <span className="text-[10px] font-bold text-[var(--ink-muted)] uppercase flex-shrink-0">Added</span>
+                      ) : addingList === l.id ? (
+                        <span className="text-[10px] font-bold text-[var(--ink-muted)] uppercase flex-shrink-0">Adding…</span>
+                      ) : (
+                        <Plus className="h-4 w-4 text-[var(--ink-dark)] flex-shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </AnalysisShell>
   );
 }

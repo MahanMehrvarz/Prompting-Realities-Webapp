@@ -439,20 +439,28 @@ export type ThreadSummary = {
 };
 
 export type CodeHighlight = {
+  kind?: "message" | "instruction";
   highlight_id: string;
-  thread_id: string;
-  session_id: string;
-  assistant_id: string;
-  assistant_name: string;
-  selected_text: string;
-  source_field: "user_text" | "response_text" | "both";
-  created_by: string;
-  created_at: string;
-  message_texts: {
+  // Message highlight fields (kind === "message")
+  thread_id?: string;
+  session_id?: string;
+  source_field?: "user_text" | "response_text" | "both";
+  message_texts?: {
     message_id: string;
     user_text: string | null;
     response_text: string | null;
   }[];
+  // Instruction highlight fields (kind === "instruction")
+  older_version_id?: string;
+  newer_version_id?: string;
+  char_start?: number;
+  char_end?: number;
+  // Common
+  assistant_id: string;
+  assistant_name: string;
+  selected_text: string;
+  created_by: string;
+  created_at: string;
   codes: { id: string; name: string; color: string }[];
 };
 
@@ -668,9 +676,9 @@ export const analysisApi = {
   deleteInstructionHighlight: (highlightId: string, token: string) =>
     apiFetch<void>(`/analysis/instruction-highlights/${highlightId}`, token, { method: "DELETE" }),
 
-  getInstructionHighlights: (assistantId: string, listId: string, token: string) =>
+  getInstructionHighlights: (assistantId: string, listId: string | null, token: string) =>
     apiFetch<InstructionHighlight[]>(
-      `/analysis/assistant/${assistantId}/instruction-highlights?list_id=${listId}`,
+      `/analysis/assistant/${assistantId}/instruction-highlights${listId ? `?list_id=${listId}` : ""}`,
       token,
       { method: "GET" }
     ),
