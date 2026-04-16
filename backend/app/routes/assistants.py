@@ -37,18 +37,9 @@ async def update_api_key(
     logger.info(f"🔑 [Backend] Updating API key for assistant {request.assistant_id}")
     
     try:
-        # Import here to avoid circular dependency
-        from supabase import create_client
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-        
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-        
-        # Initialize Supabase client
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        # Use shared Supabase client
+        from ..config import get_supabase_client
+        supabase = get_supabase_client()
         
         # Verify the assistant belongs to the user
         response = supabase.table("assistants").select("id, supabase_user_id").eq("id", request.assistant_id).execute()
@@ -104,18 +95,9 @@ async def get_api_key(
     logger.info(f"🔑 [Backend] Retrieving API key for assistant {assistant_id}")
     
     try:
-        # Import here to avoid circular dependency
-        from supabase import create_client
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-        
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-        
-        # Initialize Supabase client
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        # Use shared Supabase client
+        from ..config import get_supabase_client
+        supabase = get_supabase_client()
 
         
         # Verify the assistant belongs to the user

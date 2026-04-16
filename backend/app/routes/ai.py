@@ -101,18 +101,10 @@ async def chat_with_openai(
     
     try:
         # Import here to avoid circular dependency
-        from supabase import create_client
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..config import get_supabase_client
         from ..encryption import decrypt_api_key
         
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-        
-        # Initialize Supabase client
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client()
         
         # Fetch assistant configuration from database
         logger.info(f"🔍 [Backend] Fetching assistant configuration for {request.assistant_id}")
@@ -255,18 +247,10 @@ async def publish_to_mqtt(
     
     try:
         # Import here to avoid circular dependency
-        from supabase import create_client
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..config import get_supabase_client
         from ..encryption import decrypt_api_key
         
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-        
-        # Initialize Supabase client
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client()
         
         # Fetch assistant configuration from database
         logger.info(f"🔍 [Backend] Fetching assistant configuration for {request.assistant_id}")
@@ -409,18 +393,10 @@ async def transcribe_audio(
     
     try:
         # Import here to avoid circular dependency
-        from supabase import create_client
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..config import get_supabase_client
         from ..encryption import decrypt_api_key
         
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-        
-        # Initialize Supabase client
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client()
         
         # Fetch assistant configuration from database
         logger.info(f"🔍 [Backend] Fetching assistant configuration for {assistant_id}")
@@ -532,21 +508,13 @@ async def text_to_speech(
 
     try:
         # Import here to avoid circular dependency
-        from supabase import create_client
         from openai import OpenAI
         from fastapi.responses import StreamingResponse
         import io
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..config import get_supabase_client
         from ..encryption import decrypt_api_key
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-
-        # Initialize Supabase client
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client()
 
         # Fetch assistant configuration from database
         logger.info(f"🔍 [Backend] Fetching assistant configuration for {request.assistant_id}")
@@ -651,16 +619,9 @@ async def get_mqtt_credentials(
     logger.info(f"🔑 [Backend] User ID: {user_id} (anonymous: {user_id is None})")
 
     try:
-        from supabase import create_client
-        from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        from ..config import get_supabase_client
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client()
 
         # Fetch assistant configuration
         logger.info(f"🔍 [Backend] Fetching MQTT config for {assistant_id}")
@@ -717,17 +678,10 @@ async def _get_assistant_and_key(assistant_id: str) -> Tuple[dict, str]:
 
     Raises HTTPException on any failure so callers don't need to repeat error handling.
     """
-    from supabase import create_client
-    from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+    from ..config import get_supabase_client
     from ..encryption import decrypt_api_key
 
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Supabase configuration is missing",
-        )
-
-    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    supabase = get_supabase_client()
     response = supabase.table("assistants").select("*").eq("id", assistant_id).execute()
 
     if not response.data or len(response.data) == 0:

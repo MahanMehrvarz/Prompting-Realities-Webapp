@@ -11,6 +11,22 @@ from .config import SUPABASE_URL, SUPABASE_JWT_SECRET
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
+# Cache PyJWKClient instances per Supabase URL. A new client performs HTTP
+# setup and loses its in-memory key cache, so reinstantiating per request
+# negates the point of `cache_keys=True`.
+_jwks_clients: dict[str, PyJWKClient] = {}
+
+
+def _get_jwks_client(supabase_url: str) -> PyJWKClient:
+    client = _jwks_clients.get(supabase_url)
+    if client is None:
+        client = PyJWKClient(
+            f"{supabase_url}/auth/v1/.well-known/jwks.json",
+            cache_keys=True,
+        )
+        _jwks_clients[supabase_url] = client
+    return client
+
 
 def get_current_user_email(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -47,9 +63,8 @@ def get_current_user_email(
                 options={"verify_aud": False}
             )
         elif algorithm == "RS256":
-            # Use JWKS for RS256 tokens
-            jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-            jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+            # Use JWKS for RS256 tokens (client is cached at module level)
+            jwks_client = _get_jwks_client(SUPABASE_URL)
             signing_key = jwks_client.get_signing_key_from_jwt(token)
             payload = jwt.decode(
                 token,
@@ -125,9 +140,8 @@ def get_current_user_id(
                 options={"verify_aud": False}
             )
         elif algorithm == "RS256":
-            # Use JWKS for RS256 tokens
-            jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-            jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+            # Use JWKS for RS256 tokens (client is cached at module level)
+            jwks_client = _get_jwks_client(SUPABASE_URL)
             signing_key = jwks_client.get_signing_key_from_jwt(token)
             payload = jwt.decode(
                 token,

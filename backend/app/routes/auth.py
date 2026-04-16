@@ -7,9 +7,8 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from supabase import create_client
 
-from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from ..config import get_supabase_client
 from ..mqtt_manager import mqtt_manager
 from ..security import get_current_user_id, get_current_user_email
 
@@ -44,14 +43,7 @@ async def logout(
     mqtt_connections_closed = 0
     
     try:
-        # Initialize Supabase client
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase configuration is missing"
-            )
-        
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client()
         
         # 1. Find all assistants belonging to this user
         logger.info(f"🔍 [Backend] Finding assistants for user {user_id}")

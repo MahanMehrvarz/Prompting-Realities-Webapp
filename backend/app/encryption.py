@@ -15,18 +15,28 @@ if not ENCRYPTION_SECRET:
     raise RuntimeError("ENCRYPTION_SECRET environment variable is required")
 
 
+_FERNET: Fernet | None = None
+
+
 def _get_fernet() -> Fernet:
     """
-    Generate a Fernet cipher from the encryption secret.
-    Uses PBKDF2 to derive a proper key from the secret.
+    Return a cached Fernet cipher derived from ENCRYPTION_SECRET.
+
+    PBKDF2 with 100k iterations is expensive (~60-120 ms). Since the
+    secret is static for the lifetime of the process, we derive the key
+    once on first use and reuse the Fernet instance for every subsequent
+    encrypt/decrypt call.
     """
+    global _FERNET
+    if _FERNET is not None:
+        return _FERNET
+
     if not ENCRYPTION_SECRET:
         raise RuntimeError("ENCRYPTION_SECRET is not set")
-    
+
     # Use a fixed salt for deterministic key derivation
-    # In production, you might want to use a configurable salt
     salt = b"prompting_realities_salt_v1"
-    
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -34,7 +44,8 @@ def _get_fernet() -> Fernet:
         iterations=100000,
     )
     key = base64.urlsafe_b64encode(kdf.derive(ENCRYPTION_SECRET.encode()))
-    return Fernet(key)
+    _FERNET = Fernet(key)
+    return _FERNET
 
 
 def encrypt_api_key(api_key: str) -> str:

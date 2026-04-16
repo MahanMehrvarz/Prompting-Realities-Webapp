@@ -22,6 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { isAdmin as checkIsAdmin, clearAdminCache } from "@/lib/isAdmin";
 import {
   assistantService,
   sessionService,
@@ -308,15 +309,9 @@ export default function Home() {
         if (session.user.email) {
           window.localStorage.setItem("pr-auth-email", session.user.email);
           
-          // Check admin status
+          // Check admin status (cached in sessionStorage to skip repeat round-trips)
           try {
-            const { data: adminData } = await supabase
-              .from("admin_emails")
-              .select("email")
-              .eq("email", session.user.email)
-              .maybeSingle();
-            
-            setIsAdmin(!!adminData);
+            setIsAdmin(await checkIsAdmin(session.user.email));
           } catch (error) {
             logger.error("Error checking admin status:", error);
           }
@@ -815,17 +810,9 @@ export default function Home() {
         return;
       }
 
-      // Verify admin status before exporting
+      // Verify admin status before exporting (cached in sessionStorage after first check)
       try {
-        const { data: adminData, error: adminError } = await supabase
-          .from("admin_emails")
-          .select("email")
-          .eq("email", user.email)
-          .maybeSingle();
-        
-        if (adminError) throw adminError;
-        
-        if (!adminData) {
+        if (!(await checkIsAdmin(user.email))) {
           alert("Access denied. You do not have permission to export data.");
           return;
         }
@@ -1199,6 +1186,7 @@ export default function Home() {
       setUserEmail(null);
       window.localStorage.removeItem(TOKEN_STORAGE_KEY);
       window.localStorage.removeItem("pr-auth-email");
+      clearAdminCache();
     }
   };
 

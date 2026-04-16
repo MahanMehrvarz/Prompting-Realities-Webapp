@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Bot, MessageSquare, User } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { isAdmin } from "@/lib/isAdmin";
 import { analysisApi, type AnalysisCode, type CodeHighlight } from "@/lib/backendApi";
 import AnalysisShell from "../../../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../../../AnalysisBreadcrumbContext";
@@ -40,8 +41,7 @@ export default function CodeHighlightsPage() {
       const tok = session.access_token;
       window.localStorage.setItem(TOKEN_KEY, tok);
       setToken(tok);
-      const { data: adminData } = await supabase.from("admin_emails").select("email").eq("email", session.user.email!).maybeSingle();
-      if (!adminData) { router.push("/"); return; }
+      if (!(await isAdmin(session.user.email!))) { router.push("/"); return; }
       setReady(true);
     });
   }, [router]);

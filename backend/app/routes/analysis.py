@@ -11,16 +11,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from supabase import create_client
 
-from ..config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from ..config import get_supabase_client
 from ..security import get_current_user_email
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 
 def get_supabase():
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return get_supabase_client()
 
 
 def require_admin(email: str = Depends(get_current_user_email)) -> str:
