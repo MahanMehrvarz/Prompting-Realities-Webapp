@@ -38,21 +38,28 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 # ---------------------------------------------------------------------------
-# Shared Supabase client
+# Supabase client
 # ---------------------------------------------------------------------------
 #
-# Route handlers previously instantiated a new client on every request via
-# ``create_client(...)``. Each call pays HTTP client setup cost and loses the
-# benefits of connection keep-alive. We lazily initialise one client per
-# process and reuse it.
-
-_supabase_client = None
+# We previously cached a single Supabase client process-wide. That broke in
+# production: Supabase/PostgREST closes idle HTTP/2 connections after a
+# short window, and the cached client's httpx session kept serving requests
+# on the stale connection, raising
+# ``httpx.RemoteProtocolError: ConnectionTerminated`` and turning every
+# analysis endpoint into a 500 until the worker restarted.
+#
+# We now build a fresh client per call. The cost is a small httpx setup
+# (~1-2 ms on a warm worker), negligible compared to the Supabase round
+# trip, and the connection-reuse story is handled per-request rather than
+# spanning the whole worker lifetime.
 
 
 def get_supabase_client():
-    """Return a process-wide cached Supabase client."""
-    global _supabase_client
-    if _supabase_client is None:
-        from supabase import create_client
-        _supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-    return _supabase_client
+    """Return a fresh Supabase client.
+
+    Intentionally not cached — see comment above. If you need to shave the
+    httpx setup cost, wrap this with a cache that detects
+    ``httpx.RemoteProtocolError`` and rebuilds, but do not cache blindly.
+    """
+    from supabase import create_client
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
