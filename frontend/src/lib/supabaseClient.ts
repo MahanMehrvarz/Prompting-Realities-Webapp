@@ -1,18 +1,14 @@
 /**
  * Supabase client for direct database operations.
  * This client is used for CRUD operations on assistants, sessions, and messages.
+ *
+ * Re-exports the single shared Supabase instance from supabase.ts to avoid
+ * creating multiple GoTrueClient instances (which causes auth race conditions).
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { supabase as supabaseClient } from "./supabase";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("Missing Supabase URL or anonymous key");
-}
-
-export const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+export { supabaseClient };
 
 // Database types
 export type Assistant = {

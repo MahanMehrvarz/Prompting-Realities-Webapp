@@ -502,10 +502,16 @@ def get_instruction_history(assistant_id: str, admin: str = Depends(require_admi
     """Return all saved instruction versions for an assistant, newest first.
     If no history exists, falls back to the assistant's current prompt_instruction."""
     sb = get_supabase()
-    res = sb.table("instruction_history").select("*").eq("assistant_id", assistant_id).order("saved_at", desc=True).execute()
+    try:
+        res = sb.table("instruction_history").select("*").eq("assistant_id", assistant_id).order("saved_at", desc=True).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"instruction_history query: {e}")
     history = res.data or []
     if not history:
-        a_res = sb.table("assistants").select("name, prompt_instruction, created_at").eq("id", assistant_id).maybeSingle().execute()
+        try:
+            a_res = sb.table("assistants").select("name, prompt_instruction, created_at").eq("id", assistant_id).maybeSingle().execute()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"assistant fallback query: {e}")
         a = a_res.data
         if a and a.get("prompt_instruction"):
             history = [{

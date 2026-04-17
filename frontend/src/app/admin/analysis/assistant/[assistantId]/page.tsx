@@ -55,17 +55,31 @@ export default function AssistantThreadsStandalonePage() {
 
   const fetchData = useCallback(async (tok: string) => {
     try {
-      const [threadsData, { data: aData }, instructionsData, listsData] = await Promise.all([
+      const [threadsResult, assistantResult, instructionsResult, listsResult] = await Promise.allSettled([
         analysisApi.getThreadsStandalone(assistantId, tok),
         supabase.from("assistants").select("name").eq("id", assistantId).maybeSingle(),
         analysisApi.getInstructionHistory(assistantId, tok),
         analysisApi.getLists(tok),
-      ]);
-      setThreads(threadsData);
-      const name = aData?.name || "LLM Thing";
+      ]).then((results) => results.map((r) => r.status === "fulfilled" ? r.value : null)) as [
+        Awaited<ReturnType<typeof analysisApi.getThreadsStandalone>> | null,
+        { data: { name: string } | null } | null,
+        Awaited<ReturnType<typeof analysisApi.getInstructionHistory>> | null,
+        Awaited<ReturnType<typeof analysisApi.getLists>> | null,
+      ];
+
+      // Assistant name is critical — if we can't even resolve that, bail
+      const aData = assistantResult?.data;
+      if (!aData) {
+        router.push("/admin/analysis");
+        return;
+      }
+
+      const name = aData.name || "LLM Thing";
       setAssistantName(name);
       setCrumbs([{ label: name }]);
-      setInstructions(instructionsData);
+      setThreads(threadsResult ?? []);
+      setInstructions(instructionsResult ?? []);
+      const listsData = listsResult ?? [];
       setLists(listsData);
       // Compute memberships by checking each list's items
       const membershipChecks = await Promise.all(
