@@ -502,12 +502,14 @@ export default function Home() {
     }
     
     try {
+      const confirmUrl = new URL("/auth/confirm", window.location.origin);
+      if (redirectPath) {
+        confirmUrl.searchParams.set("next", redirectPath);
+      }
       const { error } = await supabase.auth.signInWithOtp({
         email: authEmail,
         options: {
-          emailRedirectTo: redirectPath 
-            ? `${window.location.origin}${redirectPath}`
-            : window.location.origin,
+          emailRedirectTo: confirmUrl.toString(),
         },
       });
       

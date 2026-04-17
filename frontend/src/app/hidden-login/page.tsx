@@ -112,13 +112,15 @@ export default function HiddenLoginPage() {
     } else {
       // Sign up with email and password
       try {
+        const confirmUrl = new URL("/auth/confirm", window.location.origin);
+        if (redirectPath) {
+          confirmUrl.searchParams.set("next", redirectPath);
+        }
         const { data, error } = await supabase.auth.signUp({
           email: authEmail,
           password: authPassword,
           options: {
-            emailRedirectTo: redirectPath 
-              ? `${window.location.origin}${redirectPath}`
-              : window.location.origin,
+            emailRedirectTo: confirmUrl.toString(),
           },
         });
         
