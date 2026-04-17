@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
@@ -12,7 +12,7 @@ import { supabase } from "@/lib/supabase";
  *
  * We call verifyOtp client-side so the session is created in the browser.
  */
-export default function AuthConfirmPage() {
+function AuthConfirmInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -72,5 +72,21 @@ export default function AuthConfirmPage() {
         <p className="text-sm text-[var(--ink-muted)]">Confirming...</p>
       </div>
     </div>
+  );
+}
+
+export default function AuthConfirmPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[var(--background)]">
+          <div className="card-panel max-w-md w-full p-6 text-center">
+            <p className="text-sm text-[var(--ink-muted)]">Confirming...</p>
+          </div>
+        </div>
+      }
+    >
+      <AuthConfirmInner />
+    </Suspense>
   );
 }
