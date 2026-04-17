@@ -509,7 +509,7 @@ def get_instruction_history(assistant_id: str, admin: str = Depends(require_admi
     history = res.data or []
     if not history:
         try:
-            a_res = sb.table("assistants").select("name, prompt_instruction, created_at").eq("id", assistant_id).maybeSingle().execute()
+            a_res = sb.table("assistants").select("name, prompt_instruction, created_at").eq("id", assistant_id).maybe_single().execute()
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"assistant fallback query: {e}")
         a = a_res.data
