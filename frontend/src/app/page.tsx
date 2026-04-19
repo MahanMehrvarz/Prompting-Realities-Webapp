@@ -261,6 +261,7 @@ export default function Home() {
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const assistantsRef = useRef<Assistant[]>([]);
+  const fetchLockRef = useRef(false);
   const [selectedAssistantId, setSelectedAssistantId] = useState<string | null>(null);
   const [activeConfigSection, setActiveConfigSection] = useState<ConfigSection>("prompt");
   const [copiedAssistantId, setCopiedAssistantId] = useState<string | null>(null);
@@ -299,64 +300,55 @@ export default function Home() {
 
   useEffect(() => {
     let isMounted = true;
-    
-    // Check for existing Supabase session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session && isMounted) {
-        setAuthToken(session.access_token);
-        setUserEmail(session.user.email ?? null);
-        window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
-        if (session.user.email) {
-          window.localStorage.setItem("pr-auth-email", session.user.email);
-          
-          // Check admin status (cached in sessionStorage to skip repeat round-trips)
-          try {
-            setIsAdmin(await checkIsAdmin(session.user.email));
-          } catch (error) {
-            logger.error("Error checking admin status:", error);
-          }
-        }
-        setCheckingAdminStatus(false);
-        
-        // Only fetch assistants on initial mount, not on every tab switch
-        if (assistants.length === 0 && !initialLoadComplete) {
-          fetchAssistants();
-        }
-      } else {
-        setCheckingAdminStatus(false);
-      }
-    });
 
-    // Listen for auth state changes
+    const handleSession = async (session: { access_token: string; user: { email?: string } } | null) => {
+      if (!session || !isMounted) {
+        if (!session) {
+          setAuthToken(null);
+          setUserEmail(null);
+          window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+          window.localStorage.removeItem("pr-auth-email");
+        }
+        setCheckingAdminStatus(false);
+        return;
+      }
+      setAuthToken(session.access_token);
+      setUserEmail(session.user.email ?? null);
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
+      if (session.user.email) {
+        window.localStorage.setItem("pr-auth-email", session.user.email);
+        try {
+          setIsAdmin(await checkIsAdmin(session.user.email));
+        } catch (error) {
+          logger.error("Error checking admin status:", error);
+        }
+      }
+      setCheckingAdminStatus(false);
+
+      // Fetch once — ref lock prevents concurrent/duplicate calls
+      if (!fetchLockRef.current) {
+        fetchLockRef.current = true;
+        fetchAssistants();
+      }
+    };
+
+    // Check for existing Supabase session
+    supabase.auth.getSession().then(({ data: { session } }) => handleSession(session));
+
+    // Listen for auth state changes (token refresh, sign-in, sign-out)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!isMounted) return;
-      
-      if (session) {
-        setAuthToken(session.access_token);
-        setUserEmail(session.user.email ?? null);
-        window.localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
-        if (session.user.email) {
-          window.localStorage.setItem("pr-auth-email", session.user.email);
-        }
-        // Only fetch assistants if we don't have any yet AND haven't loaded before
-        if (assistants.length === 0 && !initialLoadComplete) {
-          fetchAssistants();
-        }
-      } else {
-        setAuthToken(null);
-        setUserEmail(null);
-        window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-        window.localStorage.removeItem("pr-auth-email");
-      }
+      handleSession(session);
     });
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [assistants.length, initialLoadComplete]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchAssistants = async () => {
     // Only show loading skeleton on initial load
@@ -368,50 +360,52 @@ export default function Home() {
       if (!user) return;
       
       const records = await assistantService.list(user.id);
-      const formatted = await Promise.all(records.map(async (record) => {
+      const assistantIds = records.map((r) => r.id);
+      const currentToken = authToken || window.localStorage.getItem(TOKEN_STORAGE_KEY);
+
+      // Batch: fetch API key status + latest sessions in parallel (2 requests instead of 2N)
+      const [apiKeyMap, sessionsMap] = await Promise.all([
+        currentToken
+          ? backendApi.getApiKeysBatch(assistantIds, currentToken).catch((err) => {
+              logger.error("Failed to batch-check API keys", err);
+              return {} as Record<string, boolean>;
+            })
+          : ({} as Record<string, boolean>),
+        sessionService.getLatestForAssistants(assistantIds).catch((err) => {
+          logger.error("Failed to batch-fetch sessions", err);
+          return {} as Record<string, import("@/lib/supabaseClient").AssistantSession>;
+        }),
+      ]);
+
+      const formatted = records.map((record) => {
         const assistant = formatAssistant(record);
-        
-        // Check if API key exists in database (encrypted) - use current authToken from state
-        const currentToken = authToken || window.localStorage.getItem(TOKEN_STORAGE_KEY);
-        if (currentToken) {
-          try {
-            const apiKeyResponse = await backendApi.getApiKey(assistant.id, currentToken);
-            if (apiKeyResponse.has_api_key) {
-              // Set a placeholder to indicate API key exists
-              assistant.apiKey = "••••••••••••••••••••••••••••••••••••••••••••••••••";
-            }
-          } catch (error) {
-            logger.error(`Failed to check API key for assistant ${assistant.id}`, error);
-          }
+
+        // API key from batch result
+        if (apiKeyMap[assistant.id]) {
+          assistant.apiKey = "••••••••••••••••••••••••••••••••••••••••••••••••••";
         }
-        
-        // Load MQTT password from localStorage (still stored locally)
+
+        // MQTT password from localStorage
         const storedMqttPass = window.localStorage.getItem(`${MQTT_PASS_STORAGE_PREFIX}${assistant.id}`);
         if (storedMqttPass) {
           assistant.mqttPass = storedMqttPass;
         }
-        
-        // Check for active or latest session
-        try {
-          const latestSession = await sessionService.getLatestForAssistant(assistant.id);
-          if (latestSession) {
-            assistant.lastSessionId = latestSession.id;
-            assistant.lastShareToken = latestSession.share_token;
-            
-            // If session is active, set it as running
-            if (latestSession.active && latestSession.status === "running") {
-              assistant.status = "running";
-              assistant.activeSessionId = latestSession.id;
-              assistant.shareToken = latestSession.share_token;
-              assistant.mqttConnected = latestSession.mqtt_connected;
-            }
+
+        // Session from batch result
+        const latestSession = sessionsMap[assistant.id];
+        if (latestSession) {
+          assistant.lastSessionId = latestSession.id;
+          assistant.lastShareToken = latestSession.share_token;
+          if (latestSession.active && latestSession.status === "running") {
+            assistant.status = "running";
+            assistant.activeSessionId = latestSession.id;
+            assistant.shareToken = latestSession.share_token;
+            assistant.mqttConnected = latestSession.mqtt_connected;
           }
-        } catch (error) {
-          logger.error(`Failed to fetch session for assistant ${assistant.id}`, error);
         }
-        
+
         return assistant;
-      }));
+      });
       
       // Update assistants state, preserving chat history, MQTT log, and unsaved edits for existing assistants
       setAssistants((prevAssistants) => {

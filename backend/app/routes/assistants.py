@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -137,3 +137,23 @@ async def get_api_key(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve API key: {str(exc)}"
         )
+
+
+class BatchApiKeyRequest(BaseModel):
+    assistant_ids: List[str]
+
+
+@router.post("/get-api-keys-batch")
+async def get_api_keys_batch(
+    request: BatchApiKeyRequest,
+    user_id: str = Depends(get_current_user_id),
+) -> Dict[str, bool]:
+    """Check API key existence for multiple assistants in one call."""
+    from ..config import get_supabase_client
+    sb = get_supabase_client()
+    res = sb.table("assistants").select("id, openai_key").eq("supabase_user_id", user_id).in_("id", request.assistant_ids).execute()
+    result: Dict[str, bool] = {}
+    for row in (res.data or []):
+        key = row.get("openai_key", "")
+        result[row["id"]] = bool(key and isinstance(key, str) and len(key.strip()) > 0)
+    return result

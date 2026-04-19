@@ -246,6 +246,23 @@ export const backendApi = {
   },
 
   /**
+   * Check API key existence for multiple assistants in one call.
+   */
+  async getApiKeysBatch(
+    assistantIds: string[],
+    token: string
+  ): Promise<Record<string, boolean>> {
+    return apiFetch<Record<string, boolean>>(
+      "/assistants/get-api-keys-batch",
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({ assistant_ids: assistantIds }),
+      }
+    );
+  },
+
+  /**
    * Clean up all LLM resources when a user logs out.
    * Stops all active sessions and disconnects MQTT connections.
    */

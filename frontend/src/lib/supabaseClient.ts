@@ -177,6 +177,25 @@ export const sessionService = {
     if (error) throw error;
     return data as AssistantSession | null;
   },
+
+  async getLatestForAssistants(assistantIds: string[]) {
+    if (assistantIds.length === 0) return {} as Record<string, AssistantSession>;
+    const { data, error } = await supabaseClient
+      .from("assistant_sessions")
+      .select("*")
+      .in("assistant_id", assistantIds)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    // Group by assistant_id, keep only the latest (first) per assistant
+    const latest: Record<string, AssistantSession> = {};
+    for (const row of (data || [])) {
+      if (!latest[row.assistant_id]) {
+        latest[row.assistant_id] = row as AssistantSession;
+      }
+    }
+    return latest;
+  },
 };
 
 export const messageService = {
