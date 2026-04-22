@@ -37,34 +37,56 @@ This feature introduces a qualitative analysis workspace into the admin interfac
 ## 3. User Stories
 
 ### Layout & Navigation
-- As an admin, all analysis pages share a persistent sticky header showing a "Dashboard" link, the "Analysis" label, and a dynamic breadcrumb that updates based on current page depth (e.g. Analysis / My List / GPT-4o / …abc12345), so I can navigate back and forth without losing context.
+- As an admin, all analysis pages share a persistent sticky header showing a "Dashboard" link, the "Analysis" label, and a dynamic breadcrumb that updates based on current page depth (e.g. Analysis / My List / LLM Thing / …abc12345), so I can navigate back and forth without losing context.
+- As an admin, breadcrumbs are context-aware: standalone assistant views show `Analysis / [name]`, while list-scoped views show `Analysis / [list] / [name] / [thread]`.
 - As an admin, analysis pages use full browser width (up to 1536px) so that cards and conversation views can make use of available screen space.
 
 ### List Management
 - As an admin, I can create a new list with a name and optional description so that I can scope my analysis project.
+- As an admin, I can create a new list inline from the "Add to list" modal on any assistant card, without leaving the current page.
 - As an admin, I can rename or delete a list. Deleting a list cascades to all its items, codes, groups, and highlights.
-- As an admin, I can see all lists I and other admins have created on the main analysis page, with item count and code count shown on each list card.
+- As an admin, I can see all lists I and other admins have created on the right side of the analysis landing page, with item count and code count shown on each list card.
 
-### Assistant & Thread Browsing
-- As an admin, I can search all non-deleted assistants from the main analysis page to identify relevant ones to include in a project.
-- As an admin, each assistant card on the browse page shows: assistant name, date created, total thread count, last used date, and which lists it belongs to — without showing the system prompt text.
-- As an admin, I can click an assistant card (when it belongs to at least one list) to navigate directly to its thread list. If it belongs to multiple lists, a picker popover lets me choose which list context to open.
-- As an admin, I can add an assistant to one or more lists from the assistant card via the "+ Lists" button.
+### Assistant Browsing & Standalone View
+- As an admin, I can search all non-deleted assistants (called "LLM Things") from the main analysis page to identify relevant ones to include in a project.
+- As an admin, I can filter assistants by date created (date range picker), and sort by created date, last used, thread count, or message count. Active filters appear as removable chips.
+- As an admin, the assistant browse grid is paginated (20 per page) with prev/next navigation.
+- As an admin, each assistant card on the browse page shows: assistant name, date created, total thread count, total message count, last used date, instruction version count, and which lists it belongs to.
+- As an admin, I can click any assistant card to navigate to a **standalone assistant detail page** showing Sessions and Instructions tabs in read-only mode.
+- As an admin, I can add an assistant to one or more lists from the assistant card via the "+ Lists" button, or from the standalone detail page via the "+ Add to list to code" button.
+
+### Standalone Assistant Detail (Read-Only)
+- As an admin, clicking an assistant card from the browse page opens a standalone detail page (`/admin/analysis/assistant/[id]`) with two tabs: Sessions and Instructions.
+- As an admin, the Sessions tab shows all threads with message count, timestamps, and code count badges. I can sort and filter by date and message count.
+- As an admin, clicking a thread from the standalone view opens it in **read-only mode** — I can view the conversation but cannot assign codes.
+- As an admin, the Instructions tab shows the instruction version timeline in read-only mode with a notice: "Read-only. Add to list to code instructions."
+- As an admin, the standalone page shows a prominent "+ Add to list to code" button. Adding the assistant to a list unlocks the full coding interface.
+
+### List-Scoped Assistant View (Read-Write)
 - As an admin, I can open a list and see all assistants added to it as cards showing: thread count, last used date, date added, and added-by.
-- As an admin, I can click an assistant card within a list to browse all its threads (sessions), seeing message count, start date, last activity date, and whether the thread has any codes.
+- As an admin, I can click an assistant card within a list to open a list-scoped detail page with Sessions and Instructions tabs, both with full coding capability.
 - As an admin, I can filter the thread list by "coded only" (threads with at least one highlight), and sort/filter by date started or last activity with a date range picker.
-- As an admin, I can click a thread to open the conversation view.
+- As an admin, I can click a thread to open the conversation view with full coding capability.
 - As an admin, I can see at a glance which threads have codes (highlighted badge with count) without opening them.
 
 ### Coding (Message-Level)
-- As an admin, I can click on any message bubble in the conversation view to select it; selected messages show a checkmark indicator.
+- As an admin, I can click on any message bubble in the conversation view to select it; selected messages show a checkmark indicator and a colored border (green for user, dark for assistant).
 - As an admin, I can select multiple messages at once (any combination of user and assistant turns) and code them all in one action.
-- As an admin, a floating action bar appears at the bottom of the screen whenever I have one or more messages selected, showing a count and an "Assign code" button.
-- As an admin, clicking "Assign code" opens a code tooltip (centered at the bottom of the viewport) where I can search existing codes or create a new one.
-- As an admin, I can create a new code directly from the tooltip if no existing code fits, and it is immediately applied to the selected messages.
+- As an admin, a floating action bar appears at the bottom of the screen whenever I have one or more messages selected, showing a count, an "Assign code" button, and a clear selection button.
+- As an admin, clicking "Assign code" opens a code picker tooltip (fixed at the bottom-center of the viewport) where I can search existing codes or create a new one.
+- As an admin, I can create a new code directly from the picker if no existing code fits, and it is immediately applied to the selected messages.
 - As an admin, after assigning a code, the selection is cleared and the coded messages show color chips indicating which codes have been applied.
 - As an admin, I can apply multiple codes to the same message by selecting it again and assigning another code.
+- As an admin, I can toggle off a code by clicking an already-assigned code in the picker, which removes that code from all selected messages.
 - As an admin, I can remove a code assignment from a message directly from the code chip shown on the message bubble.
+- As an admin, coding is only available on threads opened within a list context. Standalone thread views are read-only.
+
+### Coding (Instruction-Level)
+- As an admin, I can view the instruction version timeline for any assistant within a list context, showing all saved prompt instruction versions chronologically.
+- As an admin, I can compare any two instruction versions side-by-side in a DiffView that highlights word-level changes (green for additions, red strikethrough for removals).
+- As an admin, I can select text spans within the DiffView to highlight and assign codes to instruction changes.
+- As an admin, the instruction code picker works the same way as the message picker — search, select, or create codes inline.
+- As an admin, instruction highlights are stored with character offsets and associated with specific version pairs (older_version_id, newer_version_id).
 
 ### Codebook Management
 - As an admin, I can view all codes in the current list's codebook in a collapsible side panel within the conversation view.
@@ -74,14 +96,16 @@ This feature introduces a qualitative analysis workspace into the admin interfac
 - As an admin, I can create and rename code groups (themes) and assign codes to them.
 - As an admin, I can delete a code; this removes all its highlight assignments but does not delete the highlights themselves.
 
-### Code Quotations Page
+### Codes & Quotations
+- As an admin, each list has a "Codes & Quotations" tab accessible from the list detail page, showing all codes with their usage counts.
 - As an admin, I can navigate to a dedicated page for any code that shows all messages tagged with that code, grouped by thread.
 - As an admin, consecutive highlights from the same thread created within 5 minutes of each other are merged into a single card showing the full continuous dialogue, with a badge indicating "N messages · continuous dialogue" and dashed dividers between exchanges.
 - As an admin, each quotation card shows the user and assistant message bubbles tinted in the code's color, along with the creator's email and timestamp.
 - As an admin, each thread group on the quotations page has a link to open the full thread in the conversation view.
 
 ### Export
-- As an admin, I can export a list's codebook and all associated quotes in CSV or JSON format.
+- As an admin, I can export a list's codebook and all associated quotes in CSV or JSON format from the list detail page.
+- As an admin, I click the "Export" button which reveals a dropdown to choose format. The file is downloaded directly.
 - Exported quotes include the full message text for context.
 
 ### Attribution
@@ -582,218 +606,143 @@ Query params: `format` = `csv` or `json` (default `json`).
 
 ### 6.1 Page: `/admin/analysis`
 
-**Purpose:** Entry point for the analysis feature. Two main panels:
-1. Left/top: Browse all non-deleted assistants. Search bar + grid of `AssistantCard` components (4 per row).
-2. Right/bottom (or tab): Manage lists. Show all lists as cards; create new list button.
+**Purpose:** Entry point. Two-panel layout:
+1. **Left (main):** Browse all non-deleted assistants ("LLM Things"). Search bar + filter/sort panel + paginated grid of assistant cards (3 per row). 20 items per page.
+2. **Right (sidebar):** "My Lists" panel with list cards and "+ New List" button.
 
 **State:**
-- `assistants: AssistantSummary[]` — fetched from `GET /analysis/assistants`
+- `assistants: AssistantBrowseItem[]` — fetched from `GET /analysis/assistants` with pagination
 - `lists: AnalysisList[]` — fetched from `GET /analysis/lists`
-- `search: string` — debounced search input
-- `addToListModal: { open: boolean, assistantId: string | null }` — controls "pick a list" modal
+- `search: string` — debounced 300ms search input
+- Filter/sort: sort field (created_at, last_used, thread_count, message_count), order (asc/desc), date range
+- `addToListModal` — controls "pick a list" modal with inline list creation
 
 **Key interactions:**
-- Clicking an assistant card's "Add to List" button opens a modal listing all lists with checkboxes. Submitting calls `POST /analysis/lists/{list_id}/items` for newly checked lists.
+- Clicking an assistant card navigates to standalone detail: `/admin/analysis/assistant/[id]`.
+- Clicking "+ Lists" on a card opens a modal with all lists + inline create. Submitting calls `POST /analysis/lists/{list_id}/items`.
 - Clicking a list card navigates to `/admin/analysis/lists/[listId]`.
-- "New List" button opens an inline form or modal with name + description fields.
+- Active filters shown as removable chips with "Clear all" option.
 
 ---
 
-### 6.2 Page: `/admin/analysis/lists/[listId]`
+### 6.2 Page: `/admin/analysis/assistant/[assistantId]` (Standalone)
 
-**Purpose:** List/project view. Shows:
-- List metadata (name, description, created by, created at). Edit button.
-- Grid of assistant cards for assistants added to this list.
-- `CodebookPanel` as a collapsible right sidebar (or bottom drawer on narrow screens).
-- Export button (triggers format selection then download).
+**Purpose:** Read-only assistant detail, accessible from the browse grid without requiring list membership.
+
+**Layout:** Two tabs:
+1. **Sessions** — shows all threads with message count, timestamps, code count badges. Client-side sort/filter by date and message count.
+2. **Instructions** — instruction version timeline in read-only mode with notice: "Read-only. Add to list to code."
 
 **State:**
-- `list: AnalysisList`
-- `items: ListItem[]`
-- `codes: AnalysisCode[]`
-- `codeGroups: AnalysisCodeGroup[]`
-- `codebookOpen: boolean`
+- `threads: ThreadSummary[]`, `instructions: InstructionVersion[]`, `lists: AnalysisList[]`
+- `memberships: string[]` — which lists this assistant belongs to
+
+**Key interactions:**
+- Clicking a thread opens it in read-only mode: `/admin/analysis/lists/none/thread/[threadId]?session=...&assistant=...`
+- Prominent "+ Add to list to code" button (or "+ Add to another list" if already in lists) opens the add-to-list modal.
+- After adding to a list, coding becomes available through the list-scoped views.
+
+---
+
+### 6.3 Page: `/admin/analysis/lists/[listId]`
+
+**Purpose:** List/project detail view with two tabs:
+1. **LLM Things** — grid of assistant cards for assistants in this list. Shows thread count, last used, date added, added-by.
+2. **Codes & Quotations** — browse all codes with usage counts; click to see quotations.
+
+Also shows: list metadata (name, description, edit inline), export button.
 
 **Key interactions:**
 - Clicking an assistant card navigates to `/admin/analysis/lists/[listId]/assistant/[assistantId]`.
-- Remove assistant button on each card calls `DELETE /analysis/lists/{list_id}/items/{assistant_id}`.
-- Export button opens a small dropdown: "Export as JSON" / "Export as CSV". Triggers file download.
+- Export button opens dropdown: "Export as JSON" / "Export as CSV". Downloads via blob URL with auth header.
+- Tab switching via `ListTabStrip` component.
 
 ---
 
-### 6.3 Page: `/admin/analysis/lists/[listId]/assistant/[assistantId]`
+### 6.4 Page: `/admin/analysis/lists/[listId]/assistant/[assistantId]` (List-Scoped)
 
-**Purpose:** Thread browser. Shows all threads (sessions) for the given assistant, scoped to the list context.
+**Purpose:** Assistant detail with full coding capability, scoped to a list context.
 
-**Layout:** List of `ThreadCard` components. Each card shows: session ID (truncated), device ID, message count, highlight count (from this list), first/last message timestamps.
-
-**State:**
-- `threads: ThreadSummary[]` — fetched from `GET /analysis/lists/{list_id}/assistant/{assistant_id}/threads`
-- `assistantName: string` — from the list items already loaded or a lightweight fetch
+**Layout:** Same two tabs as standalone, but with coding enabled:
+1. **Sessions** — threads with sort/filter + "coded only" toggle. Click to open coding view.
+2. **Instructions** — full `InstructionTimeline` with DiffView and code assignment on instruction text spans.
 
 **Key interactions:**
-- Clicking a thread card navigates to `/admin/analysis/lists/[listId]/thread/[threadId]`.
-- Back button returns to the list view.
+- Clicking a thread navigates to the coding view: `/admin/analysis/lists/[listId]/thread/[threadId]`.
+- Instruction tab: select text in DiffView → code picker → assign codes to instruction changes.
 
 ---
 
-### 6.4 Page: `/admin/analysis/lists/[listId]/thread/[threadId]`
+### 6.5 Page: `/admin/analysis/lists/[listId]/thread/[threadId]`
 
-**Purpose:** Conversation view with highlighting and coding.
+**Purpose:** Main coding interface — conversation view with message-level coding.
 
 **Layout:**
-- Left column (narrow, collapsible): `CodebookPanel` — shows codes for this list.
-- Main column: `HighlightableText` renders the full conversation thread, message by message.
-- Floating: `CodeTooltip` appears at the selection position when text is selected.
-
-**State:**
-- `messages: ChatMessage[]`
-- `highlights: HighlightWithCodes[]`
-- `codes: AnalysisCode[]`
-- `codeGroups: AnalysisCodeGroup[]`
-- `activeSelection: SelectionState | null` — tracks current text selection for tooltip
-- `activeHighlight: string | null` — highlight ID currently hovered/clicked (for popover detail)
+- **Right sidebar** (collapsible): `CodebookPanel` — all codes for this list, grouped by theme.
+- **Main column:** Message bubbles (user right-aligned dark, assistant left-aligned light). Each bubble is clickable for selection.
+- **Floating action bar:** Appears at bottom-center when messages are selected. Shows count + "Assign code" button.
+- **Code picker tooltip:** Fixed at bottom-center, appears when "Assign code" is clicked.
 
 **Data flow:**
 1. On mount: fetch `GET /analysis/lists/{list_id}/thread/{thread_id}`. Populate messages and highlights.
-2. User selects text → browser `selection` event captured → compute offsets → set `activeSelection` → show `CodeTooltip`.
-3. User picks or creates code in tooltip → `POST /analysis/highlights` → `POST /analysis/highlights/{id}/codes` → refetch highlights → re-render.
+2. User clicks message bubbles to select → floating action bar appears.
+3. User clicks "Assign code" → code picker tooltip appears with search + create.
+4. User picks or creates code → highlights saved → selection cleared → code chips appear on coded messages.
+
+**Read-only fallback:** When `listId` is `"none"` (standalone access), coding UI is hidden. A header prompt encourages adding to a list.
 
 ---
 
-### 6.5 Component: `AssistantCard`
+### 6.6 Page: `/admin/analysis/lists/[listId]/codes` and `.../codes/[codeId]`
 
-**Props:**
-```typescript
-interface AssistantCardProps {
-  assistant: {
-    id: string;
-    name: string;
-    system_prompt: string;
-    created_at: string;
-    list_memberships: string[];
-  };
-  allLists: AnalysisList[];
-  onAddToList: (assistantId: string, listId: string) => void;
-  onRemoveFromList?: (assistantId: string, listId: string) => void;
-  variant: 'browse' | 'list-item';
-}
-```
+**Purpose:** Browse codes and their quotations for a list.
+- **Codes list** (`/codes`): All codes with usage counts, grouped by theme.
+- **Code detail** (`/codes/[codeId]`): All message highlights tagged with this code, grouped by thread. Consecutive highlights merged into cards with "N messages · continuous dialogue" badge.
 
-**Appearance:** Rounded card with assistant name, a truncated system prompt preview (2 lines max), created date. "In [N] lists" badge if `list_memberships.length > 0`. "Add to List" button (browse variant) or "Remove" button (list-item variant).
+**Key interactions:**
+- Click a quotation card link to jump to the full thread in the coding view.
 
 ---
 
-### 6.6 Component: `ThreadCard`
+### 6.7 Component: `InstructionTimeline`
 
-**Props:**
-```typescript
-interface ThreadCardProps {
-  thread: {
-    thread_id: string;
-    session_id: string;
-    device_id: string;
-    message_count: number;
-    highlight_count: number;
-    first_message_at: string;
-    last_message_at: string;
-  };
-  onClick: () => void;
-}
-```
+**Purpose:** Displays instruction version history with optional DiffView for comparing versions and coding instruction changes.
 
-**Appearance:** Card with thread ID (last 8 chars), device ID, message count, highlight count (with a tag icon), and relative timestamps. Highlight count shown as a colored badge if > 0.
+**Modes:**
+- **Read-only** (`listId={null}`): Shows timeline, DiffView for visual comparison, but no coding UI.
+- **Full** (`listId` provided): Adds text selection → code picker → assign codes to instruction text spans.
 
----
-
-### 6.7 Component: `HighlightableText`
-
-**Purpose:** Renders a full conversation thread. Wraps each message's `user_text` and `response_text` in a container that supports text selection and renders overlaid highlight spans.
-
-**Props:**
-```typescript
-interface HighlightableTextProps {
-  messages: ChatMessage[];
-  highlights: HighlightWithCodes[];
-  onSelectionChange: (selection: SelectionState | null) => void;
-  activeHighlightId: string | null;
-  onHighlightClick: (highlightId: string) => void;
-}
-```
-
-**Internal logic:**
-- Each message is rendered in two blocks: user bubble (right-aligned) and assistant bubble (left-aligned), matching the existing chat UI conventions.
-- Each text block has a `data-message-id` and `data-field` (`user_text` or `response_text`) attribute on its wrapper.
-- On `mouseup` / `pointerup`, the component reads `window.getSelection()`, walks the DOM to find the enclosing message wrapper(s), computes character offsets, and calls `onSelectionChange` with a `SelectionState` object.
-- Highlights are rendered as `<mark>` elements with inline `background-color` from the first assigned code's color. When multiple codes are applied, a small stacked-pill indicator is shown at the right edge of the highlight span.
-- Highlights are sorted by `char_start` within each message block to avoid DOM conflicts. Overlapping highlights are rendered in layers (later highlight on top, semi-transparent).
-
-**SelectionState type:**
-```typescript
-interface SelectionState {
-  selectedText: string;
-  messageIds: string[];
-  charStart: number;
-  charEnd: number;
-  sourceField: 'user_text' | 'response_text' | 'both';
-  anchorRect: DOMRect;
-}
-```
+**DiffView:** Side-by-side word-level diff. Green for additions, red strikethrough for removals. User can select text spans in the diff and assign codes. Highlights stored with `char_start`/`char_end` and version pair references.
 
 ---
 
 ### 6.8 Component: `CodeTooltip`
 
-**Purpose:** Floating popup that appears at the text selection position. Allows picking an existing code or creating a new one.
+**Purpose:** Floating code picker used in both message coding and instruction coding.
 
-**Props:**
-```typescript
-interface CodeTooltipProps {
-  selection: SelectionState;
-  listId: string;
-  codes: AnalysisCode[];
-  onCodeSelect: (codeId: string) => void;
-  onCodeCreate: (name: string, color: string) => Promise<string>; // returns new code id
-  onDismiss: () => void;
-}
-```
+**Two variants:**
+1. **Message picker** (thread page): Fixed at bottom-center of viewport, 300px wide, triggered by "Assign code" button.
+2. **Instruction picker** (InstructionTimeline): Positioned at mouse selection point.
 
-**Layout:**
-- Positioned absolutely using `selection.anchorRect` (appears above the selection end, or below if near the top of the viewport).
-- Search input at the top (auto-focused). Placeholder: "Search or create code…".
-- Scrollable list below the input: codes filtered by fuzzy match against the search string. Each item shows a color dot, code name, and usage count. Highlighted on hover. Click to apply.
-- If no exact match exists and the search field is non-empty, a "Create '[search term]'" option appears at the bottom of the list with a "+" icon. Clicking it picks a random color from a preset palette, calls `onCodeCreate`, then immediately calls `onCodeSelect` with the returned ID.
-- "Cancel" / click-away dismisses the tooltip.
-
-**Fuzzy matching:** Uses a simple trigram or prefix/contains match. No external library required. Case-insensitive.
+**Shared behavior:**
+- Auto-focused search input filters codes by name (case-insensitive contains match).
+- Click code to toggle assignment (assigns if not on all selected items, unassigns if already on all).
+- "Create '[query]'" button appears when no exact match found. Requires explicit click (Enter only works on single exact match).
+- Created codes auto-assigned to current selection and appear in CodebookPanel under Ungrouped.
 
 ---
 
 ### 6.9 Component: `CodebookPanel`
 
-**Purpose:** Right sidebar (or collapsible drawer) showing all codes and groups for the current list.
-
-**Props:**
-```typescript
-interface CodebookPanelProps {
-  listId: string;
-  codes: AnalysisCode[];
-  codeGroups: AnalysisCodeGroup[];
-  onCodeUpdate: (codeId: string, updates: Partial<AnalysisCode>) => void;
-  onCodeDelete: (codeId: string) => void;
-  onGroupCreate: (name: string) => void;
-  onGroupUpdate: (groupId: string, updates: Partial<AnalysisCodeGroup>) => void;
-  onGroupDelete: (groupId: string) => void;
-  readOnly?: boolean;
-}
-```
+**Purpose:** Right sidebar showing all codes and groups for the current list. Visible in thread coding view.
 
 **Layout:**
-- Header: "Codebook" title + "New Code" button + "New Group" button.
-- Codes grouped by their `group_name`, with an "Ungrouped" section at the bottom for codes with no group.
-- Each code row: color swatch (clickable to open color picker) | code name (inline-editable on click) | usage count badge | kebab menu (Rename, Change color, Edit description, Move to group, Delete).
-- Each group row: group name (inline-editable) | code count | collapse/expand toggle | kebab menu (Rename, Recolor, Delete group).
-- Deleting a group shows a confirmation: "Codes will be moved to Ungrouped." Deleting a code shows: "This will remove [N] code assignments. The highlights will remain."
+- Header: "Codebook" title.
+- Codes grouped by theme, with "Ungrouped" section for codes without a group.
+- Each code row: color swatch | code name (inline-editable) | usage count badge | kebab menu (Rename, Change color, Edit description, Move to group, Delete).
+- Each group: collapsible, with rename/delete options.
+- Deleting a group moves codes to Ungrouped. Deleting a code removes assignments but not highlights.
+- Click code name to navigate to quotations page.
 
 ---
 
@@ -802,57 +751,81 @@ interface CodebookPanelProps {
 ### Flow 1: Create a List and Add an Assistant
 
 1. Admin navigates to `/admin/analysis`.
-2. Clicks "New List" button (top right of the lists panel).
-3. A modal opens with fields: Name (required), Description (optional). Clicks "Create".
-4. The new list card appears in the lists grid.
-5. Admin finds an assistant in the browse grid (can type in the search bar to filter).
-6. Clicks "Add to List" on the assistant card.
-7. A modal appears listing all lists with checkboxes. The new list is visible.
-8. Admin checks the list. Clicks "Save".
-9. The assistant card now shows "In 1 list" badge. The list card shows "1 assistant".
+2. Clicks "+ New List" button (top right of the "My Lists" sidebar).
+3. A modal opens with Name field. Clicks "Create".
+4. The new list card appears in the sidebar.
+5. Admin finds an assistant in the browse grid (can type in search bar, apply sort/filter).
+6. Clicks "+ Lists" on the assistant card.
+7. A modal appears listing all lists. Can also create a new list inline from this modal.
+8. Admin selects the list. Clicks OK.
+9. The assistant card now shows "In 1 list" badge. The list card updates its count.
 
-### Flow 2: Browse Threads and Open a Conversation
+### Flow 2: Explore an Assistant (Standalone / Read-Only)
+
+1. Admin clicks an assistant card from the browse grid → navigates to `/admin/analysis/assistant/[id]`.
+2. Sees the Sessions tab with all threads listed, sortable/filterable by date and message count.
+3. Clicks a thread → opens in read-only mode. Can view the full conversation but cannot assign codes.
+4. Switches to the Instructions tab → sees instruction version timeline with DiffView, but no coding controls.
+5. If the admin wants to code, they click "+ Add to list to code" → selects a list → can now open the list-scoped views.
+
+### Flow 3: Browse Threads and Open a Conversation (List Context)
 
 1. Admin clicks a list card → navigates to `/admin/analysis/lists/[listId]`.
-2. Sees the assistant added in Flow 1 as a card.
-3. Clicks the assistant card → navigates to `/admin/analysis/lists/[listId]/assistant/[assistantId]`.
-4. Sees a list of `ThreadCard` components with session info and timestamps.
-5. Clicks a thread with several messages → navigates to `/admin/analysis/lists/[listId]/thread/[threadId]`.
-6. The full conversation renders. Any prior highlights (from this list) are already shown with color backgrounds.
+2. Sees assistants added to this list as cards. Switches to "Codes & Quotations" tab if needed.
+3. Clicks an assistant card → navigates to `/admin/analysis/lists/[listId]/assistant/[assistantId]`.
+4. Sees threads with code count badges. Can toggle "coded only" filter or sort by date/message count.
+5. Clicks a thread → navigates to the coding view.
+6. The full conversation renders. Prior highlights show as color chips on coded messages.
 
-### Flow 3: Highlight Text and Assign a Code
+### Flow 4: Code Messages
 
-1. In the conversation view, admin selects a span of text in the assistant's response by clicking and dragging.
-2. Mouse up → `CodeTooltip` appears just above the selected text, positioned at the end of the selection.
-3. Tooltip auto-focuses on the search input.
-4. Admin sees a list of existing codes. Types "Conf" → list filters to codes containing "Conf" (e.g. "Confusion", "Confirmation").
-5. Clicks "Confusion" → tooltip closes.
-6. The selected text now has a colored background (Confusion code's color).
-7. Admin selects another span overlapping partially with the first. Picks a different code. Both highlights are visible with their respective colors.
+1. In the conversation view, admin clicks message bubbles to select them (checkmark + colored border appears).
+2. Can select multiple messages (any combination of user and assistant turns).
+3. A floating action bar appears at the bottom with count and "Assign code" button.
+4. Admin clicks "Assign code" → code picker tooltip opens at bottom-center.
+5. Types "Conf" → list filters to matching codes (e.g. "Confusion", "Confirmation").
+6. Clicks "Confusion" → code assigned to all selected messages → selection clears → color chips appear on messages.
+7. Admin selects the same message again and assigns another code → message now shows multiple code chips.
 
-### Flow 4: Create a New Code from the Tooltip
+### Flow 5: Create a New Code from the Picker
 
-1. Admin selects text. `CodeTooltip` opens.
-2. Types "Hedging" — no match found in the list.
-3. A "+ Create 'Hedging'" option appears at the bottom.
-4. Admin clicks it → a new code "Hedging" is created with a randomly assigned color from the preset palette.
-5. The code is immediately applied to the highlight.
-6. The new code appears in the `CodebookPanel` in the Ungrouped section.
+1. Admin selects messages. Clicks "Assign code". Picker opens.
+2. Types "Hedging" — no match found.
+3. A "Create 'Hedging'" option appears with dashed border and + icon.
+4. Admin clicks it → new code created with random color from preset palette.
+5. Code immediately applied to selected messages.
+6. New code appears in the `CodebookPanel` sidebar under Ungrouped.
 
-### Flow 5: Organize Codes in the Codebook Panel
+### Flow 6: Code Instruction Changes
 
-1. From the list view or thread view, admin opens the `CodebookPanel` sidebar.
+1. Admin opens an assistant within a list → switches to Instructions tab.
+2. Sees the instruction version timeline. Selects two versions to compare.
+3. DiffView shows word-level diff (green additions, red strikethrough removals).
+4. Admin selects a text span within the diff by clicking and dragging.
+5. Code picker appears at the selection point. Admin assigns or creates a code.
+6. The selected text span is highlighted with the code's color in the DiffView.
+
+### Flow 7: Organize Codes in the Codebook Panel
+
+1. From the thread coding view, admin opens the `CodebookPanel` sidebar (if collapsed).
 2. Clicks "New Group". Types "Epistemic Markers". Presses Enter.
-3. Uses the kebab menu "Move to Group" option on the "Hedging" code to assign it to the group.
-4. Admin clicks the color swatch on "Hedging" to open an inline color picker. Picks a muted yellow.
+3. Uses the kebab menu on the "Hedging" code → "Move to Group" → selects "Epistemic Markers".
+4. Admin clicks the color swatch on "Hedging" → color picker opens → picks a muted yellow.
 5. All existing highlights coded as "Hedging" immediately re-render with the new color.
 
-### Flow 6: Export a List
+### Flow 8: Review Quotations
+
+1. From a list view, admin switches to "Codes & Quotations" tab.
+2. Sees all codes with usage counts. Clicks a code to open its quotations page.
+3. Quotations are grouped by thread. Consecutive highlights are merged into cards with dialogue context.
+4. Admin clicks a thread link on a quotation card → jumps to the full thread coding view.
+
+### Flow 9: Export a List
 
 1. From `/admin/analysis/lists/[listId]`, admin clicks the "Export" button.
-2. A small dropdown appears: "Export as JSON" / "Export as CSV".
+2. A dropdown appears: "Export as JSON" / "Export as CSV".
 3. Admin selects CSV.
-4. Browser downloads `My List Name-export-2026-04-13.csv`.
+4. Browser downloads the export file.
 5. CSV contains one row per highlight–code pair, including selected text, full message text for context, assistant name, and attribution.
 
 ---
