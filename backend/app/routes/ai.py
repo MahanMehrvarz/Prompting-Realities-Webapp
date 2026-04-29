@@ -603,6 +603,8 @@ class MqttCredentialsResponse(BaseModel):
     mqtt_user: str | None = None
     mqtt_pass: str | None = None
     mqtt_topic: str | None = None
+    mqtt_receiver_topic: str | None = None
+    mqtt_auto_subscribe: bool = False
 
 
 @router.get("/mqtt/credentials/{assistant_id}", response_model=MqttCredentialsResponse)
@@ -626,7 +628,7 @@ async def get_mqtt_credentials(
         # Fetch assistant configuration
         logger.info(f"🔍 [Backend] Fetching MQTT config for {assistant_id}")
         response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic"
+            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic, mqtt_receiver_topic, mqtt_auto_subscribe"
         ).eq("id", assistant_id).execute()
 
         if not response.data or len(response.data) == 0:
@@ -648,6 +650,8 @@ async def get_mqtt_credentials(
         mqtt_user = assistant.get("mqtt_user")
         mqtt_pass = assistant.get("mqtt_pass")
         mqtt_topic = assistant.get("mqtt_topic")
+        mqtt_receiver_topic = assistant.get("mqtt_receiver_topic")
+        mqtt_auto_subscribe = assistant.get("mqtt_auto_subscribe", False)
 
         logger.info(f"✅ [Backend] MQTT config retrieved: host={mqtt_host}, port={mqtt_port}, topic={mqtt_topic}")
 
@@ -657,6 +661,8 @@ async def get_mqtt_credentials(
             mqtt_user=mqtt_user,
             mqtt_pass=mqtt_pass,
             mqtt_topic=mqtt_topic,
+            mqtt_receiver_topic=mqtt_receiver_topic,
+            mqtt_auto_subscribe=bool(mqtt_auto_subscribe),
         )
 
     except HTTPException:

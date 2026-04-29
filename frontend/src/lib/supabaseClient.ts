@@ -22,6 +22,8 @@ export type Assistant = {
   mqtt_user: string | null;
   mqtt_pass: string | null;
   mqtt_topic: string;
+  mqtt_receiver_topic: string | null;
+  mqtt_auto_subscribe: boolean;
   created_at: string;
   updated_at: string;
 };

@@ -55,6 +55,8 @@ type EditableField =
   | "mqttUser"
   | "mqttPass"
   | "mqttTopic"
+  | "mqttReceiverTopic"
+  | "mqttAutoSubscribe"
   | "apiKey";
 
 type ChatMessage = {
@@ -74,6 +76,8 @@ type Assistant = {
   mqttUser?: string;
   mqttPass?: string;
   mqttTopic: string;
+  mqttReceiverTopic: string;
+  mqttAutoSubscribe: boolean;
   apiKey?: string;
   status: AssistantStatus;
   mqttConnected: boolean;
@@ -202,6 +206,8 @@ const formatAssistant = (record: DbAssistant): Assistant => ({
   mqttPort: String(record.mqtt_port ?? 1883),
   mqttUser: record.mqtt_user ?? undefined,
   mqttTopic: record.mqtt_topic ?? "",
+  mqttReceiverTopic: record.mqtt_receiver_topic ?? "",
+  mqttAutoSubscribe: record.mqtt_auto_subscribe ?? false,
   status: "idle",
   mqttConnected: false,
   lastUpdated: record.updated_at,
@@ -426,6 +432,8 @@ export default function Home() {
               mqttPort: existingAssistant.mqttPort,
               mqttUser: existingAssistant.mqttUser,
               mqttTopic: existingAssistant.mqttTopic,
+              mqttReceiverTopic: existingAssistant.mqttReceiverTopic,
+              mqttAutoSubscribe: existingAssistant.mqttAutoSubscribe,
               // Keep localStorage values (MQTT password) and preserve API key from backend
               mqttPass: existingAssistant.mqttPass,
               // Use the newly fetched API key from backend (newAssistant already has it)
@@ -581,6 +589,8 @@ export default function Home() {
         mqtt_user: assistant.mqttUser || null,
         mqtt_pass: assistant.mqttPass || null,
         mqtt_topic: assistant.mqttTopic,
+        mqtt_receiver_topic: assistant.mqttReceiverTopic || null,
+        mqtt_auto_subscribe: assistant.mqttAutoSubscribe,
       });
       
       // Update local state with parsed schema
@@ -614,6 +624,8 @@ export default function Home() {
         mqtt_port: 1883,
         mqtt_user: null,
         mqtt_pass: null,
+        mqtt_receiver_topic: null,
+        mqtt_auto_subscribe: false,
       });
       const formatted = formatAssistant(record);
       setAssistants((prev) => [...prev, formatted]);
@@ -647,6 +659,8 @@ export default function Home() {
         mqtt_user: source.mqttUser ?? null,
         mqtt_topic: newTopic,
         mqtt_pass: null,
+        mqtt_receiver_topic: source.mqttReceiverTopic || null,
+        mqtt_auto_subscribe: source.mqttAutoSubscribe,
       });
 
       const formatted = formatAssistant(record);
@@ -1760,6 +1774,32 @@ export default function Home() {
                         className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)]"
                       />
                     </div>
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs text-[var(--ink-muted)]">Receiver Topic</span>
+                      <input
+                        value={selectedAssistant.mqttReceiverTopic}
+                        onChange={(event) =>
+                          handleFieldChange(selectedAssistant.id, "mqttReceiverTopic", event.target.value)
+                        }
+                        placeholder="topic/incoming"
+                        className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)]"
+                      />
+                    </div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedAssistant.mqttAutoSubscribe}
+                        onChange={(event) => {
+                          updateAssistantState(selectedAssistant.id, (a) => ({
+                            ...a,
+                            mqttAutoSubscribe: event.target.checked,
+                            lastUpdated: new Date().toISOString(),
+                          }));
+                        }}
+                        className="h-4 w-4 rounded border-[var(--card-shell)] accent-[var(--foreground)]"
+                      />
+                      <span className="text-xs text-[var(--ink-muted)]">Auto-subscribe all sessions to receiver topic</span>
+                    </label>
                     <p className="text-xs text-[var(--ink-muted)]">
                       Credentials never leave the server. TLS is enforced automatically when port 8883 is used.
                     </p>
