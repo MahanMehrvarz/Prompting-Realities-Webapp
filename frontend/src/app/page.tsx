@@ -1787,17 +1787,6 @@ export default function Home() {
                         className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)]"
                       />
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <span className="text-xs text-[var(--ink-muted)]">Receiver Topic</span>
-                      <input
-                        value={selectedAssistant.mqttReceiverTopic}
-                        onChange={(event) =>
-                          handleFieldChange(selectedAssistant.id, "mqttReceiverTopic", event.target.value)
-                        }
-                        placeholder="topic/incoming"
-                        className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)]"
-                      />
-                    </div>
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1811,8 +1800,23 @@ export default function Home() {
                         }}
                         className="h-4 w-4 rounded border-[var(--card-shell)] accent-[var(--foreground)]"
                       />
-                      <span className="text-xs text-[var(--ink-muted)]">Auto-subscribe all sessions to receiver topic</span>
+                      <span className="text-xs text-[var(--ink-muted)]">Force receiver topic on all chat sessions</span>
                     </label>
+                    <p className="text-xs text-[var(--ink-muted)] ml-7 -mt-1">
+                      When enabled, all chat sessions automatically connect to the receiver topic below. A background listener keeps the connection alive even when no one is chatting.
+                    </p>
+                    <div className={`flex flex-col gap-2 transition-opacity ${selectedAssistant.mqttAutoSubscribe ? "" : "opacity-40 pointer-events-none"}`}>
+                      <span className="text-xs text-[var(--ink-muted)]">Receiver Topic</span>
+                      <input
+                        value={selectedAssistant.mqttReceiverTopic}
+                        onChange={(event) =>
+                          handleFieldChange(selectedAssistant.id, "mqttReceiverTopic", event.target.value)
+                        }
+                        placeholder="topic/incoming"
+                        disabled={!selectedAssistant.mqttAutoSubscribe}
+                        className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)] disabled:cursor-not-allowed"
+                      />
+                    </div>
                     <p className="text-xs text-[var(--ink-muted)]">
                       Credentials never leave the server. TLS is enforced automatically when port 8883 is used.
                     </p>
