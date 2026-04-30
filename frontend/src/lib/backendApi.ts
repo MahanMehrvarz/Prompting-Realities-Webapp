@@ -316,6 +316,58 @@ export const backendApi = {
   },
 
   /**
+   * Start session-0 headless MQTT listener for an assistant.
+   */
+  async startSessionZero(
+    assistantId: string,
+    token?: string
+  ): Promise<{ success: boolean; active: boolean; message: string }> {
+    return apiFetch("/ai/mqtt/session-zero/start", token, {
+      method: "POST",
+      body: JSON.stringify({ assistant_id: assistantId }),
+    });
+  },
+
+  /**
+   * Stop session-0 headless MQTT listener for an assistant.
+   */
+  async stopSessionZero(
+    assistantId: string,
+    token?: string
+  ): Promise<{ success: boolean; active: boolean; message: string }> {
+    return apiFetch("/ai/mqtt/session-zero/stop", token, {
+      method: "POST",
+      body: JSON.stringify({ assistant_id: assistantId }),
+    });
+  },
+
+  /**
+   * Chat session signals MQTT ready — hands off from session-0 to browser.
+   */
+  async sessionZeroHandoff(
+    assistantId: string,
+    token?: string
+  ): Promise<{ success: boolean; active: boolean; message: string }> {
+    return apiFetch("/ai/mqtt/session-zero/handoff", token, {
+      method: "POST",
+      body: JSON.stringify({ assistant_id: assistantId }),
+    });
+  },
+
+  /**
+   * Revive session-0 when all chat sessions are gone.
+   */
+  async reviveSessionZero(
+    assistantId: string,
+    token?: string
+  ): Promise<{ success: boolean; active: boolean; message: string }> {
+    return apiFetch("/ai/mqtt/session-zero/revive", token, {
+      method: "POST",
+      body: JSON.stringify({ assistant_id: assistantId }),
+    });
+  },
+
+  /**
    * Send a recorded audio blob to the voice-message endpoint.
    * Returns the acknowledgement text and the job message ID immediately.
    * The message ID should be polled via voiceMessageResult().

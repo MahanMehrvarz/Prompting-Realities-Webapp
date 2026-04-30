@@ -268,12 +268,23 @@ export default function AssistantChatPage() {
     // Cleanup: unsubscribe from presence when component unmounts
     return () => {
       if (presenceChannelRef.current) {
+        // Check viewer count before leaving — if we're the last one, revive session-0
+        const state = presenceChannelRef.current.presenceState();
+        const viewers = Object.values(state).flat();
+        if (viewers.length <= 1) {
+          // We're the last viewer — revive session-0 for headless MQTT
+          logger.log("♻️ Last viewer leaving, requesting session-0 revive");
+          const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+          backendApi
+            .reviveSessionZero(assistantId, storedToken || undefined)
+            .catch((err) => logger.error("Session-0 revive failed:", err));
+        }
         presenceChannelRef.current.untrack();
         presenceChannelRef.current.unsubscribe();
         logger.log("🔌 Presence tracking stopped");
       }
     };
-  }, [sessionId, hydrated]);
+  }, [sessionId, hydrated, assistantId]);
 
   // Load messages only once when component mounts or sessionId changes
   useEffect(() => {
@@ -857,6 +868,23 @@ export default function AssistantChatPage() {
       );
     }
   }, [mqttCredentials, mqttStatus, mqttConnect]);
+
+  // Session-0 handoff: when browser MQTT connects, tell backend to stop session-0
+  const handoffSent = useRef(false);
+  useEffect(() => {
+    if (
+      !handoffSent.current &&
+      mqttAutoSubscribeAttempted.current &&
+      mqttStatus === "connected" &&
+      mqttCredentials?.mqtt_auto_subscribe
+    ) {
+      handoffSent.current = true;
+      logger.log("🔄 [MQTT] Sending session-0 handoff signal");
+      backendApi
+        .sessionZeroHandoff(assistantId, token || undefined)
+        .catch((err) => logger.error("Session-0 handoff failed:", err));
+    }
+  }, [mqttStatus, mqttCredentials, assistantId, token]);
 
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

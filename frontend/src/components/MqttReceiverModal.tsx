@@ -51,6 +51,13 @@ export function MqttReceiverModal({
     }
   }, [isOpen, connectionStatus, defaultHost, defaultTopic, defaultUsername, defaultPassword]);
 
+  // Sync topic field with actual connected topic (fixes stale state after auto-subscribe)
+  useEffect(() => {
+    if (isOpen && connectionStatus === "connected" && currentTopic) {
+      setTopic(currentTopic);
+    }
+  }, [isOpen, connectionStatus, currentTopic]);
+
   if (!isOpen) return null;
 
   const handleSubscribe = () => {

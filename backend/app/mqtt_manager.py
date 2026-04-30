@@ -12,12 +12,17 @@ import paho.mqtt.client as mqtt
 logger = logging.getLogger(__name__)
 
 
+SESSION_ZERO_ID = "__session0__"
+
+
 class MqttConnectionManager:
     """Manages persistent MQTT connections per broker configuration."""
 
     def __init__(self):
         self._connections: Dict[str, mqtt.Client] = {}
         self._lock = asyncio.Lock()
+        # Track active session-0 subscriptions: assistant_id -> connection_key
+        self._session_zero: Dict[str, str] = {}
 
     def _get_connection_key(
         self,
@@ -226,6 +231,109 @@ class MqttConnectionManager:
         """Test connection to MQTT broker."""
         client = await self.get_or_create_connection(host, port, username, password, assistant_name, session_id)
         return client is not None and client.is_connected()
+
+    async def subscribe(
+        self,
+        host: str,
+        port: int,
+        topic: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        assistant_name: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Subscribe to an MQTT topic. Messages are received but discarded (headless listener)."""
+        client = await self.get_or_create_connection(
+            host, port, username, password, assistant_name, session_id
+        )
+        if not client:
+            logger.error(f"Failed to get MQTT connection for subscribe to {host}:{port}")
+            return False
+
+        def on_message(client, userdata, msg):
+            logger.debug(
+                f"📥 [Session-0] Received on {msg.topic}: {msg.payload[:100]!r} (discarded)"
+            )
+
+        client.on_message = on_message
+
+        loop = asyncio.get_event_loop()
+
+        def _subscribe():
+            try:
+                result, mid = client.subscribe(topic, qos=1)
+                return result == mqtt.MQTT_ERR_SUCCESS
+            except Exception as exc:
+                logger.error(f"Failed to subscribe to {topic} - {exc}")
+                return False
+
+        try:
+            success = await loop.run_in_executor(None, _subscribe)
+            if success:
+                logger.info(f"📡 [Session-0] Subscribed to {host}:{port}/{topic}")
+            else:
+                logger.warning(f"⚠️ [Session-0] Failed to subscribe to {host}:{port}/{topic}")
+            return success
+        except Exception as exc:
+            logger.error(f"Exception while subscribing to {topic} - {exc}")
+            return False
+
+    # ── Session-0 (headless receiver) lifecycle ──────────────────────────
+
+    async def start_session_zero(
+        self,
+        assistant_id: str,
+        host: str,
+        port: int,
+        receiver_topic: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        assistant_name: Optional[str] = None,
+    ) -> bool:
+        """Start a headless MQTT subscription (session-0) for an assistant.
+
+        Keeps the MQTT connection alive and subscribed to the receiver topic
+        even when no chat sessions are active.  Messages are discarded.
+        """
+        if assistant_id in self._session_zero:
+            logger.info(f"♻️ [Session-0] Already running for assistant {assistant_id}")
+            return True
+
+        success = await self.subscribe(
+            host, port, receiver_topic,
+            username=username, password=password,
+            assistant_name=assistant_name,
+            session_id=SESSION_ZERO_ID,
+        )
+        if success:
+            key = self._get_connection_key(
+                host, port, username, assistant_name, SESSION_ZERO_ID
+            )
+            self._session_zero[assistant_id] = key
+            logger.info(f"🟢 [Session-0] Started for assistant {assistant_id} on {receiver_topic}")
+        return success
+
+    async def stop_session_zero(self, assistant_id: str) -> bool:
+        """Stop the headless session-0 subscription for an assistant."""
+        key = self._session_zero.pop(assistant_id, None)
+        if not key:
+            logger.info(f"[Session-0] No active session-0 for assistant {assistant_id}")
+            return False
+
+        async with self._lock:
+            client = self._connections.pop(key, None)
+            if client:
+                try:
+                    client.loop_stop()
+                    client.disconnect()
+                    logger.info(f"🔴 [Session-0] Stopped for assistant {assistant_id}")
+                except Exception as exc:
+                    logger.error(f"❌ [Session-0] Error stopping for {assistant_id} - {exc}")
+        return True
+
+    def is_session_zero_active(self, assistant_id: str) -> bool:
+        """Check if session-0 is currently active for an assistant."""
+        return assistant_id in self._session_zero
 
     async def disconnect_session_connections(self, session_id: str) -> int:
         """Disconnect all MQTT connections for a specific session."""

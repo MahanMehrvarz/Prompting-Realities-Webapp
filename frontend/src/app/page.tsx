@@ -732,6 +732,14 @@ export default function Home() {
         lastShareToken: session.share_token,
         lastUpdated: session.updated_at || session.created_at,
       }));
+
+      // Start session-0 headless MQTT listener if auto-subscribe enabled
+      if (selectedAssistant.mqttAutoSubscribe && selectedAssistant.mqttReceiverTopic) {
+        backendApi.startSessionZero(selectedAssistant.id, authToken).catch((err) =>
+          logger.error("Session-0 start failed:", err)
+        );
+      }
+
       await refreshChatHistory(selectedAssistant.id);
     } catch (error) {
       logger.error("Unable to start assistant", error);
@@ -743,6 +751,11 @@ export default function Home() {
     try {
       // Disconnect MQTT connections for this session
       await backendApi.disconnectMqtt(selectedAssistant.activeSessionId, authToken || undefined);
+
+      // Stop session-0 headless listener
+      await backendApi.stopSessionZero(selectedAssistant.id, authToken || undefined).catch((err) =>
+        logger.error("Session-0 stop failed:", err)
+      );
 
       await sessionService.update(selectedAssistant.activeSessionId, {
         status: "stopped",
