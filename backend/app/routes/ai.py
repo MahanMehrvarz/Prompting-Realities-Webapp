@@ -393,7 +393,7 @@ class SessionZeroResponse(BaseModel):
 @router.post("/mqtt/session-zero/start", response_model=SessionZeroResponse)
 async def start_session_zero(
     request: SessionZeroRequest,
-    user_id: str = Depends(current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Start session-0 headless MQTT subscription for an assistant's receiver topic."""
     logger.info(f"🟢 [Backend] Starting session-0 for assistant {request.assistant_id}")
