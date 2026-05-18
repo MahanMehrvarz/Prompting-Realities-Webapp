@@ -28,6 +28,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Voice-Message-ID"],
+    max_age=86400,  # cache preflight OPTIONS for 24h — kills ~150 ms per request
 )
 
 app.include_router(ai.router)

@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import io
 import json
+import time
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -22,11 +23,63 @@ def get_supabase():
     return get_supabase_client()
 
 
+# ---------------------------------------------------------------------------
+# Tiny in-process TTL cache for hot dashboard endpoints.
+# Stats here are not freshness-critical; a 30 s window converts repeat
+# dashboard loads (refresh, tab switching) into ~5 ms memory hits instead
+# of multi-second Supabase round-trips.
+# ---------------------------------------------------------------------------
+
+_cache: dict[str, tuple[float, Any]] = {}
+_CACHE_TTL = 30.0  # seconds
+
+
+def _cache_get(key: str):
+    hit = _cache.get(key)
+    if not hit:
+        return None
+    ts, value = hit
+    if time.time() - ts > _CACHE_TTL:
+        _cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key: str, value: Any) -> None:
+    _cache[key] = (time.time(), value)
+
+
+def _cache_invalidate(prefix: str = "") -> None:
+    if not prefix:
+        _cache.clear()
+        return
+    for k in list(_cache.keys()):
+        if k.startswith(prefix):
+            _cache.pop(k, None)
+
+
+# Admin-membership check is the gate for every analysis request; cache it
+# per-email so we save a Supabase round-trip on every call after the first.
+_admin_cache: dict[str, float] = {}
+_ADMIN_TTL = 300.0  # 5 min — admin list rarely changes
+
+
+def _is_admin_cached(email: str, sb) -> bool:
+    now = time.time()
+    cached = _admin_cache.get(email)
+    if cached and now - cached < _ADMIN_TTL:
+        return True
+    result = sb.table("admin_emails").select("email").eq("email", email).limit(1).execute()
+    if result.data:
+        _admin_cache[email] = now
+        return True
+    return False
+
+
 def require_admin(email: str = Depends(get_current_user_email)) -> str:
     """Verify the caller is in admin_emails; return their email."""
     sb = get_supabase()
-    result = sb.table("admin_emails").select("email").eq("email", email).limit(1).execute()
-    if not result.data:
+    if not _is_admin_cached(email, sb):
         raise HTTPException(status_code=403, detail="Admin access required")
     return email
 
@@ -113,31 +166,34 @@ def _list_with_counts(sb, list_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/lists")
-def get_lists(admin: str = Depends(require_admin)):
+def get_lists(response: Response, admin: str = Depends(require_admin)):
+    response.headers["Cache-Control"] = "private, max-age=30"
+    cached = _cache_get("lists")
+    if cached is not None:
+        return cached
+
     sb = get_supabase()
+    # One RPC aggregates item + code counts per list in Postgres
+    # (replaces previous 3 round-trips with 2).
     rows = sb.table("analysis_lists").select("*").is_("deleted_at", None).order("created_at", desc=True).execute()
     if not rows.data:
+        _cache_set("lists", [])
         return []
 
-    list_ids = [r["id"] for r in rows.data]
-
-    # Batch fetch item counts and code counts in 2 queries instead of 2N
-    all_items = sb.table("analysis_list_items").select("list_id").in_("list_id", list_ids).execute()
-    all_codes = sb.table("analysis_codes").select("list_id").in_("list_id", list_ids).execute()
-
+    counts_res = sb.rpc("list_counts", {}).execute()
     item_count_map: dict[str, int] = {}
-    for r in (all_items.data or []):
-        item_count_map[r["list_id"]] = item_count_map.get(r["list_id"], 0) + 1
-
     code_count_map: dict[str, int] = {}
-    for r in (all_codes.data or []):
-        code_count_map[r["list_id"]] = code_count_map.get(r["list_id"], 0) + 1
+    for c in (counts_res.data or []):
+        lid = c["list_id"]
+        item_count_map[lid] = c.get("item_count") or 0
+        code_count_map[lid] = c.get("code_count") or 0
 
     result = []
     for row in rows.data:
         row["item_count"] = item_count_map.get(row["id"], 0)
         row["code_count"] = code_count_map.get(row["id"], 0)
         result.append(row)
+    _cache_set("lists", result)
     return result
 
 
@@ -151,6 +207,7 @@ def create_list(body: CreateListBody, admin: str = Depends(require_admin)):
     }).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Insert failed")
+    _cache_invalidate()  # lists / counts changed
     return res.data[0]
 
 
@@ -174,6 +231,7 @@ def update_list(list_id: str, body: UpdateListBody, admin: str = Depends(require
     if not updates:
         raise HTTPException(status_code=400, detail="Nothing to update")
     sb.table("analysis_lists").update(updates).eq("id", list_id).is_("deleted_at", None).execute()
+    _cache_invalidate()
     data = _list_with_counts(sb, list_id)
     if not data:
         raise HTTPException(status_code=404, detail="List not found")
@@ -184,6 +242,7 @@ def update_list(list_id: str, body: UpdateListBody, admin: str = Depends(require
 def delete_list(list_id: str, admin: str = Depends(require_admin)):
     sb = get_supabase()
     sb.table("analysis_lists").update({"deleted_at": datetime.utcnow().isoformat()}).eq("id", list_id).execute()
+    _cache_invalidate()
     return None
 
 
@@ -225,6 +284,7 @@ def add_list_item(list_id: str, body: AddListItemBody, admin: str = Depends(requ
         }).execute()
         if not res.data:
             raise HTTPException(status_code=500, detail="Insert failed")
+        _cache_invalidate()
         return res.data[0]
     except HTTPException:
         raise
@@ -285,6 +345,7 @@ def remove_list_item(
         if ihl_ids:
             sb.table("analysis_instruction_highlights").delete().in_("id", ihl_ids).execute()
     sb.table("analysis_list_items").delete().eq("list_id", list_id).eq("assistant_id", assistant_id).execute()
+    _cache_invalidate()
     return None
 
 
@@ -296,6 +357,7 @@ BROWSE_SORT_FIELDS = {"created_at", "last_used", "thread_count", "message_count"
 
 @router.get("/assistants")
 def browse_assistants(
+    response: Response,
     search: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -305,15 +367,22 @@ def browse_assistants(
     date_to: str | None = Query(None),
     admin: str = Depends(require_admin),
 ):
+    response.headers["Cache-Control"] = "private, max-age=30"
     if sort_by not in BROWSE_SORT_FIELDS:
         sort_by = "created_at"
     if sort_dir not in ("asc", "desc"):
         sort_dir = "desc"
 
+    cache_key = f"browse:{search or ''}:{page}:{page_size}:{sort_by}:{sort_dir}:{date_from or ''}:{date_to or ''}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     sb = get_supabase()
 
-    # 1. Fetch all matching assistants (no pagination yet — needed for stats-based sorting)
-    query = sb.table("assistants").select("id, name, created_at").is_("deleted_at", None)
+    # 1. Fetch all matching assistants (no pagination yet — needed for stats-based sorting).
+    #    Include prompt_instruction for the "current version counts as 1" fallback.
+    query = sb.table("assistants").select("id, name, created_at, prompt_instruction").is_("deleted_at", None)
     if search:
         query = query.ilike("name", f"%{search}%")
     rows = query.order("created_at", desc=True).execute()
@@ -322,54 +391,26 @@ def browse_assistants(
     if not all_rows:
         return {"total": 0, "page": page, "page_size": page_size, "items": []}
 
-    all_ids = [r["id"] for r in all_rows]
-
-    # 2. Fetch message stats — paginate to bypass Supabase's default 1000-row cap
-    CHUNK = 1000
-    all_msgs: list[dict] = []
-    offset_m = 0
-    while True:
-        chunk = (
-            sb.table("chat_messages")
-            .select("assistant_id, thread_id, created_at")
-            .in_("assistant_id", all_ids)
-            .range(offset_m, offset_m + CHUNK - 1)
-            .execute()
-        )
-        batch = chunk.data or []
-        all_msgs.extend(batch)
-        if len(batch) < CHUNK:
-            break
-        offset_m += CHUNK
-
-    thread_sets: dict[str, set] = {}
+    # 2 + 3b. One RPC replaces: paginated chat_messages fetch (≈8 round-trips on 7.7k rows)
+    #         + instruction_history fetch. Returns per-assistant stats aggregated in Postgres.
+    stats_res = sb.rpc("assistant_stats", {}).execute()
     msg_count_map: dict[str, int] = {}
+    thread_count_map: dict[str, int] = {}
     last_used_map: dict[str, str] = {}
-
-    for m in all_msgs:
-        aid = m["assistant_id"]
-        tid = m.get("thread_id") or m.get("session_id") or m.get("id")
-        msg_count_map[aid] = msg_count_map.get(aid, 0) + 1
-        if tid:
-            thread_sets.setdefault(aid, set()).add(tid)
-        ts = m.get("created_at")
-        if ts and ts > last_used_map.get(aid, ""):
-            last_used_map[aid] = ts
-
-    thread_count_map = {aid: len(s) for aid, s in thread_sets.items()}
+    instruction_count_map: dict[str, int] = {}
+    for s in (stats_res.data or []):
+        aid = s["assistant_id"]
+        msg_count_map[aid] = s.get("message_count") or 0
+        thread_count_map[aid] = s.get("thread_count") or 0
+        if s.get("last_used"):
+            last_used_map[aid] = s["last_used"]
+        instruction_count_map[aid] = s.get("instruction_version_count") or 0
 
     # 3. Fetch list memberships (one query for all)
     all_items = sb.table("analysis_list_items").select("assistant_id, list_id").execute()
     membership_map: dict[str, list[str]] = {}
     for item in (all_items.data or []):
         membership_map.setdefault(item["assistant_id"], []).append(item["list_id"])
-
-    # 3b. Fetch instruction version counts (one query for all)
-    ih_res = sb.table("instruction_history").select("assistant_id").in_("assistant_id", all_ids).execute()
-    instruction_count_map: dict[str, int] = {}
-    for ih in (ih_res.data or []):
-        aid = ih["assistant_id"]
-        instruction_count_map[aid] = instruction_count_map.get(aid, 0) + 1
 
     # 4. Build enriched list
     items: list[dict] = []
@@ -384,6 +425,7 @@ def browse_assistants(
         if hist_count == 0 and row.get("prompt_instruction"):
             hist_count = 1
         row["instruction_version_count"] = hist_count
+        row.pop("prompt_instruction", None)  # keep response payload small
         items.append(row)
 
     # 5. Apply date filter — always on created_at, independent of sort field
@@ -408,7 +450,9 @@ def browse_assistants(
     offset = (page - 1) * page_size
     page_items = items[offset: offset + page_size]
 
-    return {"total": total, "page": page, "page_size": page_size, "items": page_items}
+    response = {"total": total, "page": page, "page_size": page_size, "items": page_items}
+    _cache_set(cache_key, response)
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -677,6 +721,7 @@ def create_code(list_id: str, body: CreateCodeBody, admin: str = Depends(require
     }).execute()
     if not res.data:
         raise HTTPException(status_code=500, detail="Insert failed")
+    _cache_invalidate("lists")  # code_count changed
     return res.data[0]
 
 
@@ -705,6 +750,7 @@ def update_code(list_id: str, code_id: str, body: UpdateCodeBody, admin: str = D
 def delete_code(list_id: str, code_id: str, admin: str = Depends(require_admin)):
     sb = get_supabase()
     sb.table("analysis_codes").delete().eq("id", code_id).eq("list_id", list_id).execute()
+    _cache_invalidate("lists")
     return None
 
 
