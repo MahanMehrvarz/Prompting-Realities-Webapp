@@ -16,6 +16,8 @@ import { supabase } from "./supabase";
 
 const CACHE_PREFIX = "pr-is-admin:";
 
+const inFlight = new Map<string, Promise<boolean>>();
+
 function cacheGet(email: string): boolean | null {
   if (typeof window === "undefined") return null;
   try {
@@ -42,14 +44,26 @@ export async function isAdmin(email: string): Promise<boolean> {
   const cached = cacheGet(email);
   if (cached !== null) return cached;
 
-  const { data } = await supabase
-    .from("admin_emails")
-    .select("email")
-    .eq("email", email)
-    .maybeSingle();
-  const result = !!data;
-  cacheSet(email, result);
-  return result;
+  const pending = inFlight.get(email);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    try {
+      const { data } = await supabase
+        .from("admin_emails")
+        .select("email")
+        .eq("email", email)
+        .maybeSingle();
+      const result = !!data;
+      cacheSet(email, result);
+      return result;
+    } finally {
+      inFlight.delete(email);
+    }
+  })();
+
+  inFlight.set(email, promise);
+  return promise;
 }
 
 export function clearAdminCache() {

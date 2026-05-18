@@ -38,28 +38,51 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 # ---------------------------------------------------------------------------
-# Supabase client
+# Supabase client (cached singleton with stale-connection auto-rebuild)
 # ---------------------------------------------------------------------------
 #
-# We previously cached a single Supabase client process-wide. That broke in
-# production: Supabase/PostgREST closes idle HTTP/2 connections after a
-# short window, and the cached client's httpx session kept serving requests
-# on the stale connection, raising
-# ``httpx.RemoteProtocolError: ConnectionTerminated`` and turning every
-# analysis endpoint into a 500 until the worker restarted.
+# Background: a previous attempt at a process-wide singleton broke in
+# production because Supabase/PostgREST closes idle HTTP/2 connections and
+# the cached client's httpx session kept reusing the dead connection,
+# raising ``httpx.RemoteProtocolError: ConnectionTerminated``.
 #
-# We now build a fresh client per call. The cost is a small httpx setup
-# (~1-2 ms on a warm worker), negligible compared to the Supabase round
-# trip, and the connection-reuse story is handled per-request rather than
-# spanning the whole worker lifetime.
+# This version keeps the singleton (~5-20 ms saved per call on cross-region
+# hops to eu-west-1) but exposes ``reset_supabase_client()`` so the route
+# layer can rebuild after a stale-connection error. Callers should wrap
+# their first call in a try/except and retry once after reset.
+
+_supabase_client = None
 
 
 def get_supabase_client():
-    """Return a fresh Supabase client.
+    """Return a cached Supabase client, building it on first use."""
+    global _supabase_client
+    if _supabase_client is None:
+        from supabase import create_client
+        _supabase_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return _supabase_client
 
-    Intentionally not cached — see comment above. If you need to shave the
-    httpx setup cost, wrap this with a cache that detects
-    ``httpx.RemoteProtocolError`` and rebuilds, but do not cache blindly.
+
+def reset_supabase_client():
+    """Drop the cached client so the next call rebuilds it.
+
+    Call this after seeing ``httpx.RemoteProtocolError`` or a similar
+    stale-connection failure from a Supabase request.
     """
-    from supabase import create_client
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    global _supabase_client
+    _supabase_client = None
+
+
+def with_supabase_retry(fn):
+    """Run ``fn(client)`` with the cached Supabase client.
+
+    If the call fails with a stale-connection error, reset the client and
+    retry once with a fresh one. Use this to wrap any Supabase query that
+    you would otherwise call directly on ``get_supabase_client()``.
+    """
+    import httpx
+    try:
+        return fn(get_supabase_client())
+    except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError):
+        reset_supabase_client()
+        return fn(get_supabase_client())
