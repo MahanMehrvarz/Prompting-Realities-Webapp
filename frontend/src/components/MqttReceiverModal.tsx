@@ -14,6 +14,7 @@ interface MqttReceiverModalProps {
   defaultTopic?: string | null;
   defaultUsername?: string | null;
   defaultPassword?: string | null;
+  locked?: boolean;
 }
 
 export function MqttReceiverModal({
@@ -28,6 +29,7 @@ export function MqttReceiverModal({
   defaultTopic,
   defaultUsername,
   defaultPassword,
+  locked = false,
 }: MqttReceiverModalProps) {
   // Build the correct WebSocket URL from host, ignoring the TCP port.
   // Browsers connect via WebSocket only: wss://<host>/mqtt for remote, ws://<host>:9001/mqtt for local.
@@ -129,6 +131,11 @@ export function MqttReceiverModal({
           <p className="text-sm text-[var(--foreground)]">
             Subscribe to an MQTT topic to receive messages. Messages will be automatically sent to the AI.
           </p>
+          {locked && (
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
+              Receiver topic is locked by the assistant's configuration. Contact the owner to change it.
+            </div>
+          )}
 
           {/* WebSocket URL */}
           <div className="space-y-1.5">
@@ -144,7 +151,7 @@ export function MqttReceiverModal({
               value={wsUrl}
               onChange={(e) => setWsUrl(e.target.value)}
               placeholder="wss://broker.example.com/mqtt"
-              disabled={isConnected || isConnecting}
+              disabled={isConnected || isConnecting || locked}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
@@ -163,7 +170,7 @@ export function MqttReceiverModal({
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               placeholder="home/sensors/temperature"
-              disabled={isConnected || isConnecting}
+              disabled={isConnected || isConnecting || locked}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
@@ -182,7 +189,7 @@ export function MqttReceiverModal({
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="mqtt_user"
-              disabled={isConnected || isConnecting}
+              disabled={isConnected || isConnecting || locked}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
@@ -201,7 +208,7 @@ export function MqttReceiverModal({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              disabled={isConnected || isConnecting}
+              disabled={isConnected || isConnecting || locked}
               className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-white px-4 py-2.5 text-sm text-[var(--ink-dark)] placeholder:text-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--ink-dark)] focus:ring-offset-2 disabled:bg-gray-100 disabled:text-gray-500"
             />
           </div>
@@ -219,7 +226,8 @@ export function MqttReceiverModal({
             <button
               type="button"
               onClick={onDisconnect}
-              className="rounded-full border-[3px] border-[var(--card-shell)] bg-red-500 px-5 py-2 text-sm font-semibold text-white transition shadow-[3px_3px_0_var(--shadow-deep)] hover:bg-red-600"
+              disabled={locked}
+              className="rounded-full border-[3px] border-[var(--card-shell)] bg-red-500 px-5 py-2 text-sm font-semibold text-white transition shadow-[3px_3px_0_var(--shadow-deep)] hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Disconnect
             </button>
@@ -227,7 +235,7 @@ export function MqttReceiverModal({
             <button
               type="button"
               onClick={handleSubscribe}
-              disabled={!wsUrl || !topic || isConnecting}
+              disabled={!wsUrl || !topic || isConnecting || locked}
               className="rounded-full border-[3px] border-[var(--card-shell)] bg-[#2563eb] px-5 py-2 text-sm font-semibold text-white transition shadow-[3px_3px_0_var(--shadow-deep)] hover:bg-[#1d4ed8] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isConnecting ? (

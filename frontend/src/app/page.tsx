@@ -56,6 +56,7 @@ type EditableField =
   | "mqttPass"
   | "mqttTopic"
   | "mqttReceiverTopic"
+  | "mqttReceiverEnabled"
   | "mqttAutoSubscribe"
   | "apiKey";
 
@@ -77,6 +78,7 @@ type Assistant = {
   mqttPass?: string;
   mqttTopic: string;
   mqttReceiverTopic: string;
+  mqttReceiverEnabled: boolean;
   mqttAutoSubscribe: boolean;
   apiKey?: string;
   status: AssistantStatus;
@@ -207,6 +209,7 @@ const formatAssistant = (record: DbAssistant): Assistant => ({
   mqttUser: record.mqtt_user ?? undefined,
   mqttTopic: record.mqtt_topic ?? "",
   mqttReceiverTopic: record.mqtt_receiver_topic ?? "",
+  mqttReceiverEnabled: record.mqtt_receiver_enabled ?? false,
   mqttAutoSubscribe: record.mqtt_auto_subscribe ?? false,
   status: "idle",
   mqttConnected: false,
@@ -433,6 +436,7 @@ export default function Home() {
               mqttUser: existingAssistant.mqttUser,
               mqttTopic: existingAssistant.mqttTopic,
               mqttReceiverTopic: existingAssistant.mqttReceiverTopic,
+              mqttReceiverEnabled: existingAssistant.mqttReceiverEnabled,
               mqttAutoSubscribe: existingAssistant.mqttAutoSubscribe,
               // Keep localStorage values (MQTT password) and preserve API key from backend
               mqttPass: existingAssistant.mqttPass,
@@ -590,6 +594,7 @@ export default function Home() {
         mqtt_pass: assistant.mqttPass || null,
         mqtt_topic: assistant.mqttTopic,
         mqtt_receiver_topic: assistant.mqttReceiverTopic || null,
+        mqtt_receiver_enabled: assistant.mqttReceiverEnabled,
         mqtt_auto_subscribe: assistant.mqttAutoSubscribe,
       });
       
@@ -625,6 +630,7 @@ export default function Home() {
         mqtt_user: null,
         mqtt_pass: null,
         mqtt_receiver_topic: null,
+        mqtt_receiver_enabled: false,
         mqtt_auto_subscribe: false,
       });
       const formatted = formatAssistant(record);
@@ -660,6 +666,7 @@ export default function Home() {
         mqtt_topic: newTopic,
         mqtt_pass: null,
         mqtt_receiver_topic: source.mqttReceiverTopic || null,
+        mqtt_receiver_enabled: source.mqttReceiverEnabled,
         mqtt_auto_subscribe: source.mqttAutoSubscribe,
       });
 
@@ -733,8 +740,8 @@ export default function Home() {
         lastUpdated: session.updated_at || session.created_at,
       }));
 
-      // Start session-0 headless MQTT listener if auto-subscribe enabled
-      if (selectedAssistant.mqttAutoSubscribe && selectedAssistant.mqttReceiverTopic) {
+      // Start session-0 headless MQTT listener if receiver topic enabled
+      if (selectedAssistant.mqttReceiverEnabled && selectedAssistant.mqttReceiverTopic) {
         backendApi.startSessionZero(selectedAssistant.id, authToken).catch((err) =>
           logger.error("Session-0 start failed:", err)
         );
@@ -1790,22 +1797,25 @@ export default function Home() {
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={selectedAssistant.mqttAutoSubscribe}
+                        checked={selectedAssistant.mqttReceiverEnabled}
                         onChange={(event) => {
+                          const enabled = event.target.checked;
                           updateAssistantState(selectedAssistant.id, (a) => ({
                             ...a,
-                            mqttAutoSubscribe: event.target.checked,
+                            mqttReceiverEnabled: enabled,
+                            // Turning A off also disables B
+                            mqttAutoSubscribe: enabled ? a.mqttAutoSubscribe : false,
                             lastUpdated: new Date().toISOString(),
                           }));
                         }}
                         className="h-4 w-4 rounded border-[var(--card-shell)] accent-[var(--foreground)]"
                       />
-                      <span className="text-xs text-[var(--ink-muted)]">Force receiver topic on all chat sessions</span>
+                      <span className="text-xs text-[var(--ink-muted)]">Enable receiver topic (background MQTT listener)</span>
                     </label>
                     <p className="text-xs text-[var(--ink-muted)] ml-7 -mt-1">
-                      When enabled, all chat sessions automatically connect to the receiver topic below. A background listener keeps the connection alive even when no one is chatting.
+                      Starts a background listener (session-0) on the receiver topic. Keeps MQTT alive when no one is chatting.
                     </p>
-                    <div className={`flex flex-col gap-2 transition-opacity ${selectedAssistant.mqttAutoSubscribe ? "" : "opacity-40 pointer-events-none"}`}>
+                    <div className={`flex flex-col gap-2 transition-opacity ${selectedAssistant.mqttReceiverEnabled ? "" : "opacity-40 pointer-events-none"}`}>
                       <span className="text-xs text-[var(--ink-muted)]">Receiver Topic</span>
                       <input
                         value={selectedAssistant.mqttReceiverTopic}
@@ -1813,10 +1823,32 @@ export default function Home() {
                           handleFieldChange(selectedAssistant.id, "mqttReceiverTopic", event.target.value)
                         }
                         placeholder="topic/incoming"
-                        disabled={!selectedAssistant.mqttAutoSubscribe}
+                        disabled={!selectedAssistant.mqttReceiverEnabled}
                         className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)]/80 px-4 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[var(--card-shell)] disabled:cursor-not-allowed"
                       />
                     </div>
+                    <label className={`flex items-center gap-3 cursor-pointer transition-opacity ${selectedAssistant.mqttReceiverEnabled ? "" : "opacity-40"}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedAssistant.mqttAutoSubscribe}
+                        disabled={!selectedAssistant.mqttReceiverEnabled}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          updateAssistantState(selectedAssistant.id, (a) => ({
+                            ...a,
+                            mqttAutoSubscribe: checked,
+                            // B on requires A on
+                            mqttReceiverEnabled: checked ? true : a.mqttReceiverEnabled,
+                            lastUpdated: new Date().toISOString(),
+                          }));
+                        }}
+                        className="h-4 w-4 rounded border-[var(--card-shell)] accent-[var(--foreground)] disabled:cursor-not-allowed"
+                      />
+                      <span className="text-xs text-[var(--ink-muted)]">Force receiver topic on all chat sessions</span>
+                    </label>
+                    <p className={`text-xs text-[var(--ink-muted)] ml-7 -mt-1 ${selectedAssistant.mqttReceiverEnabled ? "" : "opacity-40"}`}>
+                      Locks chat sessions to the receiver topic above. Otherwise each chat user can set their own topic via the chat modal.
+                    </p>
                     <p className="text-xs text-[var(--ink-muted)]">
                       Credentials never leave the server. TLS is enforced automatically when port 8883 is used.
                     </p>

@@ -403,7 +403,7 @@ async def start_session_zero(
 
         supabase = get_supabase_client()
         response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_receiver_topic, mqtt_auto_subscribe, name"
+            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_receiver_topic, mqtt_receiver_enabled, name"
         ).eq("id", request.assistant_id).execute()
 
         if not response.data:
@@ -411,13 +411,13 @@ async def start_session_zero(
 
         assistant = response.data[0]
         receiver_topic = assistant.get("mqtt_receiver_topic")
-        auto_subscribe = assistant.get("mqtt_auto_subscribe", False)
+        receiver_enabled = assistant.get("mqtt_receiver_enabled", False)
         mqtt_host = assistant.get("mqtt_host")
 
-        if not auto_subscribe or not receiver_topic or not mqtt_host:
+        if not receiver_enabled or not receiver_topic or not mqtt_host:
             return SessionZeroResponse(
                 success=True, active=False,
-                message="Auto-subscribe disabled or receiver topic not configured"
+                message="Receiver topic disabled or not configured"
             )
 
         success = await mqtt_manager.start_session_zero(
@@ -502,7 +502,7 @@ async def revive_session_zero(
 
         # Fetch MQTT config and restart session-0
         response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_receiver_topic, mqtt_auto_subscribe, name"
+            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_receiver_topic, mqtt_receiver_enabled, name"
         ).eq("id", request.assistant_id).execute()
 
         if not response.data:
@@ -510,13 +510,13 @@ async def revive_session_zero(
 
         assistant = response.data[0]
         receiver_topic = assistant.get("mqtt_receiver_topic")
-        auto_subscribe = assistant.get("mqtt_auto_subscribe", False)
+        receiver_enabled = assistant.get("mqtt_receiver_enabled", False)
         mqtt_host = assistant.get("mqtt_host")
 
-        if not auto_subscribe or not receiver_topic or not mqtt_host:
+        if not receiver_enabled or not receiver_topic or not mqtt_host:
             return SessionZeroResponse(
                 success=True, active=False,
-                message="Auto-subscribe disabled or not configured"
+                message="Receiver topic disabled or not configured"
             )
 
         success = await mqtt_manager.start_session_zero(
@@ -777,6 +777,7 @@ class MqttCredentialsResponse(BaseModel):
     mqtt_pass: str | None = None
     mqtt_topic: str | None = None
     mqtt_receiver_topic: str | None = None
+    mqtt_receiver_enabled: bool = False
     mqtt_auto_subscribe: bool = False
 
 
@@ -801,7 +802,7 @@ async def get_mqtt_credentials(
         # Fetch assistant configuration
         logger.info(f"🔍 [Backend] Fetching MQTT config for {assistant_id}")
         response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic, mqtt_receiver_topic, mqtt_auto_subscribe"
+            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic, mqtt_receiver_topic, mqtt_receiver_enabled, mqtt_auto_subscribe"
         ).eq("id", assistant_id).execute()
 
         if not response.data or len(response.data) == 0:
@@ -824,6 +825,7 @@ async def get_mqtt_credentials(
         mqtt_pass = assistant.get("mqtt_pass")
         mqtt_topic = assistant.get("mqtt_topic")
         mqtt_receiver_topic = assistant.get("mqtt_receiver_topic")
+        mqtt_receiver_enabled = assistant.get("mqtt_receiver_enabled", False)
         mqtt_auto_subscribe = assistant.get("mqtt_auto_subscribe", False)
 
         logger.info(f"✅ [Backend] MQTT config retrieved: host={mqtt_host}, port={mqtt_port}, topic={mqtt_topic}")
@@ -835,6 +837,7 @@ async def get_mqtt_credentials(
             mqtt_pass=mqtt_pass,
             mqtt_topic=mqtt_topic,
             mqtt_receiver_topic=mqtt_receiver_topic,
+            mqtt_receiver_enabled=bool(mqtt_receiver_enabled),
             mqtt_auto_subscribe=bool(mqtt_auto_subscribe),
         )
 

@@ -120,6 +120,7 @@ export type MqttCredentialsResponse = {
   mqtt_pass: string | null;
   mqtt_topic: string | null;
   mqtt_receiver_topic: string | null;
+  mqtt_receiver_enabled: boolean;
   mqtt_auto_subscribe: boolean;
 };
 

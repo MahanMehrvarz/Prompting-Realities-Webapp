@@ -83,6 +83,7 @@ export default function AssistantChatPage() {
     mqtt_pass: string | null;
     mqtt_topic: string | null;
     mqtt_receiver_topic: string | null;
+    mqtt_receiver_enabled: boolean;
     mqtt_auto_subscribe: boolean;
   } | null>(null);
 
@@ -1173,6 +1174,7 @@ export default function AssistantChatPage() {
         defaultTopic={mqttCredentials?.mqtt_receiver_topic || mqttCredentials?.mqtt_topic}
         defaultUsername={mqttCredentials?.mqtt_user}
         defaultPassword={mqttCredentials?.mqtt_pass}
+        locked={!!mqttCredentials?.mqtt_auto_subscribe}
       />
 
       {/* Fixed Header */}
