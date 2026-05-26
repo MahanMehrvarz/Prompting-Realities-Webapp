@@ -292,25 +292,54 @@ class MqttConnectionManager:
     ) -> bool:
         """Start a headless MQTT subscription (session-0) for an assistant.
 
-        Keeps the MQTT connection alive and subscribed to the receiver topic
-        even when no chat sessions are active.  Messages are discarded.
+        On each received message, runs the assistant's LLM pipeline and
+        publishes the resulting MQTT_value to the main publish topic.
+        Stateless — no conversation history kept.
         """
         if assistant_id in self._session_zero:
             logger.info(f"♻️ [Session-0] Already running for assistant {assistant_id}")
             return True
 
-        success = await self.subscribe(
-            host, port, receiver_topic,
-            username=username, password=password,
-            assistant_name=assistant_name,
-            session_id=SESSION_ZERO_ID,
+        client = await self.get_or_create_connection(
+            host, port, username, password, assistant_name, SESSION_ZERO_ID
         )
+        if not client:
+            logger.error(f"❌ [Session-0] Failed to connect for assistant {assistant_id}")
+            return False
+
+        # Capture event loop for thread-safe scheduling from MQTT callback thread
+        loop = asyncio.get_event_loop()
+
+        def on_message(_client, _userdata, msg):
+            try:
+                payload_text = msg.payload.decode("utf-8", errors="replace")
+            except Exception:
+                payload_text = str(msg.payload)
+            logger.info(f"📥 [Session-0] {assistant_id} got msg on {msg.topic}: {payload_text[:120]!r}")
+            # Schedule async pipeline on main event loop
+            asyncio.run_coroutine_threadsafe(
+                _process_session_zero_message(assistant_id, payload_text), loop
+            )
+
+        client.on_message = on_message
+
+        def _subscribe():
+            try:
+                result, _mid = client.subscribe(receiver_topic, qos=1)
+                return result == mqtt.MQTT_ERR_SUCCESS
+            except Exception as exc:
+                logger.error(f"Failed to subscribe to {receiver_topic} - {exc}")
+                return False
+
+        success = await loop.run_in_executor(None, _subscribe)
         if success:
             key = self._get_connection_key(
                 host, port, username, assistant_name, SESSION_ZERO_ID
             )
             self._session_zero[assistant_id] = key
             logger.info(f"🟢 [Session-0] Started for assistant {assistant_id} on {receiver_topic}")
+        else:
+            logger.warning(f"⚠️ [Session-0] Subscribe failed for {assistant_id}/{receiver_topic}")
         return success
 
     async def stop_session_zero(self, assistant_id: str) -> bool:
@@ -405,3 +434,69 @@ class MqttConnectionManager:
 
 # Global singleton instance
 mqtt_manager = MqttConnectionManager()
+
+
+async def _process_session_zero_message(assistant_id: str, user_text: str) -> None:
+    """Stateless pipeline: LLM call → publish MQTT_value to main topic.
+
+    Mirrors `chat_with_openai` + `publish_to_mqtt` but with no session/thread
+    persistence. Each MQTT message on the receiver topic produces one LLM
+    response that's auto-published to the main publish topic.
+    """
+    try:
+        from .config import get_supabase_client
+        from .encryption import decrypt_api_key
+        from .conversation_service import run_model_turn
+
+        supabase = get_supabase_client()
+        resp = supabase.table("assistants").select("*").eq("id", assistant_id).execute()
+        if not resp.data:
+            logger.error(f"❌ [Session-0] Assistant {assistant_id} not found")
+            return
+
+        assistant = resp.data[0]
+        encrypted_key = assistant.get("openai_key", "")
+        if not encrypted_key:
+            logger.error(f"❌ [Session-0] No API key for {assistant_id}")
+            return
+
+        api_key = decrypt_api_key(encrypted_key)
+        if not api_key:
+            logger.error(f"❌ [Session-0] Failed to decrypt API key for {assistant_id}")
+            return
+
+        prompt_instruction = str(assistant.get("prompt_instruction") or "You are a helpful assistant.")
+        json_schema_raw = assistant.get("json_schema")
+        json_schema = json_schema_raw if isinstance(json_schema_raw, dict) else None
+
+        logger.info(f"🤖 [Session-0] Running LLM for {assistant_id}")
+        payload, _response_id, _display_text = await run_model_turn(
+            None,  # no previous response - stateless
+            user_text,
+            api_key,
+            prompt_instruction,
+            json_schema,
+            model="gpt-4o-mini",
+        )
+        logger.info(f"✅ [Session-0] LLM returned payload: {payload}")
+
+        # Publish to main topic
+        mqtt_host = assistant.get("mqtt_host")
+        mqtt_topic = assistant.get("mqtt_topic")
+        if not mqtt_host or not mqtt_topic or not isinstance(payload, dict):
+            logger.warning(f"⚠️ [Session-0] Skipping publish: host/topic/payload missing")
+            return
+
+        success = await mqtt_manager.publish(
+            host=str(mqtt_host),
+            port=int(assistant.get("mqtt_port") or 1883),
+            topic=str(mqtt_topic),
+            payload=payload,
+            username=assistant.get("mqtt_user"),
+            password=assistant.get("mqtt_pass"),
+            assistant_name=str(assistant.get("name") or f"assistant_{assistant_id}"),
+            session_id=SESSION_ZERO_ID,
+        )
+        logger.info(f"📤 [Session-0] Published to {mqtt_topic}: success={success}")
+    except Exception as exc:
+        logger.error(f"❌ [Session-0] Pipeline error for {assistant_id}: {exc}", exc_info=True)
