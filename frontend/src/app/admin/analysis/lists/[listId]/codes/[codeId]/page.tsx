@@ -9,6 +9,7 @@ import { analysisApi, type AnalysisCode, type CodeHighlight } from "@/lib/backen
 import AnalysisShell from "../../../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../../../AnalysisBreadcrumbContext";
 import Link from "next/link";
+import { threadLabel } from "@/lib/threadLabel";
 
 const TOKEN_KEY = "pr-auth-token";
 
@@ -147,7 +148,7 @@ export default function CodeHighlightsPage() {
                     className="flex items-center gap-2 group"
                   >
                     <code className="text-xs font-mono bg-[var(--ink-dark)] text-[var(--card-fill)] px-2 py-0.5 rounded-md group-hover:bg-[var(--ink-dark)]/80 transition">
-                      …{threadId.slice(-8)}
+                      {threadLabel(first.created_at)}
                     </code>
                     <span className="text-sm text-[var(--card-fill)]/60 group-hover:text-[var(--card-fill)] transition">
                       {first.assistant_name || "LLM Thing"}

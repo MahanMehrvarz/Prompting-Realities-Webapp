@@ -5,23 +5,43 @@ import { Download, X, FileSpreadsheet } from "lucide-react";
 import { analysisApi } from "@/lib/backendApi";
 
 type Props = {
-  listId: string;
   token: string;
   open: boolean;
   onClose: () => void;
+  // Exactly one of these must be set:
+  listId?: string;
+  assistantId?: string;
+  assistantName?: string;
 };
 
-export default function ExportConversationsModal({ listId, token, open, onClose }: Props) {
+export default function ExportConversationsModal({
+  token,
+  open,
+  onClose,
+  listId,
+  assistantId,
+  assistantName,
+}: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [includeInstructions, setIncludeInstructions] = useState(true);
+  const [includeMqtt, setIncludeMqtt] = useState(true);
 
   if (!open) return null;
+
+  const scopeLabel = listId
+    ? "all assistants in this list"
+    : `the LLM thing "${assistantName ?? "this assistant"}"`;
 
   const handleExport = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(analysisApi.getConversationsExportUrl(listId), {
+      const baseUrl = listId
+        ? analysisApi.getConversationsExportUrl(listId)
+        : analysisApi.getAssistantConversationsExportUrl(assistantId!);
+      const url = `${baseUrl}?include_instructions=${includeInstructions}&include_mqtt=${includeMqtt}`;
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -30,7 +50,10 @@ export default function ExportConversationsModal({ listId, token, open, onClose 
       }
       const disposition = res.headers.get("Content-Disposition") || "";
       const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match?.[1] || `conversations-${listId}.xlsx`;
+      const fallback = listId
+        ? `conversations-${listId}.xlsx`
+        : `conversations-${assistantId}.xlsx`;
+      const filename = match?.[1] || fallback;
       const blob = await res.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -67,8 +90,9 @@ export default function ExportConversationsModal({ listId, token, open, onClose 
 
         <div className="px-5 py-4 space-y-4">
           <p className="text-sm text-[var(--ink-dark)]">
-            Downloads an Excel workbook with an <strong>Overview</strong> tab,
-            an <strong>Instructions</strong> tab, and one tab per thread.
+            Excel workbook covering {scopeLabel}: an{" "}
+            <strong>Overview</strong> tab, optionally an{" "}
+            <strong>Instructions</strong> tab, and one tab per thread.
           </p>
 
           <div className="rounded-[12px] border-2 border-[var(--card-shell)] bg-white p-3 text-xs text-[var(--ink-muted)] space-y-1.5">
@@ -80,6 +104,30 @@ export default function ExportConversationsModal({ listId, token, open, onClose 
               <input type="radio" disabled className="accent-[#2563eb]" />
               <span>Markdown — coming soon</span>
             </div>
+          </div>
+
+          <div className="rounded-[12px] border-2 border-[var(--card-shell)] bg-white p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+              Include
+            </p>
+            <label className="flex items-center gap-2 text-sm text-[var(--ink-dark)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeInstructions}
+                onChange={(e) => setIncludeInstructions(e.target.checked)}
+                className="accent-[#2563eb] h-4 w-4"
+              />
+              <span>Instructions tab (prompt version history)</span>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[var(--ink-dark)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeMqtt}
+                onChange={(e) => setIncludeMqtt(e.target.checked)}
+                className="accent-[#2563eb] h-4 w-4"
+              />
+              <span>MQTT column on thread tabs</span>
+            </label>
           </div>
 
           {error && (

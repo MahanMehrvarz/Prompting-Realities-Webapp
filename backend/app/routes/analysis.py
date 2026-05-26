@@ -1489,7 +1489,7 @@ def _gather_conversations_export(sb, list_id: str) -> dict:
     }
 
 
-def _build_conversations_workbook(data: dict) -> bytes:
+def _build_conversations_workbook(data: dict, include_instructions: bool = True, include_mqtt: bool = True) -> bytes:
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
 
@@ -1507,17 +1507,14 @@ def _build_conversations_workbook(data: dict) -> bytes:
             c.fill = header_fill
 
     used_names: set[str] = set()
-    # Reserve fixed names
     used_names.add("Overview")
-    used_names.add("Instructions")
+    if include_instructions:
+        used_names.add("Instructions")
 
-    # Build thread tab names up front so Overview hyperlinks match
     thread_tab_names: list[str] = []
     for t in data["threads"]:
         base = _fmt_short(t.get("first_at"))
-        # Avoid collision with reserved names
-        local_used = used_names
-        name = _safe_sheet_name(base, local_used)
+        name = _safe_sheet_name(base, used_names)
         thread_tab_names.append(name)
 
     # Tab 1 — Overview
@@ -1541,43 +1538,53 @@ def _build_conversations_workbook(data: dict) -> bytes:
         ws.column_dimensions[col].width = width
     ws.freeze_panes = "A2"
 
-    # Tab 2 — Instructions
-    ws = wb.create_sheet("Instructions", 1)
-    headers = ["Date", "Instruction text", "Assistant"]
-    ws.append(headers)
-    style_header(ws, len(headers))
-    for idx, inst in enumerate(data["instructions"], start=2):
-        ws.cell(row=idx, column=1, value=_fmt_iso(inst.get("saved_at")))
-        c = ws.cell(row=idx, column=2, value=inst.get("instruction_text") or "")
-        c.alignment = wrap
-        ws.cell(row=idx, column=3, value=inst.get("assistant_name") or "")
-    ws.column_dimensions["A"].width = 20
-    ws.column_dimensions["B"].width = 100
-    ws.column_dimensions["C"].width = 22
-    ws.freeze_panes = "A2"
+    # Tab 2 — Instructions (optional)
+    if include_instructions:
+        ws = wb.create_sheet("Instructions", 1)
+        headers = ["Date", "Instruction text", "Assistant"]
+        ws.append(headers)
+        style_header(ws, len(headers))
+        for idx, inst in enumerate(data["instructions"], start=2):
+            ws.cell(row=idx, column=1, value=_fmt_iso(inst.get("saved_at")))
+            c = ws.cell(row=idx, column=2, value=inst.get("instruction_text") or "")
+            c.alignment = wrap
+            ws.cell(row=idx, column=3, value=inst.get("assistant_name") or "")
+        ws.column_dimensions["A"].width = 20
+        ws.column_dimensions["B"].width = 100
+        ws.column_dimensions["C"].width = 22
+        ws.freeze_panes = "A2"
 
-    # Tabs 3+ — one per thread
+    # Tabs N+ — one per thread
     for idx, t in enumerate(data["threads"]):
         tab_name = thread_tab_names[idx]
         ws = wb.create_sheet(tab_name)
-        headers = ["User", "AI", "MQTT", "Reaction"]
+        if include_mqtt:
+            headers = ["User", "AI", "MQTT", "Reaction"]
+        else:
+            headers = ["User", "AI", "Reaction"]
         ws.append(headers)
         style_header(ws, len(headers))
         for row_idx, m in enumerate(t["messages"], start=2):
-            mqtt_val = m.get("mqtt_payload")
-            if isinstance(mqtt_val, (dict, list)):
-                mqtt_val = json.dumps(mqtt_val, ensure_ascii=False)
-            elif mqtt_val is None or mqtt_val == "":
-                mqtt_val = "no mqtt message"
             reaction = m.get("reaction") or "no reaction"
             ws.cell(row=row_idx, column=1, value=m.get("user_text") or "").alignment = wrap
             ws.cell(row=row_idx, column=2, value=m.get("response_text") or "").alignment = wrap
-            ws.cell(row=row_idx, column=3, value=str(mqtt_val)).alignment = wrap
-            ws.cell(row=row_idx, column=4, value=reaction)
+            if include_mqtt:
+                mqtt_val = m.get("mqtt_payload")
+                if isinstance(mqtt_val, (dict, list)):
+                    mqtt_val = json.dumps(mqtt_val, ensure_ascii=False)
+                elif mqtt_val is None or mqtt_val == "":
+                    mqtt_val = "no mqtt message"
+                ws.cell(row=row_idx, column=3, value=str(mqtt_val)).alignment = wrap
+                ws.cell(row=row_idx, column=4, value=reaction)
+            else:
+                ws.cell(row=row_idx, column=3, value=reaction)
         ws.column_dimensions["A"].width = 50
         ws.column_dimensions["B"].width = 60
-        ws.column_dimensions["C"].width = 30
-        ws.column_dimensions["D"].width = 14
+        if include_mqtt:
+            ws.column_dimensions["C"].width = 30
+            ws.column_dimensions["D"].width = 14
+        else:
+            ws.column_dimensions["C"].width = 14
         ws.freeze_panes = "A2"
 
     buf = io.BytesIO()
@@ -1585,13 +1592,103 @@ def _build_conversations_workbook(data: dict) -> bytes:
     return buf.getvalue()
 
 
+def _gather_assistant_conversations_export(sb, assistant_id: str) -> dict:
+    """Per-assistant variant of _gather_conversations_export."""
+    a_res = sb.table("assistants").select("id, name, prompt_instruction, created_at, deleted_at").eq("id", assistant_id).maybe_single().execute()
+    asst = a_res.data if a_res else None
+    if not asst or asst.get("deleted_at"):
+        raise HTTPException(status_code=404, detail="Assistant not found")
+    asst_name = asst.get("name") or "Unknown"
+    asst_name_map = {assistant_id: asst_name}
+
+    msg_res = sb.table("chat_messages").select(
+        "id, assistant_id, session_id, thread_id, device_id, user_text, response_text, mqtt_payload, reaction, created_at"
+    ).eq("assistant_id", assistant_id).order("created_at", desc=False).execute()
+    messages = [m for m in (msg_res.data or []) if not (m.get("user_text") is None and m.get("response_text") is None)]
+
+    threads_map: dict[str, dict] = {}
+    for m in messages:
+        tid = m.get("thread_id") or m.get("session_id") or m["id"]
+        t = threads_map.get(tid)
+        if not t:
+            t = {
+                "thread_id": tid,
+                "assistant_id": assistant_id,
+                "assistant_name": asst_name,
+                "session_id": m.get("session_id"),
+                "device_id": m.get("device_id"),
+                "first_at": m.get("created_at"),
+                "last_at": m.get("created_at"),
+                "messages": [],
+            }
+            threads_map[tid] = t
+        t["messages"].append(m)
+        if m.get("created_at"):
+            if not t["last_at"] or m["created_at"] > t["last_at"]:
+                t["last_at"] = m["created_at"]
+            if not t["first_at"] or m["created_at"] < t["first_at"]:
+                t["first_at"] = m["created_at"]
+    threads = sorted(threads_map.values(), key=lambda t: t["first_at"] or "")
+
+    instructions: list[dict] = []
+    hist = sb.table("instruction_history").select("assistant_id, instruction_text, saved_at").eq("assistant_id", assistant_id).execute()
+    for r in (hist.data or []):
+        instructions.append({
+            "assistant_id": assistant_id,
+            "assistant_name": asst_name,
+            "instruction_text": r.get("instruction_text") or "",
+            "saved_at": r.get("saved_at"),
+        })
+    if not instructions and asst.get("prompt_instruction"):
+        instructions.append({
+            "assistant_id": assistant_id,
+            "assistant_name": asst_name,
+            "instruction_text": asst["prompt_instruction"],
+            "saved_at": asst.get("created_at"),
+        })
+    instructions.sort(key=lambda r: r.get("saved_at") or "")
+
+    return {
+        "list_name": asst_name,
+        "assistants": [{"id": assistant_id, "name": asst_name}],
+        "threads": threads,
+        "instructions": instructions,
+    }
+
+
 @router.get("/lists/{list_id}/export-conversations")
-def export_conversations(list_id: str, admin: str = Depends(require_admin)):
-    """Raw conversations export — Excel workbook with Overview, Instructions, and one tab per thread."""
+def export_conversations(
+    list_id: str,
+    include_instructions: bool = Query(True),
+    include_mqtt: bool = Query(True),
+    admin: str = Depends(require_admin),
+):
+    """Raw conversations export — Excel workbook with Overview, Instructions (optional), and one tab per thread."""
     sb = get_supabase()
     data = _gather_conversations_export(sb, list_id)
-    xlsx_bytes = _build_conversations_workbook(data)
+    xlsx_bytes = _build_conversations_workbook(data, include_instructions=include_instructions, include_mqtt=include_mqtt)
     safe_name = (data["list_name"] or "list").replace(" ", "_")
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"{safe_name}-conversations-{today}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/assistants/{assistant_id}/export-conversations")
+def export_assistant_conversations(
+    assistant_id: str,
+    include_instructions: bool = Query(True),
+    include_mqtt: bool = Query(True),
+    admin: str = Depends(require_admin),
+):
+    """Per-assistant raw conversations export."""
+    sb = get_supabase()
+    data = _gather_assistant_conversations_export(sb, assistant_id)
+    xlsx_bytes = _build_conversations_workbook(data, include_instructions=include_instructions, include_mqtt=include_mqtt)
+    safe_name = (data["list_name"] or "assistant").replace(" ", "_")
     today = datetime.utcnow().strftime("%Y-%m-%d")
     filename = f"{safe_name}-conversations-{today}.xlsx"
     return StreamingResponse(

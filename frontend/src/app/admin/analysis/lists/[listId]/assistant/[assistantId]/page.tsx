@@ -3,13 +3,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { Clock, FileText, MessageSquare, SlidersHorizontal, Tag, X } from "lucide-react";
+import { Clock, Download, FileText, MessageSquare, SlidersHorizontal, Tag, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isAdmin } from "@/lib/isAdmin";
 import { analysisApi, type ThreadSummary, type InstructionVersion, type AnalysisCode } from "@/lib/backendApi";
 import AnalysisShell from "../../../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../../../AnalysisBreadcrumbContext";
 import InstructionTimeline from "@/components/analysis/InstructionTimeline";
+import ExportConversationsModal from "@/components/analysis/ExportConversationsModal";
+import { threadLabel } from "@/lib/threadLabel";
 
 const TOKEN_KEY = "pr-auth-token";
 
@@ -32,6 +34,7 @@ export default function AssistantThreadsPage() {
   const [instructions, setInstructions] = useState<InstructionVersion[]>([]);
   const [codes, setCodes] = useState<AnalysisCode[]>([]);
   const [activeTab, setActiveTab] = useState<"sessions" | "instructions">("sessions");
+  const [exportModal, setExportModal] = useState(false);
 
   // Filters
   const [showOnlyCoded, setShowOnlyCoded] = useState(false);
@@ -117,6 +120,13 @@ export default function AssistantThreadsPage() {
               <h1 className="text-2xl font-black text-[var(--card-fill)] uppercase tracking-[0.06em]">{assistantName}</h1>
               <p className="text-sm text-[var(--card-fill)]/60 mt-1">{threads.length} session{threads.length !== 1 ? "s" : ""}</p>
             </div>
+            <button
+              onClick={() => setExportModal(true)}
+              className="flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[#2563eb] px-4 py-2 text-sm font-semibold text-white shadow-[3px_3px_0_var(--shadow-deep)] hover:bg-[#1d4ed8] transition"
+            >
+              <Download className="h-4 w-4" />
+              Export Conversations
+            </button>
           </div>
 
           {/* Tabs */}
@@ -269,7 +279,7 @@ export default function AssistantThreadsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-2">
                           <code className="text-xs font-mono bg-[var(--ink-dark)] text-[var(--card-fill)] px-2 py-0.5 rounded-md">
-                            …{t.thread_id.slice(-8)}
+                            {threadLabel(t.first_message_at)}
                           </code>
                           {t.has_codes && (
                             <span className="flex items-center gap-1 rounded-full bg-[#fde68a] px-2 py-0.5 text-xs font-semibold text-[#78350f]">
@@ -312,6 +322,15 @@ export default function AssistantThreadsPage() {
         )}
 
       </div>
+      {token && (
+        <ExportConversationsModal
+          token={token}
+          assistantId={assistantId}
+          assistantName={assistantName}
+          open={exportModal}
+          onClose={() => setExportModal(false)}
+        />
+      )}
     </AnalysisShell>
   );
 }

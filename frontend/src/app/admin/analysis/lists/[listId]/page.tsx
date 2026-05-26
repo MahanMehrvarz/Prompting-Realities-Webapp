@@ -64,7 +64,7 @@ function ExportButton({ listId, token }: { listId: string; token: string }) {
           </div>
         </>
       )}
-      <ExportConversationsModal listId={listId} token={token} open={convoModal} onClose={() => setConvoModal(false)} />
+      <ExportConversationsModal token={token} listId={listId} open={convoModal} onClose={() => setConvoModal(false)} />
     </div>
   );
 }

@@ -769,4 +769,7 @@ export const analysisApi = {
 
   getConversationsExportUrl: (listId: string) =>
     `${process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000"}/analysis/lists/${listId}/export-conversations`,
+
+  getAssistantConversationsExportUrl: (assistantId: string) =>
+    `${process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000"}/analysis/assistants/${assistantId}/export-conversations`,
 };

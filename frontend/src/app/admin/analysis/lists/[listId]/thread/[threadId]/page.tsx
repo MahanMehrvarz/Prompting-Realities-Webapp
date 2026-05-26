@@ -29,6 +29,7 @@ import {
 } from "@/lib/backendApi";
 import AnalysisShell from "../../../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../../../AnalysisBreadcrumbContext";
+import { threadLabel } from "@/lib/threadLabel";
 
 const TOKEN_KEY = "pr-auth-token";
 
@@ -519,18 +520,20 @@ export default function ThreadPage() {
         setCodeGroups(groupsData);
         const found = items.find((i) => i.assistant_id === (assistantId || convo.assistant_id));
         const aName = found?.assistant_name || "LLM Thing";
+        const tLabel = threadLabel(convo.messages?.[0]?.created_at);
         setCrumbs([
           { label: listData.name, href: `/admin/analysis/lists/${listId}` },
           { label: aName, href: `/admin/analysis/lists/${listId}/assistant/${assistantId || convo.assistant_id}` },
-          { label: `…${threadId.slice(-8)}` },
+          { label: tLabel },
         ]);
       } else {
         // Read-only: fetch assistant name directly
         const { data: aData } = await supabase.from("assistants").select("name").eq("id", assistantId || convo.assistant_id).maybeSingle();
         const aName = aData?.name || "LLM Thing";
+        const tLabel = threadLabel(convo.messages?.[0]?.created_at);
         setCrumbs([
           { label: aName, href: `/admin/analysis/assistant/${assistantId || convo.assistant_id}` },
-          { label: `…${threadId.slice(-8)}` },
+          { label: tLabel },
         ]);
       }
     } catch {
