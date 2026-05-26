@@ -766,4 +766,7 @@ export const analysisApi = {
   // Export (returns a download URL — call via window.location or fetch+blob)
   getExportUrl: (listId: string, format: "json" | "csv") =>
     `${process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000"}/analysis/lists/${listId}/export?format=${format}`,
+
+  getConversationsExportUrl: (listId: string) =>
+    `${process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8000"}/analysis/lists/${listId}/export-conversations`,
 };

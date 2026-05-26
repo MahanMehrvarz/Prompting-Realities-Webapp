@@ -1350,3 +1350,252 @@ def export_list(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}-export.csv"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Raw conversations export — Excel workbook
+# ---------------------------------------------------------------------------
+
+_EXCEL_FORBIDDEN = set(r':\/?*[]')
+
+
+def _safe_sheet_name(name: str, used: set[str]) -> str:
+    cleaned = "".join("-" if ch in _EXCEL_FORBIDDEN else ch for ch in name).strip()
+    if not cleaned:
+        cleaned = "Thread"
+    base = cleaned[:31]
+    candidate = base
+    suffix = 2
+    while candidate in used:
+        tail = f"-{suffix}"
+        candidate = (base[: 31 - len(tail)] + tail)
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _fmt_iso(value: Any) -> str:
+    if not value:
+        return ""
+    s = str(value)
+    if "T" in s:
+        s = s.replace("T", " ")
+    if "." in s:
+        s = s.split(".", 1)[0]
+    if "+" in s:
+        s = s.split("+", 1)[0]
+    return s[:19]
+
+
+def _fmt_short(value: Any) -> str:
+    """DD-MM-YYYY HH-mm (Excel-safe tab name)."""
+    if not value:
+        return "Thread"
+    try:
+        s = str(value).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        return "Thread"
+    return dt.strftime("%d-%m-%Y %H-%M")
+
+
+def _gather_conversations_export(sb, list_id: str) -> dict:
+    """Pull every assistant in a list with their threads, messages, and instruction history.
+
+    Returns a dict suitable for the Excel writer.
+    """
+    list_row = sb.table("analysis_lists").select("id, name, deleted_at").eq("id", list_id).limit(1).execute()
+    if not list_row.data or list_row.data[0].get("deleted_at"):
+        raise HTTPException(status_code=404, detail="List not found")
+    list_name = list_row.data[0]["name"]
+
+    items = sb.table("analysis_list_items").select("assistant_id, assistants(id, name, deleted_at)").eq("list_id", list_id).execute()
+    assistants: list[dict] = []
+    for row in (items.data or []):
+        asst = row.get("assistants") or {}
+        if asst.get("deleted_at"):
+            continue
+        assistants.append({"id": row["assistant_id"], "name": asst.get("name") or "Unknown"})
+
+    assistant_ids = [a["id"] for a in assistants]
+    asst_name_map = {a["id"]: a["name"] for a in assistants}
+
+    messages: list[dict] = []
+    if assistant_ids:
+        msg_res = sb.table("chat_messages").select(
+            "id, assistant_id, session_id, thread_id, device_id, user_text, response_text, mqtt_payload, reaction, created_at"
+        ).in_("assistant_id", assistant_ids).order("created_at", desc=False).execute()
+        for m in (msg_res.data or []):
+            if m.get("user_text") is None and m.get("response_text") is None:
+                continue  # skip response_id marker rows
+            messages.append(m)
+
+    threads_map: dict[str, dict] = {}
+    for m in messages:
+        tid = m.get("thread_id") or m.get("session_id") or m["id"]
+        t = threads_map.get(tid)
+        if not t:
+            t = {
+                "thread_id": tid,
+                "assistant_id": m.get("assistant_id"),
+                "assistant_name": asst_name_map.get(m.get("assistant_id"), "Unknown"),
+                "session_id": m.get("session_id"),
+                "device_id": m.get("device_id"),
+                "first_at": m.get("created_at"),
+                "last_at": m.get("created_at"),
+                "messages": [],
+            }
+            threads_map[tid] = t
+        t["messages"].append(m)
+        if m.get("created_at"):
+            if not t["last_at"] or m["created_at"] > t["last_at"]:
+                t["last_at"] = m["created_at"]
+            if not t["first_at"] or m["created_at"] < t["first_at"]:
+                t["first_at"] = m["created_at"]
+
+    threads = sorted(threads_map.values(), key=lambda t: t["first_at"] or "")
+
+    instructions: list[dict] = []
+    if assistant_ids:
+        hist = sb.table("instruction_history").select("assistant_id, instruction_text, saved_at").in_("assistant_id", assistant_ids).execute()
+        for r in (hist.data or []):
+            instructions.append({
+                "assistant_id": r["assistant_id"],
+                "assistant_name": asst_name_map.get(r["assistant_id"], "Unknown"),
+                "instruction_text": r.get("instruction_text") or "",
+                "saved_at": r.get("saved_at"),
+            })
+        # Fallback: assistants with no history → use current prompt_instruction
+        with_history = {r["assistant_id"] for r in (hist.data or [])}
+        missing = [aid for aid in assistant_ids if aid not in with_history]
+        if missing:
+            a_res = sb.table("assistants").select("id, name, prompt_instruction, created_at").in_("id", missing).execute()
+            for a in (a_res.data or []):
+                if a.get("prompt_instruction"):
+                    instructions.append({
+                        "assistant_id": a["id"],
+                        "assistant_name": a.get("name") or "Unknown",
+                        "instruction_text": a["prompt_instruction"],
+                        "saved_at": a.get("created_at"),
+                    })
+
+    instructions.sort(key=lambda r: r.get("saved_at") or "")
+
+    return {
+        "list_name": list_name,
+        "assistants": assistants,
+        "threads": threads,
+        "instructions": instructions,
+    }
+
+
+def _build_conversations_workbook(data: dict) -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    def style_header(ws, ncols: int):
+        for col in range(1, ncols + 1):
+            c = ws.cell(row=1, column=col)
+            c.font = header_font
+            c.fill = header_fill
+
+    used_names: set[str] = set()
+    # Reserve fixed names
+    used_names.add("Overview")
+    used_names.add("Instructions")
+
+    # Build thread tab names up front so Overview hyperlinks match
+    thread_tab_names: list[str] = []
+    for t in data["threads"]:
+        base = _fmt_short(t.get("first_at"))
+        # Avoid collision with reserved names
+        local_used = used_names
+        name = _safe_sheet_name(base, local_used)
+        thread_tab_names.append(name)
+
+    # Tab 1 — Overview
+    ws = wb.create_sheet("Overview", 0)
+    headers = ["Thread", "Assistant", "Start", "End", "Messages", "Device ID", "Session ID"]
+    ws.append(headers)
+    style_header(ws, len(headers))
+    for idx, t in enumerate(data["threads"]):
+        tab_name = thread_tab_names[idx]
+        row_num = idx + 2
+        ws.cell(row=row_num, column=1, value=tab_name)
+        ws.cell(row=row_num, column=1).hyperlink = f"#'{tab_name}'!A1"
+        ws.cell(row=row_num, column=1).font = Font(color="2563EB", underline="single")
+        ws.cell(row=row_num, column=2, value=t.get("assistant_name") or "")
+        ws.cell(row=row_num, column=3, value=_fmt_iso(t.get("first_at")))
+        ws.cell(row=row_num, column=4, value=_fmt_iso(t.get("last_at")))
+        ws.cell(row=row_num, column=5, value=len(t.get("messages") or []))
+        ws.cell(row=row_num, column=6, value=t.get("device_id") or "")
+        ws.cell(row=row_num, column=7, value=t.get("session_id") or "")
+    for col, width in zip("ABCDEFG", [26, 22, 20, 20, 10, 22, 36]):
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A2"
+
+    # Tab 2 — Instructions
+    ws = wb.create_sheet("Instructions", 1)
+    headers = ["Date", "Instruction text", "Assistant"]
+    ws.append(headers)
+    style_header(ws, len(headers))
+    for idx, inst in enumerate(data["instructions"], start=2):
+        ws.cell(row=idx, column=1, value=_fmt_iso(inst.get("saved_at")))
+        c = ws.cell(row=idx, column=2, value=inst.get("instruction_text") or "")
+        c.alignment = wrap
+        ws.cell(row=idx, column=3, value=inst.get("assistant_name") or "")
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 100
+    ws.column_dimensions["C"].width = 22
+    ws.freeze_panes = "A2"
+
+    # Tabs 3+ — one per thread
+    for idx, t in enumerate(data["threads"]):
+        tab_name = thread_tab_names[idx]
+        ws = wb.create_sheet(tab_name)
+        headers = ["User", "AI", "MQTT", "Reaction"]
+        ws.append(headers)
+        style_header(ws, len(headers))
+        for row_idx, m in enumerate(t["messages"], start=2):
+            mqtt_val = m.get("mqtt_payload")
+            if isinstance(mqtt_val, (dict, list)):
+                mqtt_val = json.dumps(mqtt_val, ensure_ascii=False)
+            elif mqtt_val is None or mqtt_val == "":
+                mqtt_val = "no mqtt message"
+            reaction = m.get("reaction") or "no reaction"
+            ws.cell(row=row_idx, column=1, value=m.get("user_text") or "").alignment = wrap
+            ws.cell(row=row_idx, column=2, value=m.get("response_text") or "").alignment = wrap
+            ws.cell(row=row_idx, column=3, value=str(mqtt_val)).alignment = wrap
+            ws.cell(row=row_idx, column=4, value=reaction)
+        ws.column_dimensions["A"].width = 50
+        ws.column_dimensions["B"].width = 60
+        ws.column_dimensions["C"].width = 30
+        ws.column_dimensions["D"].width = 14
+        ws.freeze_panes = "A2"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/lists/{list_id}/export-conversations")
+def export_conversations(list_id: str, admin: str = Depends(require_admin)):
+    """Raw conversations export — Excel workbook with Overview, Instructions, and one tab per thread."""
+    sb = get_supabase()
+    data = _gather_conversations_export(sb, list_id)
+    xlsx_bytes = _build_conversations_workbook(data)
+    safe_name = (data["list_name"] or "list").replace(" ", "_")
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"{safe_name}-conversations-{today}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

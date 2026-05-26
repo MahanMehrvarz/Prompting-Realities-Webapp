@@ -20,6 +20,7 @@ import { analysisApi, type AnalysisList, type AnalysisListItem, type ThreadSumma
 import AnalysisShell from "../../AnalysisShell";
 import { useAnalysisBreadcrumb } from "../../AnalysisBreadcrumbContext";
 import ListTabStrip from "@/components/analysis/ListTabStrip";
+import ExportConversationsModal from "@/components/analysis/ExportConversationsModal";
 
 const TOKEN_KEY = "pr-auth-token";
 
@@ -33,6 +34,7 @@ function fmt(iso: string | null | undefined) {
 // ---------------------------------------------------------------------------
 function ExportButton({ listId, token }: { listId: string; token: string }) {
   const [open, setOpen] = useState(false);
+  const [convoModal, setConvoModal] = useState(false);
   const doExport = async (format: "json" | "csv") => {
     setOpen(false);
     const url = analysisApi.getExportUrl(listId, format);
@@ -55,12 +57,14 @@ function ExportButton({ listId, token }: { listId: string; token: string }) {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-2 z-20 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[5px_5px_0_var(--card-shell)] overflow-hidden min-w-[160px]">
-            <button onClick={() => doExport("json")} className="w-full px-4 py-2.5 text-sm text-left hover:bg-white font-medium text-[var(--ink-dark)] transition">Export as JSON</button>
-            <button onClick={() => doExport("csv")} className="w-full px-4 py-2.5 text-sm text-left hover:bg-white font-medium text-[var(--ink-dark)] border-t border-[var(--card-shell)]/40 transition">Export as CSV</button>
+          <div className="absolute right-0 top-full mt-2 z-20 rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] shadow-[5px_5px_0_var(--card-shell)] overflow-hidden min-w-[220px]">
+            <button onClick={() => { setOpen(false); setConvoModal(true); }} className="w-full px-4 py-2.5 text-sm text-left hover:bg-white font-medium text-[var(--ink-dark)] transition">Raw Conversations (Excel)</button>
+            <button onClick={() => doExport("json")} className="w-full px-4 py-2.5 text-sm text-left hover:bg-white font-medium text-[var(--ink-dark)] border-t border-[var(--card-shell)]/40 transition">Codes — JSON</button>
+            <button onClick={() => doExport("csv")} className="w-full px-4 py-2.5 text-sm text-left hover:bg-white font-medium text-[var(--ink-dark)] border-t border-[var(--card-shell)]/40 transition">Codes — CSV</button>
           </div>
         </>
       )}
+      <ExportConversationsModal listId={listId} token={token} open={convoModal} onClose={() => setConvoModal(false)} />
     </div>
   );
 }
