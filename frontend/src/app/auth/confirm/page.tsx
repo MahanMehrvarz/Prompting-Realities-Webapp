@@ -18,6 +18,28 @@ function AuthConfirmInner() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const next = searchParams.get("next") ?? "/";
+
+    const handleVerifyError = (msg: string) => {
+      console.error("Auth confirm error:", msg);
+      setError(
+        msg.includes("expired")
+          ? "This link has expired. Please request a new one."
+          : "Unable to confirm. Please try again."
+      );
+    };
+
+    // Flow A — PKCE code exchange: /auth/confirm?code=...
+    const code = searchParams.get("code");
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ error: err }) => {
+        if (err) return handleVerifyError(err.message);
+        router.replace(next);
+      });
+      return;
+    }
+
+    // Flow B — OTP token_hash: /auth/confirm?token_hash=...&type=...
     const tokenHash = searchParams.get("token_hash");
     const type = searchParams.get("type") as
       | "signup"
@@ -26,28 +48,36 @@ function AuthConfirmInner() {
       | "invite"
       | "email"
       | null;
-    const next = searchParams.get("next") ?? "/";
-
-    if (!tokenHash || !type) {
-      setError("Invalid confirmation link.");
+    if (tokenHash && type) {
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type }).then(({ error: err }) => {
+        if (err) return handleVerifyError(err.message);
+        router.replace(next);
+      });
       return;
     }
 
-    supabase.auth
-      .verifyOtp({ token_hash: tokenHash, type })
-      .then(({ error: verifyError }) => {
-        if (verifyError) {
-          console.error("Auth confirm error:", verifyError.message);
-          setError(
-            verifyError.message.includes("expired")
-              ? "This link has expired. Please request a new one."
-              : "Unable to confirm. Please try again."
-          );
-          return;
-        }
-        // Session is now active — redirect
-        router.replace(next);
-      });
+    // Flow C — implicit hash fragment: /auth/confirm#access_token=...&refresh_token=...
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const access = hash.get("access_token");
+      const refresh = hash.get("refresh_token");
+      const hashError = hash.get("error_description") || hash.get("error");
+      if (hashError) {
+        handleVerifyError(hashError);
+        return;
+      }
+      if (access && refresh) {
+        supabase.auth
+          .setSession({ access_token: access, refresh_token: refresh })
+          .then(({ error: err }) => {
+            if (err) return handleVerifyError(err.message);
+            router.replace(next);
+          });
+        return;
+      }
+    }
+
+    setError("Invalid confirmation link.");
   }, [searchParams, router]);
 
   if (error) {
