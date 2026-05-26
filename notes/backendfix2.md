@@ -1,5 +1,7 @@
 # Backend Migration: Chat Completions API → Responses API
 
+> **Status (as of 2026-05-26): COMPLETED.** This migration has shipped — `backend/app/conversation_service.py` now uses `client.responses.create()` with `previous_response_id`, and `last_response_id` is persisted on `assistant_sessions`. Kept here as historical reference.
+
 ## Overview
 
 This document outlines the changes required to migrate from OpenAI's Chat Completions API to the Responses API. The Responses API provides built-in conversation context management via `previous_response_id`, eliminating the need to send full conversation history with each request.

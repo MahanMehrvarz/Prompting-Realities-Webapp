@@ -1,5 +1,14 @@
 # Efficiency Plan — Prompting Realities Webapp
 
+> **Status update (2026-05-26):** Batch A is partly shipped. Done so far:
+> - **Item 1 — Fernet cache** ✅ (`backend/app/encryption.py:18`, `_FERNET` module cache)
+> - **Item 4 — `PyJWKClient` cache** ✅ (`backend/app/security.py:17`, `_jwks_clients` dict)
+> - **Item 5 — Supabase singleton** ✅ (`backend/app/config.py:57`, `get_supabase_client()` + `with_supabase_retry`)
+> - **Item 6 — Admin-check cache** ✅ (commit `cdaab72` "perf: cache Supabase client, dedupe admin checks")
+> - **Item 11 — HTTP cache headers / CORS max-age** ✅ partly (commit `3fdd827` "add TTL cache, CORS max-age")
+>
+> Remaining work: items 2, 3, 7, 8, 9, 10, 12, 13 and the larger refactors in §4.
+
 Audit performed across the FastAPI backend, Next.js 16 / React 19 frontend, and the cross-cutting architecture (Supabase, OpenAI, MQTT). Every item below was verified against the current source. User-facing functionality is preserved for all recommendations in sections 2–3; sections 4–5 are opt-in refactors that may require care.
 
 **This revision prioritises perceived speed** — what the user waits for on page loads, navigation, chat send, and TTS playback — over backend throughput or code cleanliness.

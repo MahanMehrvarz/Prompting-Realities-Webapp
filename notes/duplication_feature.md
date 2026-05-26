@@ -1,5 +1,7 @@
 # Assistant Duplication Feature - Implementation Guide
 
+> **Status (as of 2026-05-26): SHIPPED.** The Duplicate button is live — see `handleDuplicateAssistant` in `frontend/src/app/page.tsx`. Kept as historical design notes.
+
 ## Overview
 
 This document outlines a safe implementation strategy for adding a "Duplicate" button to assistant (LLM Thing) cards. The goal is to allow users to create a copy of an existing assistant with all configuration pre-filled, without breaking existing functionality.

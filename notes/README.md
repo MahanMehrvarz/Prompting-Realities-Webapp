@@ -97,30 +97,31 @@ Once the backend is running, you can access:
 ## Development
 
 ### Frontend (Next.js + TypeScript)
-- **Framework**: Next.js 14+ with App Router
-- **Styling**: Tailwind CSS
+- **Framework**: Next.js 16 with App Router
+- **Styling**: Tailwind CSS 4
 - **Language**: TypeScript
 - **Location**: `frontend/`
 
 ### Backend (FastAPI + Python)
 - **Framework**: FastAPI
-- **Database**: SQLAlchemy ORM with SQLite
-- **Authentication**: JWT tokens with bcrypt
+- **Database**: Supabase PostgreSQL (SQLite remains as a local dev fallback)
+- **Authentication**: Supabase JWT (supports anonymous sessions)
 - **Real-time**: MQTT support with paho-mqtt
 - **Location**: `backend/`
 
 ## Tech Stack
 
 ### Frontend
-- Next.js
-- React
+- Next.js 16
+- React 19
 - TypeScript
-- Tailwind CSS
+- Tailwind CSS 4
 
 ### Backend
 - FastAPI
-- SQLAlchemy
+- Supabase (PostgreSQL + Auth)
 - Paho-MQTT
+- OpenAI (GPT-4o-mini, Whisper, TTS)
 - Uvicorn
 - Python 3.x
 
@@ -148,7 +149,7 @@ If you get an error about ports already being in use:
 - Backend: Make sure you ran `pip install -r requirements.txt` in the `backend/` directory
 
 ### Database Issues
-Delete the `backend/app.db` file and restart the backend to reinitialize the database.
+The app now uses Supabase PostgreSQL — ensure the backend `.env` has valid `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, and `PR_BACKEND_DB_URL` values. If a stale local SQLite file (`backend/*.db`) is interfering, you can delete it safely.
 
 ## License
 

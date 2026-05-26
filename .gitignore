@@ -79,7 +79,12 @@ backend/*.log
 
 # VSCode
 .vscode/
+
+# Claude Code (local AI assistant artifacts — do not share)
 .claude/
+CLAUDE.md
+CLAUDE.local.md
+.claudeignore
 
 # OS
 .DS_Store
