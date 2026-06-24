@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { FileText, GitCompareArrows, ArrowRight, X, Search, Plus, Tag, Trash2 } from "lucide-react";
+import { FileText, GitCompareArrows, ArrowRight, X, Search, Plus, Tag, Trash2, Download } from "lucide-react";
 import { analysisApi, type InstructionVersion, type InstructionHighlight, type AnalysisCode } from "@/lib/backendApi";
 import { computeWordDiff, diffStats, type DiffSegment } from "@/lib/textDiff";
+import { buildDiffHtml, buildDiffMarkdown, buildDiffFilename, downloadTextFile } from "@/lib/diffExport";
 
 const PRESET_COLORS = ["#fde68a", "#a7f3d0", "#bfdbfe", "#fecaca", "#ddd6fe", "#fed7aa", "#e9d5ff", "#99f6e4"];
 function randomColor() { return PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)]; }
@@ -319,7 +320,7 @@ function DiffView({
       </div>
 
       {/* Stats */}
-      <div className="flex gap-3 mb-5">
+      <div className="flex gap-3 mb-5 items-center">
         {stats.added > 0 && (
           <span className="rounded-full bg-[#d1fae5] px-2.5 py-1 text-xs font-semibold text-[#065f46]">
             +{stats.added} added
@@ -335,6 +336,41 @@ function DiffView({
             Select text to code
           </span>
         )}
+        <div className="ml-auto flex gap-2">
+          {(() => {
+            const exportCtx = {
+              assistantName: newer.assistant_name || older.assistant_name || "assistant",
+              olderLabel: `v${instructions.length - idxOlder}`,
+              newerLabel: `v${instructions.length - idxNewer}`,
+              olderDate: older.saved_at,
+              newerDate: newer.saved_at,
+              segments,
+              stats,
+            };
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => downloadTextFile(buildDiffHtml(exportCtx), buildDiffFilename(exportCtx, "html"), "text/html")}
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-[var(--card-shell)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--ink-dark)] hover:bg-[var(--card-fill)] transition"
+                  title="Download diff as a self-contained HTML file"
+                >
+                  <Download className="h-3 w-3" />
+                  HTML
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadTextFile(buildDiffMarkdown(exportCtx), buildDiffFilename(exportCtx, "md"), "text/markdown")}
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-[var(--card-shell)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--ink-dark)] hover:bg-[var(--card-fill)] transition"
+                  title="Download diff as Markdown"
+                >
+                  <Download className="h-3 w-3" />
+                  Markdown
+                </button>
+              </>
+            );
+          })()}
+        </div>
       </div>
 
       {/* Diff body */}
