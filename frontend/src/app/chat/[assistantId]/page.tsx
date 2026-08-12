@@ -82,9 +82,6 @@ export default function AssistantChatPage() {
     mqtt_user: string | null;
     mqtt_pass: string | null;
     mqtt_topic: string | null;
-    mqtt_receiver_topic: string | null;
-    mqtt_receiver_enabled: boolean;
-    mqtt_auto_subscribe: boolean;
   } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -269,17 +266,6 @@ export default function AssistantChatPage() {
     // Cleanup: unsubscribe from presence when component unmounts
     return () => {
       if (presenceChannelRef.current) {
-        // Check viewer count before leaving — if we're the last one, revive session-0
-        const state = presenceChannelRef.current.presenceState();
-        const viewers = Object.values(state).flat();
-        if (viewers.length <= 1) {
-          // We're the last viewer — revive session-0 for headless MQTT
-          logger.log("♻️ Last viewer leaving, requesting session-0 revive");
-          const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-          backendApi
-            .reviveSessionZero(assistantId, storedToken || undefined)
-            .catch((err) => logger.error("Session-0 revive failed:", err));
-        }
         presenceChannelRef.current.untrack();
         presenceChannelRef.current.unsubscribe();
         logger.log("🔌 Presence tracking stopped");
@@ -846,47 +832,6 @@ export default function AssistantChatPage() {
     onError: handleMqttError,
   });
 
-  // Auto-subscribe to MQTT receiver topic if configured in dashboard
-  const mqttAutoSubscribeAttempted = useRef(false);
-  useEffect(() => {
-    if (
-      !mqttAutoSubscribeAttempted.current &&
-      mqttCredentials?.mqtt_auto_subscribe &&
-      mqttCredentials?.mqtt_receiver_topic &&
-      mqttCredentials?.mqtt_host &&
-      mqttStatus === "disconnected"
-    ) {
-      mqttAutoSubscribeAttempted.current = true;
-      const host = mqttCredentials.mqtt_host;
-      const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
-      const wsUrl = isLocal ? `ws://${host}:9001/mqtt` : `wss://${host}/mqtt`;
-      logger.log(`📡 [MQTT] Auto-subscribing to receiver topic: ${mqttCredentials.mqtt_receiver_topic}`);
-      mqttConnect(
-        wsUrl,
-        mqttCredentials.mqtt_receiver_topic,
-        mqttCredentials.mqtt_user || undefined,
-        mqttCredentials.mqtt_pass || undefined,
-      );
-    }
-  }, [mqttCredentials, mqttStatus, mqttConnect]);
-
-  // Session-0 handoff: when browser MQTT connects, tell backend to stop session-0
-  const handoffSent = useRef(false);
-  useEffect(() => {
-    if (
-      !handoffSent.current &&
-      mqttAutoSubscribeAttempted.current &&
-      mqttStatus === "connected" &&
-      mqttCredentials?.mqtt_auto_subscribe
-    ) {
-      handoffSent.current = true;
-      logger.log("🔄 [MQTT] Sending session-0 handoff signal");
-      backendApi
-        .sessionZeroHandoff(assistantId, token || undefined)
-        .catch((err) => logger.error("Session-0 handoff failed:", err));
-    }
-  }, [mqttStatus, mqttCredentials, assistantId, token]);
-
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     logger.log("🚀 [Frontend] handleSend triggered");
@@ -1171,10 +1116,9 @@ export default function AssistantChatPage() {
         currentTopic={mqttCurrentTopic}
         errorMessage={mqttErrorMessage}
         defaultHost={mqttCredentials?.mqtt_host}
-        defaultTopic={mqttCredentials?.mqtt_receiver_topic || mqttCredentials?.mqtt_topic}
+        defaultTopic={mqttCredentials?.mqtt_topic}
         defaultUsername={mqttCredentials?.mqtt_user}
         defaultPassword={mqttCredentials?.mqtt_pass}
-        locked={!!mqttCredentials?.mqtt_auto_subscribe}
       />
 
       {/* Fixed Header */}

@@ -119,9 +119,6 @@ export type MqttCredentialsResponse = {
   mqtt_user: string | null;
   mqtt_pass: string | null;
   mqtt_topic: string | null;
-  mqtt_receiver_topic: string | null;
-  mqtt_receiver_enabled: boolean;
-  mqtt_auto_subscribe: boolean;
 };
 
 export type VoiceMessageResult = {
@@ -314,58 +311,6 @@ export const backendApi = {
       token,
       { method: "GET" }
     );
-  },
-
-  /**
-   * Start session-0 headless MQTT listener for an assistant.
-   */
-  async startSessionZero(
-    assistantId: string,
-    token?: string
-  ): Promise<{ success: boolean; active: boolean; message: string }> {
-    return apiFetch("/ai/mqtt/session-zero/start", token, {
-      method: "POST",
-      body: JSON.stringify({ assistant_id: assistantId }),
-    });
-  },
-
-  /**
-   * Stop session-0 headless MQTT listener for an assistant.
-   */
-  async stopSessionZero(
-    assistantId: string,
-    token?: string
-  ): Promise<{ success: boolean; active: boolean; message: string }> {
-    return apiFetch("/ai/mqtt/session-zero/stop", token, {
-      method: "POST",
-      body: JSON.stringify({ assistant_id: assistantId }),
-    });
-  },
-
-  /**
-   * Chat session signals MQTT ready — hands off from session-0 to browser.
-   */
-  async sessionZeroHandoff(
-    assistantId: string,
-    token?: string
-  ): Promise<{ success: boolean; active: boolean; message: string }> {
-    return apiFetch("/ai/mqtt/session-zero/handoff", token, {
-      method: "POST",
-      body: JSON.stringify({ assistant_id: assistantId }),
-    });
-  },
-
-  /**
-   * Revive session-0 when all chat sessions are gone.
-   */
-  async reviveSessionZero(
-    assistantId: string,
-    token?: string
-  ): Promise<{ success: boolean; active: boolean; message: string }> {
-    return apiFetch("/ai/mqtt/session-zero/revive", token, {
-      method: "POST",
-      body: JSON.stringify({ assistant_id: assistantId }),
-    });
   },
 
   /**

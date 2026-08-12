@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from ..conversation_service import run_model_turn, transcribe_blob
 from ..mqtt_utils import publish_payload, test_mqtt_connection
-from ..security import get_current_user_id, get_current_user_email, maybe_current_user_id
+from ..security import get_current_user_email, maybe_current_user_id
 from .. import voice_message_store
 
 ACK_PHRASES = [
@@ -375,179 +375,6 @@ async def disconnect_mqtt(
         return MqttDisconnectResponse(success=False, connections_closed=0)
 
 
-# ---------------------------------------------------------------------------
-# Session-0: headless MQTT receiver (keeps sensor connection alive with no chat)
-# ---------------------------------------------------------------------------
-
-class SessionZeroRequest(BaseModel):
-    """Request to start/stop session-0 headless MQTT listener."""
-    assistant_id: str
-
-
-class SessionZeroResponse(BaseModel):
-    success: bool
-    active: bool
-    message: str = ""
-
-
-@router.post("/mqtt/session-zero/start", response_model=SessionZeroResponse)
-async def start_session_zero(
-    request: SessionZeroRequest,
-    user_id: str = Depends(get_current_user_id),
-):
-    """Start session-0 headless MQTT subscription for an assistant's receiver topic."""
-    logger.info(f"🟢 [Backend] Starting session-0 for assistant {request.assistant_id}")
-    try:
-        from ..config import get_supabase_client
-        from ..mqtt_manager import mqtt_manager
-
-        supabase = get_supabase_client()
-        response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_receiver_topic, mqtt_receiver_enabled, name"
-        ).eq("id", request.assistant_id).execute()
-
-        if not response.data:
-            return SessionZeroResponse(success=False, active=False, message="Assistant not found")
-
-        assistant = response.data[0]
-        receiver_topic = assistant.get("mqtt_receiver_topic")
-        receiver_enabled = assistant.get("mqtt_receiver_enabled", False)
-        mqtt_host = assistant.get("mqtt_host")
-
-        if not receiver_enabled or not receiver_topic or not mqtt_host:
-            return SessionZeroResponse(
-                success=True, active=False,
-                message="Receiver topic disabled or not configured"
-            )
-
-        success = await mqtt_manager.start_session_zero(
-            assistant_id=request.assistant_id,
-            host=mqtt_host,
-            port=assistant.get("mqtt_port", 1883),
-            receiver_topic=receiver_topic,
-            username=assistant.get("mqtt_user"),
-            password=assistant.get("mqtt_pass"),
-            assistant_name=assistant.get("name"),
-        )
-
-        return SessionZeroResponse(
-            success=success, active=success,
-            message=f"Session-0 subscribed to {receiver_topic}" if success else "Failed to connect"
-        )
-    except Exception as exc:
-        logger.error(f"❌ [Session-0] Start failed: {exc}", exc_info=True)
-        return SessionZeroResponse(success=False, active=False, message=str(exc))
-
-
-@router.post("/mqtt/session-zero/stop", response_model=SessionZeroResponse)
-async def stop_session_zero(
-    request: SessionZeroRequest,
-    user_id: str | None = Depends(maybe_current_user_id),
-):
-    """Stop session-0 headless MQTT subscription for an assistant."""
-    logger.info(f"🔴 [Backend] Stopping session-0 for assistant {request.assistant_id}")
-    try:
-        from ..mqtt_manager import mqtt_manager
-        stopped = await mqtt_manager.stop_session_zero(request.assistant_id)
-        return SessionZeroResponse(
-            success=True, active=False,
-            message="Session-0 stopped" if stopped else "No active session-0"
-        )
-    except Exception as exc:
-        logger.error(f"❌ [Session-0] Stop failed: {exc}", exc_info=True)
-        return SessionZeroResponse(success=False, active=False, message=str(exc))
-
-
-@router.post("/mqtt/session-zero/handoff", response_model=SessionZeroResponse)
-async def session_zero_handoff(
-    request: SessionZeroRequest,
-    user_id: str | None = Depends(maybe_current_user_id),
-):
-    """Chat session signals MQTT ready — stop session-0 so browser takes over."""
-    logger.info(f"🔄 [Backend] Session-0 handoff for assistant {request.assistant_id}")
-    try:
-        from ..mqtt_manager import mqtt_manager
-        if mqtt_manager.is_session_zero_active(request.assistant_id):
-            await mqtt_manager.stop_session_zero(request.assistant_id)
-            return SessionZeroResponse(
-                success=True, active=False, message="Session-0 handed off to browser"
-            )
-        return SessionZeroResponse(success=True, active=False, message="No session-0 to hand off")
-    except Exception as exc:
-        logger.error(f"❌ [Session-0] Handoff failed: {exc}", exc_info=True)
-        return SessionZeroResponse(success=False, active=False, message=str(exc))
-
-
-@router.post("/mqtt/session-zero/revive", response_model=SessionZeroResponse)
-async def revive_session_zero(
-    request: SessionZeroRequest,
-    user_id: str | None = Depends(maybe_current_user_id),
-):
-    """All chat sessions gone — restart session-0 if assistant is still running."""
-    logger.info(f"♻️ [Backend] Reviving session-0 for assistant {request.assistant_id}")
-    try:
-        from ..config import get_supabase_client
-        from ..mqtt_manager import mqtt_manager
-
-        # Check assistant is still running (has active session)
-        supabase = get_supabase_client()
-        session_resp = supabase.table("assistant_sessions").select("id").eq(
-            "assistant_id", request.assistant_id
-        ).eq("active", True).execute()
-
-        if not session_resp.data:
-            return SessionZeroResponse(
-                success=True, active=False, message="Assistant not running, skip revive"
-            )
-
-        # Fetch MQTT config and restart session-0
-        response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_receiver_topic, mqtt_receiver_enabled, name"
-        ).eq("id", request.assistant_id).execute()
-
-        if not response.data:
-            return SessionZeroResponse(success=False, active=False, message="Assistant not found")
-
-        assistant = response.data[0]
-        receiver_topic = assistant.get("mqtt_receiver_topic")
-        receiver_enabled = assistant.get("mqtt_receiver_enabled", False)
-        mqtt_host = assistant.get("mqtt_host")
-
-        if not receiver_enabled or not receiver_topic or not mqtt_host:
-            return SessionZeroResponse(
-                success=True, active=False,
-                message="Receiver topic disabled or not configured"
-            )
-
-        success = await mqtt_manager.start_session_zero(
-            assistant_id=request.assistant_id,
-            host=mqtt_host,
-            port=assistant.get("mqtt_port", 1883),
-            receiver_topic=receiver_topic,
-            username=assistant.get("mqtt_user"),
-            password=assistant.get("mqtt_pass"),
-            assistant_name=assistant.get("name"),
-        )
-        return SessionZeroResponse(
-            success=success, active=success,
-            message=f"Session-0 revived on {receiver_topic}" if success else "Failed to revive"
-        )
-    except Exception as exc:
-        logger.error(f"❌ [Session-0] Revive failed: {exc}", exc_info=True)
-        return SessionZeroResponse(success=False, active=False, message=str(exc))
-
-
-@router.get("/mqtt/session-zero/status/{assistant_id}", response_model=SessionZeroResponse)
-async def session_zero_status(
-    assistant_id: str,
-    user_id: str | None = Depends(maybe_current_user_id),
-):
-    """Check if session-0 is active for an assistant."""
-    from ..mqtt_manager import mqtt_manager
-    active = mqtt_manager.is_session_zero_active(assistant_id)
-    return SessionZeroResponse(success=True, active=active)
-
-
 @router.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe_audio(
     file: UploadFile = File(...),
@@ -776,9 +603,6 @@ class MqttCredentialsResponse(BaseModel):
     mqtt_user: str | None = None
     mqtt_pass: str | None = None
     mqtt_topic: str | None = None
-    mqtt_receiver_topic: str | None = None
-    mqtt_receiver_enabled: bool = False
-    mqtt_auto_subscribe: bool = False
 
 
 @router.get("/mqtt/credentials/{assistant_id}", response_model=MqttCredentialsResponse)
@@ -802,7 +626,7 @@ async def get_mqtt_credentials(
         # Fetch assistant configuration
         logger.info(f"🔍 [Backend] Fetching MQTT config for {assistant_id}")
         response = supabase.table("assistants").select(
-            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic, mqtt_receiver_topic, mqtt_receiver_enabled, mqtt_auto_subscribe"
+            "mqtt_host, mqtt_port, mqtt_user, mqtt_pass, mqtt_topic"
         ).eq("id", assistant_id).execute()
 
         if not response.data or len(response.data) == 0:
@@ -824,9 +648,6 @@ async def get_mqtt_credentials(
         mqtt_user = assistant.get("mqtt_user")
         mqtt_pass = assistant.get("mqtt_pass")
         mqtt_topic = assistant.get("mqtt_topic")
-        mqtt_receiver_topic = assistant.get("mqtt_receiver_topic")
-        mqtt_receiver_enabled = assistant.get("mqtt_receiver_enabled", False)
-        mqtt_auto_subscribe = assistant.get("mqtt_auto_subscribe", False)
 
         logger.info(f"✅ [Backend] MQTT config retrieved: host={mqtt_host}, port={mqtt_port}, topic={mqtt_topic}")
 
@@ -836,9 +657,6 @@ async def get_mqtt_credentials(
             mqtt_user=mqtt_user,
             mqtt_pass=mqtt_pass,
             mqtt_topic=mqtt_topic,
-            mqtt_receiver_topic=mqtt_receiver_topic,
-            mqtt_receiver_enabled=bool(mqtt_receiver_enabled),
-            mqtt_auto_subscribe=bool(mqtt_auto_subscribe),
         )
 
     except HTTPException:
