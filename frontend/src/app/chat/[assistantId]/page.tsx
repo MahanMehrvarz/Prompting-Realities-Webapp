@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio, X, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { isAdmin } from "@/lib/isAdmin";
 import { logger } from "@/lib/logger";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { TTSWarningModal } from "@/components/TTSWarningModal";
@@ -198,6 +199,7 @@ export default function AssistantChatPage() {
         // Get user info
         const { data: { user } } = await supabase.auth.getUser();
         const userEmail = user?.email || "anonymous";
+        const viewerIsAdmin = user?.email ? await isAdmin(user.email) : false;
 
         // Create presence channel for this session
         const channelName = `session:${sessionId}`;
@@ -217,23 +219,28 @@ export default function AssistantChatPage() {
             setActiveViewers(viewers.length);
             setViewersList(viewers);
             
+            // Admins are "person 0" — they never occupy the chat slot and never
+            // block others, so the queue is computed over non-admin viewers only.
+            const queueViewers = viewers.filter((v: any) => !v.is_admin);
+
             // Determine queue position based on join time
             // Sort viewers by joined_at timestamp (earliest first)
-            const sortedViewers = [...viewers].sort((a: any, b: any) => {
+            const sortedViewers = [...queueViewers].sort((a: any, b: any) => {
               const timeA = new Date(a.joined_at).getTime();
               const timeB = new Date(b.joined_at).getTime();
               return timeA - timeB;
             });
-            
-            // Find current user's position in queue
+
+            // Find current user's position in queue.
+            // Admins are filtered out above (myPosition === -1) and are always active.
             const myPosition = sortedViewers.findIndex((v: any) => v.device_id === deviceIdRef.current);
             setQueuePosition(myPosition + 1); // 1-indexed position
-            
-            // Only the first person in queue (position 1) can use the chat
-            setIsActiveUser(myPosition === 0);
-            
+
+            // Only the first non-admin in queue (position 1) can use the chat
+            setIsActiveUser(myPosition <= 0);
+
             logger.log("👥 Active viewers:", viewers.length, viewers);
-            logger.log("📍 My queue position:", myPosition + 1, "Active:", myPosition === 0);
+            logger.log("📍 My queue position:", myPosition + 1, "Active:", myPosition <= 0);
           })
           .on("presence", { event: "join" }, ({ key, newPresences }) => {
             logger.log("👋 Viewer joined:", key, newPresences);
@@ -249,6 +256,7 @@ export default function AssistantChatPage() {
             await channel.track({
               user_email: userEmail,
               device_id: deviceIdRef.current,
+              is_admin: viewerIsAdmin,
               joined_at: new Date().toISOString(),
             });
             logger.log("✅ Presence tracking started for session:", sessionId);
@@ -1243,7 +1251,7 @@ export default function AssistantChatPage() {
                     <p className="text-xs text-[var(--ink-muted)]">Your position in queue:</p>
                     <p className="text-2xl font-bold text-[var(--ink-dark)]">#{queuePosition}</p>
                     <p className="mt-2 text-xs text-[var(--ink-muted)]">
-                      {activeViewers - 1} {activeViewers - 1 === 1 ? 'person' : 'people'} ahead of you
+                      {queuePosition - 1} {queuePosition - 1 === 1 ? 'person' : 'people'} ahead of you
                     </p>
                   </div>
                 </div>
