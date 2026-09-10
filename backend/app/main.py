@@ -6,13 +6,28 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import ai, assistants, auth, analysis
 from .mqtt_manager import mqtt_manager
+from .mqtt_receiver import mqtt_receiver
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
+    # Startup: re-arm every persistent MQTT receiver the database still lists as
+    # active. Render redeploys on each push to main, so without this a deploy
+    # would silently stop listeners that admins believe are still running.
+    import asyncio
+
+    mqtt_receiver.bind_loop(asyncio.get_running_loop())
+    try:
+        await mqtt_receiver.rehydrate()
+    except Exception as exc:  # never let a rehydrate failure block boot
+        import logging
+        logging.getLogger(__name__).error(f"Receiver rehydrate failed at startup: {exc}")
+
     yield
+
     # Shutdown: disconnect all persistent MQTT connections
+    await mqtt_receiver.stop_all()
     await mqtt_manager.disconnect_all()
 
 app = FastAPI(

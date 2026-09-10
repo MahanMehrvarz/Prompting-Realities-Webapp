@@ -121,6 +121,22 @@ export type MqttCredentialsResponse = {
   mqtt_topic: string | null;
 };
 
+export type ReceiverSubscribeRequest = {
+  session_id: string;
+  assistant_id: string;
+  thread_id: string; // the admin's own thread, so turns land in their conversation
+  topic: string;
+};
+
+export type ReceiverStatus = {
+  armed: boolean; // a subscription is registered for this session
+  running: boolean; // the backend currently holds a live MQTT connection
+  paused: boolean; // armed, but a visitor is engaged so messages are being dropped
+  topic?: string | null;
+  thread_id?: string | null;
+  last_message_at?: string | null;
+};
+
 export type VoiceMessageResult = {
   status: "pending" | "ready" | "error";
   transcript: string | null;
@@ -308,6 +324,46 @@ export const backendApi = {
   ): Promise<MqttCredentialsResponse> {
     return apiFetch<MqttCredentialsResponse>(
       `/ai/mqtt/credentials/${assistantId}`,
+      token,
+      { method: "GET" }
+    );
+  },
+
+  /**
+   * Arm a persistent, server-side MQTT receiver for a session (admin only).
+   *
+   * Unlike the browser subscription, this one outlives the tab: the backend
+   * holds the connection and runs each incoming message through the assistant
+   * on the given thread until it is disarmed or the session is stopped.
+   */
+  async subscribeReceiver(
+    request: ReceiverSubscribeRequest,
+    token?: string
+  ): Promise<ReceiverStatus> {
+    return apiFetch<ReceiverStatus>("/ai/mqtt/receiver/subscribe", token, {
+      method: "POST",
+      body: JSON.stringify(request),
+    });
+  },
+
+  /** Disarm a session's persistent MQTT receiver (admin only). */
+  async unsubscribeReceiver(
+    sessionId: string,
+    token?: string
+  ): Promise<ReceiverStatus> {
+    return apiFetch<ReceiverStatus>("/ai/mqtt/receiver/unsubscribe", token, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  },
+
+  /** Read whether a session's persistent receiver is armed, live and paused (admin only). */
+  async getReceiverStatus(
+    sessionId: string,
+    token?: string
+  ): Promise<ReceiverStatus> {
+    return apiFetch<ReceiverStatus>(
+      `/ai/mqtt/receiver/status/${sessionId}`,
       token,
       { method: "GET" }
     );

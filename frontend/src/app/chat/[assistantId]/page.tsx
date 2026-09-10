@@ -17,7 +17,7 @@ import {
   messageService,
   type ChatMessage as DbChatMessage,
 } from "@/lib/supabaseClient";
-import { backendApi } from "@/lib/backendApi";
+import { backendApi, type ReceiverStatus } from "@/lib/backendApi";
 import { getAssistantColors } from "@/lib/assistantColors";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
@@ -85,12 +85,65 @@ export default function AssistantChatPage() {
     mqtt_topic: string | null;
   } | null>(null);
 
+  // Persistent MQTT receiver (admins only). The backend holds the subscription,
+  // so it keeps listening after this tab is closed.
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
+  const [receiverStatus, setReceiverStatus] = useState<ReceiverStatus | null>(null);
+  const [receiverError, setReceiverError] = useState<string | null>(null);
+  const [receiverBusy, setReceiverBusy] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const presenceChannelRef = useRef<RealtimeChannel | null>(null);
   const deviceIdRef = useRef<string>("");
   const threadIdRef = useRef<string>("");
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceAudioUrlsRef = useRef<string[]>([]); // track object URLs for cleanup
+  // Engagement lease: set once a non-admin actually sends something, which is
+  // what pauses the persistent receiver. Merely opening the page doesn't count.
+  const engagedRef = useRef(false);
+  const supabaseUserIdRef = useRef<string | null>(null);
+  // Read by the receiver poll, which must not overwrite an in-flight turn's
+  // optimistic messages.
+  const isAiRespondingRef = useRef(false);
+  useEffect(() => {
+    isAiRespondingRef.current = isAiResponding;
+  }, [isAiResponding]);
+
+  /**
+   * Re-read this thread's messages from the database.
+   *
+   * Used by the persistent receiver: its turns are written server-side, so the
+   * open tab has no local state for them. Skips while a turn is in flight so it
+   * can't wipe the optimistic bubbles mid-send.
+   */
+  const reloadThreadMessages = useCallback(async () => {
+    if (!sessionId || !threadIdRef.current || isAiRespondingRef.current) return;
+    try {
+      const { data: records, error: reloadError } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("session_id", sessionId)
+        .eq("thread_id", threadIdRef.current)
+        .order("created_at", { ascending: true });
+
+      if (reloadError || !records) return;
+
+      // Same marker-row filter the initial load uses.
+      const displayable = records.filter((record) => {
+        if (record.user_text || record.response_text) return true;
+        if (record.assistant_payload && typeof record.assistant_payload === "object") {
+          const keys = Object.keys(record.assistant_payload);
+          if (keys.length === 1 && keys[0] === "_response_id_marker") return false;
+        }
+        return true;
+      });
+
+      const mapped = displayable.flatMap((record) => mapMessageRecord(record));
+      setMessages((prev) => (mapped.length === prev.length ? prev : mapped));
+    } catch (err) {
+      logger.warn("⚠️ [Receiver] Failed to reload thread messages:", err);
+    }
+  }, [sessionId]);
   
   // Initialize device ID and thread ID from localStorage or create new ones
   useEffect(() => {
@@ -107,6 +160,7 @@ export default function AssistantChatPage() {
       // Use a synchronous approach: check auth state from localStorage/session
       const initializeThreadId = async () => {
         const { data: { user } } = await supabase.auth.getUser();
+        supabaseUserIdRef.current = user?.id || null;
         const userIdentifier = user?.id || storedDeviceId;
         const THREAD_ID_KEY = `pr-thread-${sessionId}-${userIdentifier}`;
         let storedThreadId = window.localStorage.getItem(THREAD_ID_KEY);
@@ -200,6 +254,9 @@ export default function AssistantChatPage() {
         const { data: { user } } = await supabase.auth.getUser();
         const userEmail = user?.email || "anonymous";
         const viewerIsAdmin = user?.email ? await isAdmin(user.email) : false;
+        // Mirror into state: the persistent-receiver UI and the engagement
+        // lease both branch on it outside this effect.
+        setViewerIsAdmin(viewerIsAdmin);
 
         // Create presence channel for this session
         const channelName = `session:${sessionId}`;
@@ -607,6 +664,18 @@ export default function AssistantChatPage() {
     }
 
     logger.log("📝 [Frontend] Sending message to AI:", trimmed);
+
+    // First send is what claims the engagement lease -- from here the
+    // persistent receiver holds off until this visitor stops heartbeating.
+    if (!viewerIsAdmin && !engagedRef.current) {
+      engagedRef.current = true;
+      logger.log("🔒 [Lease] Visitor engaged; pausing any persistent receiver");
+    }
+    if (!viewerIsAdmin) {
+      // Fire-and-forget: a slow lease write must not delay the reply.
+      touchEngagementLease();
+    }
+
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: ChatMessage = {
       id: tempId,
@@ -839,6 +908,159 @@ export default function AssistantChatPage() {
     onMessage: handleMqttMessage,
     onError: handleMqttError,
   });
+
+  // ---------------------------------------------------------------------
+  // Persistent MQTT receiver (admins only)
+  // ---------------------------------------------------------------------
+
+  const refreshReceiverStatus = useCallback(async () => {
+    if (!sessionId || !viewerIsAdmin || !token) return;
+    try {
+      const status = await backendApi.getReceiverStatus(sessionId, token);
+      setReceiverStatus(status);
+    } catch (err) {
+      logger.warn("⚠️ [Receiver] Failed to fetch status:", err);
+    }
+  }, [sessionId, viewerIsAdmin, token]);
+
+  // Reflect the server's view on load and keep it fresh, so an admin opening
+  // the chat sees whether it is armed, live, and currently paused.
+  useEffect(() => {
+    if (!viewerIsAdmin || !sessionId || !token) return;
+    refreshReceiverStatus();
+    const interval = setInterval(refreshReceiverStatus, 10000);
+    return () => clearInterval(interval);
+  }, [viewerIsAdmin, sessionId, token, refreshReceiverStatus]);
+
+  // An admin arriving from another device has a different localStorage thread,
+  // so adopt the armed subscription's thread to see the turns it has collected.
+  useEffect(() => {
+    if (!viewerIsAdmin || !receiverStatus?.armed || !receiverStatus.thread_id) return;
+    if (!threadIdRef.current || threadIdRef.current === receiverStatus.thread_id) return;
+
+    logger.log("🧵 [Receiver] Adopting armed receiver's thread:", receiverStatus.thread_id);
+    threadIdRef.current = receiverStatus.thread_id;
+    try {
+      const THREAD_ID_KEY = `pr-thread-${sessionId}-${supabaseUserIdRef.current || deviceIdRef.current}`;
+      window.localStorage.setItem(THREAD_ID_KEY, receiverStatus.thread_id);
+    } catch {
+      // localStorage unavailable — the ref alone is enough for this tab.
+    }
+    reloadThreadMessages();
+  }, [viewerIsAdmin, receiverStatus?.armed, receiverStatus?.thread_id, sessionId, reloadThreadMessages]);
+
+  const handleArmReceiver = useCallback(
+    async (topic: string) => {
+      if (!sessionId || !token || !threadIdRef.current) return;
+      setReceiverBusy(true);
+      setReceiverError(null);
+      try {
+        const status = await backendApi.subscribeReceiver(
+          {
+            session_id: sessionId,
+            assistant_id: assistantId,
+            thread_id: threadIdRef.current,
+            topic,
+          },
+          token
+        );
+        setReceiverStatus(status);
+        logger.log("🎧 [Receiver] Armed on topic:", topic);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to start listening";
+        logger.error("❌ [Receiver] Arm failed:", err);
+        setReceiverError(message);
+      } finally {
+        setReceiverBusy(false);
+      }
+    },
+    [sessionId, token, assistantId]
+  );
+
+  const handleDisarmReceiver = useCallback(async () => {
+    if (!sessionId || !token) return;
+    setReceiverBusy(true);
+    setReceiverError(null);
+    try {
+      const status = await backendApi.unsubscribeReceiver(sessionId, token);
+      setReceiverStatus(status);
+      logger.log("🔇 [Receiver] Disarmed");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to stop listening";
+      logger.error("❌ [Receiver] Disarm failed:", err);
+      setReceiverError(message);
+    } finally {
+      setReceiverBusy(false);
+    }
+  }, [sessionId, token]);
+
+  // While a receiver is armed, turns are written server-side. Poll this thread
+  // so an admin watching the tab sees them appear. Scoped to armed admins only,
+  // so no other view takes on polling it didn't have before.
+  useEffect(() => {
+    if (!viewerIsAdmin || !receiverStatus?.armed || !sessionId) return;
+    const interval = setInterval(() => {
+      reloadThreadMessages();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [viewerIsAdmin, receiverStatus?.armed, sessionId, reloadThreadMessages]);
+
+  // ---------------------------------------------------------------------
+  // Engagement lease: pauses the persistent receiver while a visitor is
+  // actually using the chat, so sensor-driven output doesn't compete with a
+  // person at the installation. Admins never hold the lease -- they sit
+  // outside the queue and own the receiver.
+  // ---------------------------------------------------------------------
+
+  const touchEngagementLease = useCallback(async () => {
+    if (!sessionId || viewerIsAdmin) return;
+    try {
+      await supabase.from("session_activity").upsert(
+        {
+          session_id: sessionId,
+          device_id: deviceIdRef.current,
+          last_seen: new Date().toISOString(),
+        },
+        { onConflict: "session_id,device_id" }
+      );
+    } catch (err) {
+      // Failing open is deliberate: a missed heartbeat only means the receiver
+      // keeps running, which is the pre-existing behaviour.
+      logger.warn("⚠️ [Lease] Heartbeat failed:", err);
+    }
+  }, [sessionId, viewerIsAdmin]);
+
+  const releaseEngagementLease = useCallback(async () => {
+    if (!sessionId || !engagedRef.current) return;
+    try {
+      await supabase
+        .from("session_activity")
+        .delete()
+        .eq("session_id", sessionId)
+        .eq("device_id", deviceIdRef.current);
+      engagedRef.current = false;
+    } catch (err) {
+      // The 45s TTL is the backstop when this doesn't land.
+      logger.warn("⚠️ [Lease] Release failed:", err);
+    }
+  }, [sessionId]);
+
+  // Heartbeat while engaged. The lease expiring is what resumes the receiver,
+  // so there is no "tab closed" event to miss.
+  useEffect(() => {
+    if (!sessionId || viewerIsAdmin) return;
+    const interval = setInterval(() => {
+      if (engagedRef.current) touchEngagementLease();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [sessionId, viewerIsAdmin, touchEngagementLease]);
+
+  // Clean exit releases the lease immediately; crashes fall back to the TTL.
+  useEffect(() => {
+    return () => {
+      releaseEngagementLease();
+    };
+  }, [releaseEngagementLease]);
 
   const handleSend = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1127,6 +1349,12 @@ export default function AssistantChatPage() {
         defaultTopic={mqttCredentials?.mqtt_topic}
         defaultUsername={mqttCredentials?.mqtt_user}
         defaultPassword={mqttCredentials?.mqtt_pass}
+        isAdmin={viewerIsAdmin}
+        persistentStatus={receiverStatus}
+        persistentError={receiverError}
+        persistentBusy={receiverBusy}
+        onArmPersistent={handleArmReceiver}
+        onDisarmPersistent={handleDisarmReceiver}
       />
 
       {/* Fixed Header */}

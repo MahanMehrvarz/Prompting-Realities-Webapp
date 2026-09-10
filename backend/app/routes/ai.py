@@ -14,10 +14,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
 
+from ..chat_turn import run_assistant_turn
 from ..conversation_service import run_model_turn, transcribe_blob
 from ..mqtt_utils import publish_payload, test_mqtt_connection
 from ..security import get_current_user_email, maybe_current_user_id
 from .. import voice_message_store
+from .analysis import require_admin
 
 ACK_PHRASES = [
     "Got it, give me a second.",
@@ -155,64 +157,20 @@ async def chat_with_openai(
                 detail="API key not configured for this assistant"
             )
         
-        # Extract configuration
-        prompt_instruction_raw = assistant.get("prompt_instruction", "You are a helpful assistant.")
-        prompt_instruction = str(prompt_instruction_raw) if prompt_instruction_raw else "You are a helpful assistant."
-        
-        json_schema_raw = assistant.get("json_schema")
-        json_schema = json_schema_raw if isinstance(json_schema_raw, dict) else None
-        
-        logger.info(f"📋 [Backend] Prompt instruction: {prompt_instruction[:50]}...")
-        logger.info(f"📊 [Backend] JSON schema present: {json_schema is not None}")
-        logger.info("🤖 [Backend] Calling run_model_turn...")
-        
-        payload, response_id, display_text = await run_model_turn(
-            request.previous_response_id,
-            request.user_message,
-            api_key,
-            prompt_instruction,
-            json_schema,
-            model="gpt-4o-mini",  # Or fetch from assistant config if you add model column
+        # Run the turn and persist the thread's response_id. Shared with the
+        # headless MQTT receiver so both paths keep conversation state the same way.
+        logger.info("🤖 [Backend] Calling run_assistant_turn...")
+
+        payload, response_id, display_text = await run_assistant_turn(
+            assistant=assistant,
+            api_key=api_key,
+            user_message=request.user_message,
+            previous_response_id=request.previous_response_id,
+            session_id=request.session_id,
+            thread_id=request.thread_id,
         )
-        
-        # Persist the response_id per thread (not per session) for conversation continuity
-        # This ensures each user/device has their own conversation context
-        if request.session_id and request.thread_id and response_id:
-            try:
-                # First, try to find existing marker for this thread
-                existing_marker = supabase.table("chat_messages").select("id").eq(
-                    "session_id", request.session_id
-                ).eq("thread_id", request.thread_id).is_("user_text", None).limit(1).execute()
-                
-                if existing_marker.data and len(existing_marker.data) > 0:
-                    # Update existing marker
-                    marker_record = existing_marker.data[0]
-                    if isinstance(marker_record, dict):
-                        marker_id = marker_record.get("id")
-                        if marker_id:
-                            supabase.table("chat_messages").update({
-                                "assistant_payload": {"_response_id_marker": response_id},
-                                "assistant_name": assistant.get("name"),
-                            }).eq("id", marker_id).execute()
-                            logger.info(f"💾 [Backend] Updated response_id {response_id} for thread {request.thread_id}")
-                else:
-                    # Insert new marker
-                    supabase.table("chat_messages").insert({
-                        "session_id": request.session_id,
-                        "assistant_id": request.assistant_id,
-                        "assistant_name": assistant.get("name"),
-                        "thread_id": request.thread_id,
-                        "user_text": None,
-                        "assistant_payload": {"_response_id_marker": response_id},
-                        "response_text": None,
-                        "mqtt_payload": None,
-                        "device_id": None,
-                    }).execute()
-                    logger.info(f"💾 [Backend] Inserted response_id {response_id} for thread {request.thread_id}")
-            except Exception as e:
-                logger.warning(f"⚠️ [Backend] Failed to save response_id: {e}")
-        
-        logger.info(f"✅ [Backend] run_model_turn completed: payload={payload}, response_id={response_id}")
+
+        logger.info(f"✅ [Backend] run_assistant_turn completed: payload={payload}, response_id={response_id}")
         logger.info(f"📝 [Backend] Display text extracted: {display_text[:100] if display_text else 'None'}...")
         
         response = ChatResponse(payload=payload, response_id=response_id, display_text=display_text)
@@ -373,6 +331,130 @@ async def disconnect_mqtt(
     except Exception as exc:
         logger.error(f"MQTT disconnect failed: {exc}")
         return MqttDisconnectResponse(success=False, connections_closed=0)
+
+
+# ---------------------------------------------------------------------------
+# Persistent MQTT receiver (admin only)
+#
+# Arms a server-side subscription that outlives the browser tab. Admin-gated
+# because it spends OpenAI credit unattended, and because admins are already
+# the role that sits outside the chat queue.
+# ---------------------------------------------------------------------------
+
+class ReceiverSubscribeRequest(BaseModel):
+    """Request to arm a persistent receiver for a session."""
+    session_id: str
+    assistant_id: str
+    thread_id: str  # the admin's own thread, so turns land in their conversation
+    topic: str
+
+
+class ReceiverUnsubscribeRequest(BaseModel):
+    """Request to disarm a session's persistent receiver."""
+    session_id: str
+
+
+class ReceiverStatusResponse(BaseModel):
+    """Current state of a session's persistent receiver."""
+    armed: bool           # a subscription row is active
+    running: bool         # the backend actually holds a live MQTT connection
+    paused: bool          # armed, but a visitor currently holds the lease
+    topic: str | None = None
+    thread_id: str | None = None
+    last_message_at: str | None = None
+
+
+@router.post("/mqtt/receiver/subscribe", response_model=ReceiverStatusResponse)
+async def subscribe_receiver(
+    request: ReceiverSubscribeRequest,
+    admin_email: str = Depends(require_admin),
+):
+    """Arm a persistent MQTT receiver for a session."""
+    from ..config import get_supabase_client
+    from ..mqtt_receiver import mqtt_receiver
+
+    logger.info(f"🎧 [Backend] Arming receiver for session {request.session_id} by {admin_email}")
+
+    supabase = get_supabase_client()
+    assistant, _api_key = await _get_assistant_and_key(request.assistant_id)
+
+    # One armed receiver per session: retire any previous row before inserting,
+    # so re-arming with a new topic replaces rather than collides with the
+    # partial unique index.
+    supabase.table("mqtt_receiver_subscriptions").update(
+        {"active": False}
+    ).eq("session_id", request.session_id).eq("active", True).execute()
+    await mqtt_receiver.stop(request.session_id)
+
+    inserted = supabase.table("mqtt_receiver_subscriptions").insert({
+        "session_id": request.session_id,
+        "assistant_id": request.assistant_id,
+        "thread_id": request.thread_id,
+        "topic": request.topic,
+        "active": True,
+        "created_by": admin_email,
+    }).execute()
+
+    subscription = inserted.data[0] if inserted.data else None
+    if not subscription:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create receiver subscription",
+        )
+
+    started = await mqtt_receiver.start(subscription, assistant)
+    if not started:
+        # Don't leave a row claiming to be armed when the broker refused us.
+        supabase.table("mqtt_receiver_subscriptions").update(
+            {"active": False}
+        ).eq("id", subscription["id"]).execute()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not connect to the MQTT broker",
+        )
+
+    return ReceiverStatusResponse(
+        armed=True,
+        running=True,
+        paused=False,
+        topic=request.topic,
+        thread_id=request.thread_id,
+    )
+
+
+@router.post("/mqtt/receiver/unsubscribe", response_model=ReceiverStatusResponse)
+async def unsubscribe_receiver(
+    request: ReceiverUnsubscribeRequest,
+    admin_email: str = Depends(require_admin),
+):
+    """Disarm a session's persistent receiver."""
+    from ..mqtt_receiver import mqtt_receiver
+
+    logger.info(f"🔇 [Backend] Disarming receiver for session {request.session_id} by {admin_email}")
+    await mqtt_receiver.disarm(request.session_id)
+    return ReceiverStatusResponse(armed=False, running=False, paused=False)
+
+
+@router.get("/mqtt/receiver/status/{session_id}", response_model=ReceiverStatusResponse)
+async def receiver_status(
+    session_id: str,
+    admin_email: str = Depends(require_admin),
+):
+    """Report whether a session's receiver is armed, live, and currently paused."""
+    from ..mqtt_receiver import _fetch_active_subscription, _visitor_engaged, mqtt_receiver
+
+    subscription = _fetch_active_subscription(session_id)
+    if not subscription:
+        return ReceiverStatusResponse(armed=False, running=False, paused=False)
+
+    return ReceiverStatusResponse(
+        armed=True,
+        running=mqtt_receiver.is_running(session_id),
+        paused=_visitor_engaged(session_id),
+        topic=subscription.get("topic"),
+        thread_id=subscription.get("thread_id"),
+        last_message_at=subscription.get("last_message_at"),
+    )
 
 
 @router.post("/transcribe", response_model=TranscriptionResponse)
