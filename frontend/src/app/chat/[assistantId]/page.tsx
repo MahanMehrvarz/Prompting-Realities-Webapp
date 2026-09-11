@@ -1310,6 +1310,37 @@ export default function AssistantChatPage() {
     );
   }
 
+  // Header receiver icon: the admin's persistent receiver takes precedence over
+  // the browser-only one, so the icon reflects listening even after the popup
+  // is closed (the backend holds the subscription, not this tab).
+  const persistentArmed = viewerIsAdmin && !!receiverStatus?.armed;
+  const receiverIcon = persistentArmed
+    ? receiverStatus?.paused
+      ? {
+          className: "bg-yellow-500 text-white border-yellow-500 animate-pulse",
+          title: `Listening paused — visitor is using the chat (${receiverStatus?.topic ?? ""})`,
+        }
+      : receiverStatus?.running
+      ? {
+          className: "bg-green-500 text-white border-green-500",
+          title: `Listening on ${receiverStatus?.topic ?? ""} (keeps running after this tab closes)`,
+        }
+      : {
+          className: "bg-red-500 text-white border-red-500",
+          title: `Armed on ${receiverStatus?.topic ?? ""} but not connected`,
+        }
+    : mqttStatus === "connected"
+    ? { className: "bg-green-500 text-white border-green-500", title: `MQTT Connected: ${mqttCurrentTopic}` }
+    : mqttStatus === "connecting"
+    ? { className: "bg-yellow-500 text-white border-yellow-500 animate-pulse", title: "MQTT Connecting..." }
+    : mqttStatus === "error"
+    ? { className: "bg-red-500 text-white border-red-500", title: "MQTT Error" }
+    : {
+        className:
+          "bg-transparent text-[var(--ink-dark)] border-[var(--card-shell)] hover:bg-[var(--card-shell)]/20",
+        title: "MQTT Receiver",
+      };
+
   return (
     <div
       className="flex chat-full-height flex-col text-[var(--foreground)]"
@@ -1402,24 +1433,8 @@ export default function AssistantChatPage() {
             {/* MQTT Receiver */}
             <button
               onClick={() => setShowMqttReceiverModal(true)}
-              className={`flex items-center justify-center rounded-full border-2 p-2 transition-all ${
-                mqttStatus === "connected"
-                  ? "bg-green-500 text-white border-green-500"
-                  : mqttStatus === "connecting"
-                  ? "bg-yellow-500 text-white border-yellow-500 animate-pulse"
-                  : mqttStatus === "error"
-                  ? "bg-red-500 text-white border-red-500"
-                  : "bg-transparent text-[var(--ink-dark)] border-[var(--card-shell)] hover:bg-[var(--card-shell)]/20"
-              }`}
-              title={
-                mqttStatus === "connected"
-                  ? `MQTT Connected: ${mqttCurrentTopic}`
-                  : mqttStatus === "connecting"
-                  ? "MQTT Connecting..."
-                  : mqttStatus === "error"
-                  ? "MQTT Error"
-                  : "MQTT Receiver"
-              }
+              className={`flex items-center justify-center rounded-full border-2 p-2 transition-all ${receiverIcon.className}`}
+              title={receiverIcon.title}
               aria-label="MQTT Receiver"
             >
               <Radio className="h-4 w-4" />
