@@ -579,7 +579,10 @@ export default function Home() {
         mqtt_host: assistant.mqttHost,
         mqtt_port: Number(assistant.mqttPort),
         mqtt_user: assistant.mqttUser || null,
-        mqtt_pass: assistant.mqttPass || null,
+        // The password lives only in this browser's localStorage, never in the
+        // loaded row. An empty field means "unknown here", not "clear it" --
+        // otherwise a Save from any new device wipes the broker password.
+        ...(assistant.mqttPass ? { mqtt_pass: assistant.mqttPass } : {}),
         mqtt_topic: assistant.mqttTopic,
       });
       
