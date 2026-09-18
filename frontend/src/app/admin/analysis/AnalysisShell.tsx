@@ -22,7 +22,7 @@ export default function AnalysisShell({
         <div className="w-full max-w-screen-2xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           {/* Left: nav + breadcrumb */}
           <div className="flex items-center gap-2 text-sm min-w-0 flex-1">
-            <Link href="/" className="text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition flex-shrink-0">
+            <Link href="/login" className="text-[var(--ink-muted)] hover:text-[var(--ink-dark)] transition flex-shrink-0">
               Dashboard
             </Link>
             <span className="text-[var(--ink-muted)] flex-shrink-0">/</span>

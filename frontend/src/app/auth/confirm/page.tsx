@@ -18,7 +18,7 @@ function AuthConfirmInner() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const next = searchParams.get("next") ?? "/";
+    const next = searchParams.get("next") ?? "/login";
 
     const handleVerifyError = (msg: string) => {
       console.error("Auth confirm error:", msg);
@@ -86,7 +86,7 @@ function AuthConfirmInner() {
         <div className="card-panel max-w-md w-full space-y-4 p-6 text-center">
           <p className="text-sm text-[#4a0000]">{error}</p>
           <a
-            href="/"
+            href="/login"
             className="inline-block text-sm underline text-[var(--ink-muted)] hover:text-[var(--foreground)]"
           >
             Back to login

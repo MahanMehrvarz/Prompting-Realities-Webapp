@@ -15,8 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Prompting Realities Control Hub",
-  description: "Configure and monitor Prompting Realities LLM things",
+  // Resolves relative Open Graph image paths. Without it they resolve against
+  // localhost at build time and link previews show a broken image.
+  metadataBase: new URL("https://promptingrealities.com"),
+  title: "Prompting Realities — Prototype LLM-powered tangible interactions",
+  description:
+    "A low-threshold framework for building physical things you can talk to. Describe your object in plain language, converse with it, and the model's structured output drives your hardware.",
 };
 
 export default function RootLayout({

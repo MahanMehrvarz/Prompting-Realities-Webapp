@@ -51,7 +51,7 @@ export default function AssistantThreadsStandalonePage() {
       const tok = session.access_token;
       window.localStorage.setItem(TOKEN_KEY, tok);
       setToken(tok);
-      if (!(await isAdmin(session.user.email!))) { router.push("/"); return; }
+      if (!(await isAdmin(session.user.email!))) { router.push("/login"); return; }
       setReady(true);
     });
   }, [router]);
