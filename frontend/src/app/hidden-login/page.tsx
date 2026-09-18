@@ -48,7 +48,7 @@ export default function HiddenLoginPage() {
         if (redirectPath) {
           router.push(redirectPath);
         } else {
-          router.push("/");
+          router.push("/login");
         }
       }
     });
@@ -69,7 +69,7 @@ export default function HiddenLoginPage() {
         if (redirectPath) {
           router.push(redirectPath);
         } else {
-          router.push("/");
+          router.push("/login");
         }
       }
     });
@@ -252,7 +252,7 @@ export default function HiddenLoginPage() {
               </button>
             </div>
             <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
-              <a href="/" className="underline hover:text-[var(--foreground)]">
+              <a href="/login" className="underline hover:text-[var(--foreground)]">
                 Back to magic link login
               </a>
             </p>

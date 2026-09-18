@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 type Logo = {
   src: string;
   alt: string;
@@ -11,6 +13,16 @@ const logos: Logo[] = [
   { src: "/logos/AIFUTURESLAB.png", alt: "Design United" },
   { src: "/logos/DDW.png", alt: "Dutch Design Week" },
   { src: "/logos/TUDelft_logo_black.png", alt: "TU Delft" },
+];
+
+// Credits, not content — the full list with roles and photos lives on /research.
+const contributors = [
+  "Mahan Mehrvarz",
+  "Dave Murray-Rust",
+  "Jerry de Vos",
+  "Diego Viero",
+  "Aadjan Van Der Helm",
+  "Martin Havranek",
 ];
 
 export function Footer() {
@@ -25,12 +37,20 @@ export function Footer() {
             </h3>
             <ul className="space-y-2">
               <li>
-                <a
-                  href="/about"
+                <Link
+                  href="/"
                   className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline decoration-2 underline-offset-2"
                 >
-                  About Prompting Realities
-                </a>
+                  Prompting Realities
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/research"
+                  className="text-sm font-medium text-[var(--ink-dark)] transition hover:text-[var(--accent-green)] hover:underline decoration-2 underline-offset-2"
+                >
+                  Research
+                </Link>
               </li>
               <li>
                 <a
@@ -68,6 +88,16 @@ export function Footer() {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Contributors — compact credits row */}
+        <div className="mt-10 space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--ink-muted)]">
+            Contributors
+          </h3>
+          <p className="text-sm text-[var(--ink-dark)]">
+            {contributors.join(" · ")}
+          </p>
         </div>
 
         {/* Bottom bar */}

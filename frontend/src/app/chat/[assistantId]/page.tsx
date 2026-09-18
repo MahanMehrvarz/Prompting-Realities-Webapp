@@ -509,7 +509,7 @@ export default function AssistantChatPage() {
   }, [assistantName, assistantId]);
 
   const handleBackToDashboard = () => {
-    router.push("/");
+    router.push("/login");
   };
 
   const handleResetConversation = () => {
