@@ -5,14 +5,18 @@ import { usePathname } from "next/navigation";
 import { FirstUseModal } from "./FirstUseModal";
 
 // The notice is about using the app, so it belongs on the app routes. The public
-// pages (/ and /research) must not greet a first-time visitor with a modal.
-const PUBLIC_ROUTES = ["/", "/research"];
+// pages must not greet a first-time visitor with a modal. Matched by prefix so
+// nested routes (/tutorials/<slug>) are covered without listing each one.
+const PUBLIC_ROUTES = ["/", "/research", "/tutorials"];
+
+const isPublic = (pathname: string) =>
+  PUBLIC_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
 
 export function FirstUseModalWrapper() {
   const [showModal, setShowModal] = useState(false);
   const pathname = usePathname();
 
-  const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
+  const isPublicRoute = isPublic(pathname);
 
   useEffect(() => {
     // Check if user has seen the modal before

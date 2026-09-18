@@ -1,3 +1,22 @@
+<!--
+  Supabase email template - Magic Link.
+
+  The link points at our own /auth/confirm carrying {{ .TokenHash }}, NOT at
+  {{ .ConfirmationURL }}. ConfirmationURL points at Supabase's /auth/v1/verify,
+  and merely FETCHING that URL consumes the single-use token and mints a
+  session. Mail scanners (Microsoft EOP observed sending HEAD from
+  104.47.51.254, another host doing a full GET) open links before the recipient
+  does, so users reliably saw "Email link is invalid or has expired".
+  Pointing at our own page means a scanner fetches static HTML and burns
+  nothing - the token is only redeemed when verifyOtp runs in the browser.
+
+  {{ .SiteURL }} is deliberately not used: it is set to
+  https://promptingrealities.com/login, which would build the wrong path.
+
+  For the "Confirm signup" template, reuse this file but change
+  type=magiclink to type=signup. signInWithOtp sends Confirm signup to new
+  users and Magic Link to returning ones, so both templates need this.
+-->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -175,7 +194,7 @@
             </p>
 
             <div class="button-container">
-                <a href="{{ .ConfirmationURL }}" class="magic-link-button">
+                <a href="https://promptingrealities.com/auth/confirm?token_hash={{ .TokenHash }}&amp;type=magiclink" class="magic-link-button">
                     Sign in to Prompting Realities
                 </a>
             </div>
@@ -190,7 +209,7 @@
             <p class="message" style="margin-top: 32px; font-size: 14px;">
                 If the button doesn't work, copy and paste this link into your browser:
                 <br>
-                <a href="{{ .ConfirmationURL }}" style="color: #1d1d1d; word-break: break-all;">{{ .ConfirmationURL }}</a>
+                <a href="https://promptingrealities.com/auth/confirm?token_hash={{ .TokenHash }}&amp;type=magiclink" style="color: #1d1d1d; word-break: break-all;">https://promptingrealities.com/auth/confirm</a>
             </p>
         </div>
 

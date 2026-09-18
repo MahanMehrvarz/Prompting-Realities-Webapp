@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { ProjectCard } from "@/components/ProjectCard";
 import { SectionPanel } from "@/components/SectionPanel";
 import { projectSeries } from "@/lib/projects";
+import { tutorials } from "@/lib/tutorials";
 
 export const metadata: Metadata = {
   title: "Prompting Realities — Prototype LLM-powered tangible interactions",
@@ -273,6 +274,39 @@ export default function HomePage() {
             className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] px-6 py-3 text-sm font-semibold text-[var(--ink-dark)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
           >
             Create an account →
+          </Link>
+        </SectionPanel>
+
+        {/* Tutorials */}
+        <SectionPanel id="tutorials" title="Tutorials">
+          <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
+            Start-to-finish guides for building an LLM thing — from a bare board
+            to an object you can hold a conversation with. The first one takes you
+            through a lamp: wire the LED, write its description and schema, and
+            ask it for a colour.
+          </p>
+          <ul className="space-y-2">
+            {tutorials.map((t) => (
+              <li key={t.slug}>
+                <Link
+                  href={`/tutorials/${t.slug}`}
+                  className="group flex flex-wrap items-baseline gap-x-3 gap-y-1"
+                >
+                  <span className="text-base font-bold text-[var(--ink-dark)] underline decoration-2 underline-offset-4 transition group-hover:text-[var(--accent-green)]">
+                    {t.title}
+                  </span>
+                  <span className="text-xs text-[var(--ink-muted)]">
+                    {t.duration} · {t.blurb}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/tutorials"
+            className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-6 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
+          >
+            Browse tutorials →
           </Link>
         </SectionPanel>
 

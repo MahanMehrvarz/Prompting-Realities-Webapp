@@ -10,6 +10,7 @@ type NavLink = { label: string; href: string; external?: boolean };
 const navLinks: NavLink[] = [
   { label: "Projects", href: "/#projects" },
   { label: "How it works", href: "/#how-it-works" },
+  { label: "Tutorials", href: "/tutorials" },
   { label: "Research", href: "/research" },
   {
     label: "GitHub",
