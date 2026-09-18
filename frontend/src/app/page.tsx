@@ -6,6 +6,7 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { SectionPanel } from "@/components/SectionPanel";
 import { projectSeries } from "@/lib/projects";
 import { tutorials } from "@/lib/tutorials";
+import { TutorialCard } from "@/components/TutorialCard";
 
 export const metadata: Metadata = {
   title: "Prompting Realities — Prototype LLM-powered tangible interactions",
@@ -118,7 +119,6 @@ export default function HomePage() {
             </a>
           </div>
         </SectionPanel>
-
         {/* How it works */}
         <SectionPanel id="how-it-works" title="How it works" layout="stacked">
           <div className="grid gap-6 lg:grid-cols-3">
@@ -139,7 +139,6 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-
           <figure className="space-y-3">
             <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white p-4 shadow-[5px_5px_0_var(--shadow-deep)]">
               <img
@@ -152,7 +151,6 @@ export default function HomePage() {
               Prompt → structured response → actuation
             </figcaption>
           </figure>
-
           <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] p-5">
             <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
               <strong>What you need:</strong> an OpenAI-compatible API key, an MQTT
@@ -163,7 +161,6 @@ export default function HomePage() {
             </p>
           </div>
         </SectionPanel>
-
         {/* Why low-threshold */}
         {SHOW_WHY_LOW_THRESHOLD && (
         <SectionPanel
@@ -203,7 +200,6 @@ export default function HomePage() {
           </p>
         </SectionPanel>
         )}
-
         {/* Project grid */}
         <section
           id="projects"
@@ -215,7 +211,6 @@ export default function HomePage() {
               Built with Prompting Realities
             </h2>
           </div>
-
           {projectSeries.map((series, i) => (
             <div
               key={series.label}
@@ -259,9 +254,10 @@ export default function HomePage() {
             </div>
           ))}
         </section>
-
         {/* Control Hub */}
-        <SectionPanel title="The Control Hub">
+        <SectionPanel
+          title="The Control Hub"
+        >
           <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
             The Control Hub is where your things live. Register an artifact, write
             and revise its description, choose a model, define the JSON schema it
@@ -270,48 +266,40 @@ export default function HomePage() {
             and you can have something moving in an afternoon.
           </p>
           <Link
-            href="/login"
-            className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] px-6 py-3 text-sm font-semibold text-[var(--ink-dark)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
+          href="/login"
+          className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] px-6 py-3 text-sm font-semibold text-[var(--ink-dark)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
           >
-            Create an account →
+          Create an account →
           </Link>
         </SectionPanel>
 
         {/* Tutorials */}
-        <SectionPanel id="tutorials" title="Tutorials">
+        <SectionPanel
+          id="tutorials" title="Tutorials"
+        >
           <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
             Start-to-finish guides for building an LLM thing — from a bare board
             to an object you can hold a conversation with. The first one takes you
             through a lamp: wire the LED, write its description and schema, and
             ask it for a colour.
           </p>
-          <ul className="space-y-2">
+          <div className="space-y-6">
             {tutorials.map((t) => (
-              <li key={t.slug}>
-                <Link
-                  href={`/tutorials/${t.slug}`}
-                  className="group flex flex-wrap items-baseline gap-x-3 gap-y-1"
-                >
-                  <span className="text-base font-bold text-[var(--ink-dark)] underline decoration-2 underline-offset-4 transition group-hover:text-[var(--accent-green)]">
-                    {t.title}
-                  </span>
-                  <span className="text-xs text-[var(--ink-muted)]">
-                    {t.duration} · {t.blurb}
-                  </span>
-                </Link>
-              </li>
+              <TutorialCard key={t.slug} tutorial={t} />
             ))}
-          </ul>
+          </div>
           <Link
-            href="/tutorials"
-            className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-6 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
+          href="/tutorials"
+          className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-6 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
           >
-            Browse tutorials →
+          Browse tutorials →
           </Link>
         </SectionPanel>
 
         {/* Workshops */}
-        <SectionPanel title="Workshops">
+        <SectionPanel
+          title="Workshops"
+        >
           {/* TODO (confirm): does this match the workshop format you actually run? */}
           <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
             Prompting Realities has been run as a hands-on workshop with design
@@ -320,10 +308,10 @@ export default function HomePage() {
             with your group, get in touch.
           </p>
           <a
-            href="mailto:mahan.mehrvarz@hotmail.com?subject=Workshop%20Request%20-%20Prompting%20Realities"
-            className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-6 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
+          href="mailto:mahan.mehrvarz@hotmail.com?subject=Workshop%20Request%20-%20Prompting%20Realities"
+          className="inline-flex items-center gap-2 rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-6 py-3 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5 hover:shadow-[5px_5px_0_var(--shadow-deep)]"
           >
-            Request a workshop →
+          Request a workshop →
           </a>
         </SectionPanel>
       </main>

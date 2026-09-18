@@ -1,84 +1,60 @@
 // Tutorials shown at /tutorials and /tutorials/[slug].
 //
 // To add one: append an entry here. The index page, the detail route and the
-// home-page teaser all read from this array, so nothing else needs editing.
+// home-page card all read from this array, so nothing else needs editing.
 //
-// Content of the first entry follows the workshop page at
-// https://mahanmehrvarz.name/workshops/prompting-realities/ — code blocks,
-// prompt instruction and JSON schema are reproduced verbatim from it.
+// The first entry mirrors the structure of
+// https://mahanmehrvarz.name/workshops/prompting-realities/ section by section,
+// in the same order, with the same screenshots. Code, the prompt instruction
+// and the JSON schema are reproduced verbatim.
+//
+// Text bodies support a small inline syntax, rendered by RichText:
+//   **bold**   `code`   [label](https://href)
 
 export type TutorialBlock =
   | { kind: "text"; body: string }
-  | { kind: "list"; items: string[] }
-  | { kind: "code"; language: string; caption?: string; body: string };
+  | { kind: "subheading"; body: string }
+  /** A standalone numbered instruction, so media can sit between steps. */
+  | { kind: "numbered"; n: number; body: string }
+  | { kind: "list"; items: string[]; ordered?: boolean }
+  | { kind: "code"; caption?: string; body: string }
+  | {
+      kind: "image";
+      src: string;
+      alt: string;
+      caption?: string;
+      /** Natural width, set only for images smaller than the column so they
+       *  are not upscaled into blur. */
+      maxWidth?: number;
+    }
+  /** Set-up warning that must not be skimmed past. */
+  | { kind: "callout"; title: string; body: string };
 
-export type TutorialStep = {
-  /** Short label, e.g. "A" — keeps the workshop's own lettering. */
-  marker: string;
+export type TutorialSection = {
+  /** "A"-"E" on the first tutorial; omitted for the opening section. */
+  marker?: string;
   title: string;
+  /** Anchor for the "On this page" contents list. */
+  id: string;
   blocks: TutorialBlock[];
 };
 
 export type Tutorial = {
   slug: string;
   title: string;
+  image: string;
+  imageAlt: string;
   summary: string;
-  /** One line for the card and the home-page teaser. */
   blurb: string;
   level: string;
   duration: string;
   context: string;
   requirements: string[];
-  steps: TutorialStep[];
+  sections: TutorialSection[];
   resources: { label: string; href: string }[];
 };
 
-export const tutorials: Tutorial[] = [
-  {
-    slug: "your-first-llm-thing",
-    title: "Your first LLM thing",
-    blurb:
-      "Wire a microcontroller to a language model and give a lamp a character it can answer for.",
-    summary:
-      "Wire a microcontroller kit to a language model, so a physical object can be given a character and answer for itself. You will connect a board to Wi-Fi, light a single NeoPixel LED, register an LLM thing on the Control Hub, and write the description and JSON schema that let a conversation drive the colour.",
-    level: "No prior machine-learning experience needed",
-    duration: "About half a day",
-    context:
-      "Run as a workshop by Mahan Mehrvarz for the Speculative Design Studio course, MSc Design for Interaction, TU Delft Industrial Design Engineering, 2025.",
-    requirements: [
-      "A Connected Interaction Kit board",
-      "An OpenAI API key",
-      "An MQTT broker account — shiftr.io is recommended",
-      "A chainable NeoPixel LED",
-    ],
-    steps: [
-      {
-        marker: "A",
-        title: "Connect the board to the internet",
-        blocks: [
-          {
-            kind: "list",
-            items: [
-              "Connect the board to your computer over USB.",
-              "Download and install the Mu editor from codewith.mu.",
-              "On first run, select CircuitPython mode.",
-            ],
-          },
-        ],
-      },
-      {
-        marker: "B",
-        title: "Quick test — light the NeoPixel LED",
-        blocks: [
-          {
-            kind: "text",
-            body: "Connect the chainable NeoPixel LED to pin D13, then load this into code.py on the board. Watch the serial output in Mu to confirm it subscribes to your topic.",
-          },
-          {
-            kind: "code",
-            language: "python",
-            caption: "code.py",
-            body: `# --- Imports
+const CODE_PY = `# --- Imports
 import time
 import json
 import board
@@ -162,17 +138,9 @@ print("Subscribed to topic:", mqtt_topic)
 # --- Main loop
 while True:
     mqtt_client.loop(timeout=0.2)
-    time.sleep(0.1)`,
-          },
-          {
-            kind: "text",
-            body: "Fill in your own Wi-Fi and broker credentials in settings.py. The topic is the string the board listens on and the one your LLM thing will publish to — they must match.",
-          },
-          {
-            kind: "code",
-            language: "python",
-            caption: "settings.py",
-            body: `settings ={
+    time.sleep(0.1)`;
+
+const SETTINGS_PY = `settings ={
 "ssid": "<your Wi-Fi network>",
 "password": "<your Wi-Fi password>",
 "mqtt_clientid": "<Your device name>",
@@ -181,37 +149,9 @@ while True:
 "mqtt_password": "<your broker password>",
 "mqtt_port": 1883,
 "mqtt_topic": "RGBLight"
-}`,
-          },
-        ],
-      },
-      {
-        marker: "C",
-        title: "Set up your Control Hub account",
-        blocks: [
-          {
-            kind: "list",
-            items: [
-              "Sign up on the Control Hub — you will receive a magic link by email.",
-              "Add a new LLM thing from the left panel.",
-              "Configure its four tabs: Prompt Instruction, JSON Schema, MQTT, and OpenAI API Key.",
-            ],
-          },
-        ],
-      },
-      {
-        marker: "D",
-        title: "Create your first LLM thing",
-        blocks: [
-          {
-            kind: "text",
-            body: "The prompt instruction is the whole programming step. It tells the model what the object is, what its numbers mean physically, and how to behave in conversation.",
-          },
-          {
-            kind: "code",
-            language: "text",
-            caption: "Prompt Instruction",
-            body: `You are sending values for a RGB LED to change its color based on the command or prompt from the user.
+}`;
+
+const PROMPT_INSTRUCTION = `You are sending values for a RGB LED to change its color based on the command or prompt from the user.
 You send three values with each response.
 R: for red
 G: for green
@@ -228,17 +168,9 @@ Ds:
 
 Do Not Do:
 -in the response object do not include any technical term about the RGB values. Just refer to colors you created and engage the users in conversation.
--Don't be wordy keep it very short.`,
-          },
-          {
-            kind: "text",
-            body: "The schema is the contract. Every reply carries an answer for the person and an MQTT_value for the hardware — here a four-number array for red, green, blue and brightness.",
-          },
-          {
-            kind: "code",
-            language: "json",
-            caption: "JSON Schema",
-            body: `{
+-Don't be wordy keep it very short.`;
+
+const JSON_SCHEMA = `{
   "name": "led",
   "schema": {
     "type": "object",
@@ -271,21 +203,328 @@ Do Not Do:
     "additionalProperties": false
   },
   "strict": true
-}`,
+}`;
+
+const MQTT_FIELDS = `broker: <your-namespace>.cloud.shiftr.io
+username: <your broker username>
+port: 1883
+password: <your broker password>`;
+
+export const tutorials: Tutorial[] = [
+  {
+    slug: "your-first-llm-thing",
+    title: "Your first LLM thing",
+    image: "/tutorial-media/ws-01.jpg",
+    imageAlt:
+      "A NeoPixel LED glowing blue beside the Control Hub chat, where the answer to \"What is the color of sky?\" is \"The sky is often a beautiful blue!\"",
+    blurb:
+      "Wire a microcontroller kit to a language model, so a physical object can be given a character and answer for itself.",
+    summary:
+      "Wire a microcontroller kit to a language model, so a physical object can be given a character and answer for itself.",
+    level: "No experience needed",
+    duration: "About half a day",
+    context:
+      "This workshop session is based on a research-through-design project called Prompting Realities. Run by Mahan Mehrvarz for the Speculative Design Studio course, MSc Design for Interaction, TU Delft Industrial Design Engineering, 2025.",
+    requirements: ["Connected Interaction Kit", "OpenAI API key"],
+    sections: [
+      {
+        id: "before-you-start",
+        title: "Before you start",
+        blocks: [
+          {
+            kind: "callout",
+            title: "You need your own MQTT broker before you start",
+            body: "MQTT is a small publish/subscribe protocol for machine-to-machine messages: a device publishes a short message to a named topic, a broker passes it on, and anything subscribed to that topic receives it. Everything here goes through one broker.",
           },
           {
             kind: "text",
-            body: "Set the MQTT tab to your broker host, username, password, port 1883 and the same topic as settings.py. Add a valid OpenAI API key, save, and start the thing. Ask it for a colour and the lamp should answer.",
+            body: "The broker used on the day belonged to the faculty. Its dashboard is still visible in the screenshots, but its address and credentials are not published and you will not be able to connect to it. Set up your own: [sign up at shiftr.io](https://cloud.shiftr.io/welcome/sign-up) and create a broker — its page gives you the host, a username and a password. Those are the three values written below as `<your-namespace>.cloud.shiftr.io`, `<your broker username>` and `<your broker password>`. Anything else written as `<like this>` is likewise yours to fill in, including the Wi-Fi the device joins.",
+          },
+          {
+            kind: "text",
+            body: "Any MQTT broker will do — shiftr.io is used here because its live dashboard draws the traffic as it happens, which makes debugging a silent device much easier. Its [documentation](https://www.shiftr.io/docs/) covers the rest.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-14.jpg",
+            alt: "The Control Hub dashboard, with an LLM thing selected and its MQTT routing showing the broker host and topic",
+          },
+        ],
+      },
+      {
+        marker: "A",
+        id: "connecting-the-boards",
+        title: "Connecting the boards to the internet",
+        blocks: [
+          {
+            kind: "text",
+            body: "You can find a lot of useful code and information about your kit on their [website](https://id-studiolab.github.io/Connected-Interaction-Kit/). We are following the [preparation tutorial](https://id-studiolab.github.io/Connected-Interaction-Kit/tutorials/preparation/) from the original Connected Interaction Kit.",
+          },
+          { kind: "subheading", body: "First let's prepare the setup" },
+          {
+            kind: "text",
+            body: "Connect your board via the USB cable to your computer.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-02.png",
+            alt: "The Connected Interaction Kit board connected to a laptop over USB",
+          },
+          {
+            kind: "subheading",
+            body: "Installing the proper interface to write and edit code on your board",
+          },
+          {
+            kind: "text",
+            body: "Before you write your first program, you need to complete one last step:",
+          },
+          {
+            kind: "list",
+            items: [
+              "Visit [codewith.mu](https://codewith.mu/) and click the green Download button.",
+              "Select the correct link for your operating system (Windows or Mac OS).",
+              "Once the download is complete, launch the installer and follow the instructions on the screen.",
+              "On its first run, Mu will ask you to select a mode. Choose **CircuitPython**.",
+            ],
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-06.jpg",
+            alt: "The Mu editor mode selection dialog with CircuitPython chosen",
+          },
+          {
+            kind: "text",
+            body: "After you are done, you should see the Mu editor up and running on your laptop.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-07.jpg",
+            alt: "The Mu editor open and ready on the desktop",
+          },
+        ],
+      },
+      {
+        marker: "B",
+        id: "quick-test",
+        title: "Quick test",
+        blocks: [
+          {
+            kind: "numbered",
+            n: 1,
+            body: "Connect the chainable NeoPixel LED to the pin (**D13**) of your board.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-08.png",
+            alt: "The chainable NeoPixel LED wired to pin D13 with a grove cable",
+            maxWidth: 500,
+          },
+          {
+            kind: "text",
+            body: "Make sure you connect the grove cable to the **in** side.",
+          },
+          {
+            kind: "text",
+            body: "For more information about the RGB LED, [see this link](https://id-studiolab.github.io/Connected-Interaction-Kit/components/chainable-led/chainable-led-chaineo).",
+          },
+          {
+            kind: "numbered",
+            n: 2,
+            body: "Open the `code.py` file and replace its content with the code below. Don't forget to save.",
+          },
+          { kind: "code", caption: "code.py", body: CODE_PY },
+          {
+            kind: "numbered",
+            n: 3,
+            body: "Connect your board to the laptop and load the `settings.py` file. Replace `<Your device name>` with your actual group name and make sure the rest looks like below. You don't need the `<` `>` signs there!",
+          },
+          { kind: "code", caption: "settings.py", body: SETTINGS_PY },
+          {
+            kind: "numbered",
+            n: 4,
+            body: "You should see this in the serial monitor of the Mu editor:",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-09.jpg",
+            alt: "The serial monitor output confirming the board subscribed to its MQTT topic",
+            maxWidth: 528,
+          },
+          { kind: "text", body: "Click here:" },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-10.jpg",
+            alt: "The serial button in the Mu editor toolbar",
+            caption: "This will show up at the bottom of the Mu editor",
+          },
+          {
+            kind: "numbered",
+            n: 5,
+            body: "Follow up with the instructions in the class.",
+          },
+        ],
+      },
+      {
+        marker: "C",
+        id: "control-hub-account",
+        title: "Getting up and running with promptingrealities.com",
+        blocks: [
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-11.jpg",
+            alt: "The Prompting Realities sign-up screen",
+          },
+          {
+            kind: "numbered",
+            n: 1,
+            body: "You need to sign up and make an account. A magic link is sent to your email address and by clicking on the link (also check your spam folder) you'll be logged in.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-12.jpg",
+            alt: "The left side panel of the Control Hub with the add-new-LLM-thing control",
+          },
+          {
+            kind: "numbered",
+            n: 2,
+            body: "From the left side panel, add a new LLM thing.",
+          },
+          {
+            kind: "numbered",
+            n: 3,
+            body: "A new LLM thing is added and now you can configure it based on the first example. The first step is to give it a name. In this example we call it **Neopixel**.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-13.jpg",
+            alt: "The configuration studio with the new LLM thing named Neopixel",
+          },
+          {
+            kind: "text",
+            body: "The main part of the interface is the configuration studio. In order to create an LLM thing you need to add information to the four tabs:",
+          },
+          {
+            kind: "list",
+            ordered: false,
+            items: [
+              "Prompt Instruction",
+              "JSON Schema",
+              "MQTT",
+              "OpenAI API Key",
+            ],
+          },
+          {
+            kind: "text",
+            body: "A quick way would be to use one of the examples from the Prompting Realities GitHub repository. Let's do one single RGB LED.",
+          },
+        ],
+      },
+      {
+        marker: "D",
+        id: "first-llm-thing",
+        title: "Creating your first LLM thing",
+        blocks: [
+          {
+            kind: "numbered",
+            n: 1,
+            body: "**Use the text below in your Prompt Instruction text field.**",
+          },
+          {
+            kind: "code",
+            caption: "Prompt Instruction",
+            body: PROMPT_INSTRUCTION,
+          },
+          { kind: "numbered", n: 2, body: "**Use the JSON Schema below.**" },
+          { kind: "code", caption: "JSON Schema", body: JSON_SCHEMA },
+          {
+            kind: "text",
+            body: "The JSON schema defines **exactly one acceptable shape of data** for something called led. Its job is to:",
+          },
+          {
+            kind: "list",
+            ordered: false,
+            items: [
+              "say **what fields must exist**",
+              "say **what type each field must be**",
+              "forbid **anything extra**",
+              "enforce **exact sizes and structures**",
+            ],
+          },
+          { kind: "text", body: "**This schema enforces the following:**" },
+          {
+            kind: "list",
+            ordered: false,
+            items: [
+              "a human-readable message (`answer`)",
+              "a machine-readable LED command (`MQTT_value.led`)",
+              "the LED command is **always four numbers**",
+              "nothing else is tolerated",
+            ],
+          },
+          {
+            kind: "numbered",
+            n: 3,
+            body: "**In the MQTT tab you have the following fields to fill in:** Broker Host address, Username, port, password, Topic.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-03.jpg",
+            alt: "The MQTT tab of the configuration studio with broker host, username, port, password and topic fields",
+          },
+          {
+            kind: "text",
+            body: "Broker, Username, Port and Password are often the same as in your `settings.py` file (check Part B, step 3).",
+          },
+          { kind: "code", caption: "MQTT tab", body: MQTT_FIELDS },
+          {
+            kind: "text",
+            body: "But what about the **topic?** The topic is something shared between your **LLM thing** and your **hardware (CircuitPython board)**. Both should subscribe to the same topic. This prevents your messages from being sent to other boards and is key for communication between the LLM thing and your board. Just pick something simple — `myled`, `mahan-led`, `light1`, `coloredlight`.",
+          },
+          {
+            kind: "numbered",
+            n: 4,
+            body: "The last step is to add a valid OpenAI API key. You will be given one if you are part of a workshop, but in general any OpenAI API key works.",
+          },
+          { kind: "numbered", n: 5, body: "Press save!" },
+          {
+            kind: "text",
+            body: "Now, as you see, your **Run LLM thing** button in the top right corner is green and you can go ahead and run it.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-04.jpg",
+            alt: "The configuration studio with the Run LLM thing button lit green",
+          },
+          {
+            kind: "text",
+            body: "Below the configuration panel you'll see the client access panel. You can open the chat interface, copy the link and paste it somewhere, or scan the QR code to go straight to the chat interface.",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-05.jpg",
+            alt: "The client access panel showing the chat link and a QR code",
+          },
+          {
+            kind: "text",
+            body: "You can start to chat with your RGB LED now. Enjoy!",
+          },
+          {
+            kind: "image",
+            src: "/tutorial-media/ws-01.jpg",
+            alt: "The NeoPixel glowing blue next to the chat, answering a question about the colour of the sky",
           },
         ],
       },
       {
         marker: "E",
-        title: "Explore other actuators",
+        id: "other-actuators",
+        title: "Exploring other actuators in the Kit",
         blocks: [
           {
             kind: "text",
-            body: "The pipeline does not change when the hardware does — only the description and the schema do. The examples folder in the GitHub repository covers a servo, a buzzer and a vibration motor.",
+            // The source page links to github.com/MahanMehrvarz/<your Wi-Fi network>,
+            // which is a find-and-replace accident on that page. Corrected here.
+            body: "You can explore other examples from the [GitHub folder](https://github.com/MahanMehrvarz/PromptingRealities/tree/main/examples/circuitpython). You can chat with a servo, a buzzer or a vibration motor from your kit. The preferred order is: two LEDs, vibration motor, servo motor, buzzer.",
           },
         ],
       },

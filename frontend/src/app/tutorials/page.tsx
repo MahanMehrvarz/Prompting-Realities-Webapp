@@ -1,8 +1,8 @@
 import { Metadata } from "next";
-import Link from "next/link";
 import { Footer } from "@/components/Footer";
 import { SiteHeader } from "@/components/SiteHeader";
 import { tutorials } from "@/lib/tutorials";
+import { TutorialCard } from "@/components/TutorialCard";
 
 export const metadata: Metadata = {
   title: "Tutorials — Prompting Realities",
@@ -35,31 +35,9 @@ export default function TutorialsPage() {
             </div>
           </div>
 
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="space-y-6">
             {tutorials.map((t) => (
-              <article
-                key={t.slug}
-                className="flex flex-col gap-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white p-5 shadow-[5px_5px_0_var(--shadow-deep)] transition hover:-translate-y-1 hover:shadow-[7px_7px_0_var(--shadow-deep)] lg:p-6"
-              >
-                <div className="flex flex-wrap gap-2">
-                  <span className="pill-chip">{t.duration}</span>
-                  <span className="pill-chip">{t.level}</span>
-                </div>
-                <h2 className="text-xl font-black leading-tight text-[var(--ink-dark)]">
-                  <Link href={`/tutorials/${t.slug}`} className="hover:underline decoration-2 underline-offset-4">
-                    {t.title}
-                  </Link>
-                </h2>
-                <p className="flex-1 text-sm leading-relaxed text-[var(--foreground)]">
-                  {t.blurb}
-                </p>
-                <Link
-                  href={`/tutorials/${t.slug}`}
-                  className="mt-2 inline-flex items-center gap-2 self-start rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-5 py-2 text-sm font-semibold text-[var(--card-fill)] shadow-[4px_4px_0_var(--shadow-deep)] transition hover:-translate-y-0.5"
-                >
-                  Start the tutorial →
-                </Link>
-              </article>
+              <TutorialCard key={t.slug} tutorial={t} />
             ))}
           </div>
 

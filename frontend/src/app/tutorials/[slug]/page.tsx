@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { Footer } from "@/components/Footer";
 import { SiteHeader } from "@/components/SiteHeader";
+import { CodeBlock } from "@/components/CodeBlock";
+import { RichText } from "@/components/RichText";
 import { getTutorial, tutorials, type TutorialBlock } from "@/lib/tutorials";
 
 export function generateStaticParams() {
@@ -21,52 +23,126 @@ export async function generateMetadata({
   return {
     title: `${tutorial.title} — Prompting Realities`,
     description: tutorial.blurb,
+    openGraph: {
+      title: `${tutorial.title} — Prompting Realities`,
+      description: tutorial.blurb,
+      images: [tutorial.image],
+    },
   };
 }
 
-function Block({ block }: { block: TutorialBlock }) {
-  if (block.kind === "text") {
-    return (
-      <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
-        {block.body}
-      </p>
-    );
-  }
-
-  if (block.kind === "list") {
-    return (
-      <ol className="space-y-2">
-        {block.items.map((item, i) => (
-          <li
-            key={i}
-            className="flex gap-3 text-sm leading-relaxed text-[var(--foreground)] lg:text-base"
-          >
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[2px] border-[var(--card-shell)] bg-[var(--accent-green)] font-mono text-[10px] font-black text-[var(--ink-dark)]">
-              {i + 1}
-            </span>
-            <span>{item}</span>
-          </li>
-        ))}
-      </ol>
-    );
-  }
-
+function Figure({
+  src,
+  alt,
+  caption,
+  maxWidth,
+}: {
+  src: string;
+  alt: string;
+  caption?: string;
+  maxWidth?: number;
+}) {
   return (
-    <figure className="space-y-2">
-      {block.caption && (
-        <figcaption className="font-mono text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--ink-muted)]">
-          {block.caption}
+    <figure
+      className="space-y-2"
+      // min(100%, Npx): cap at the image's natural width so it is never
+      // upscaled, but never wider than the column either.
+      style={maxWidth ? { maxWidth: `min(100%, ${maxWidth}px)` } : undefined}
+    >
+      {/* Unframed: these are documentation screenshots, many with their own
+          window chrome and white backgrounds, so the site's stroke-and-shadow
+          frame was drawing a box around a box. */}
+      <img src={src} alt={alt} loading="lazy" className="block h-auto w-full" />
+      {caption && (
+        <figcaption className="text-xs italic text-[var(--ink-muted)]">
+          {caption}
         </figcaption>
       )}
-      {/* Code stays scrollable inside its own box so the page itself never
-          scrolls sideways on a phone. */}
-      <div className="overflow-x-auto rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] shadow-[4px_4px_0_var(--shadow-deep)]">
-        <pre className="p-4 text-[12px] leading-relaxed text-[var(--card-fill)] lg:text-[13px]">
-          <code>{block.body}</code>
-        </pre>
-      </div>
     </figure>
   );
+}
+
+function Block({ block }: { block: TutorialBlock }) {
+  switch (block.kind) {
+    case "text":
+      return (
+        <p className="text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
+          <RichText body={block.body} />
+        </p>
+      );
+
+    case "subheading":
+      return (
+        <h3 className="pt-2 text-base font-black text-[var(--ink-dark)] lg:text-lg">
+          {block.body}
+        </h3>
+      );
+
+    case "numbered":
+      return (
+        <div className="flex min-w-0 gap-3">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-[2px] border-[var(--card-shell)] bg-[var(--accent-green)] font-mono text-[11px] font-black text-[var(--ink-dark)]">
+            {block.n}
+          </span>
+          <p className="min-w-0 text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
+            <RichText body={block.body} />
+          </p>
+        </div>
+      );
+
+    case "list": {
+      const ordered = block.ordered !== false;
+      return (
+        <ol className="space-y-2">
+          {block.items.map((item, i) => (
+            <li
+              key={i}
+              className="flex gap-3 text-sm leading-relaxed text-[var(--foreground)] lg:text-base"
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  ordered
+                    ? "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[2px] border-[var(--card-shell)] bg-white font-mono text-[10px] font-black text-[var(--ink-dark)]"
+                    : "mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-green)]"
+                }
+              >
+                {ordered ? i + 1 : null}
+              </span>
+              <span>
+                <RichText body={item} />
+              </span>
+            </li>
+          ))}
+        </ol>
+      );
+    }
+
+    case "code":
+      return <CodeBlock body={block.body} caption={block.caption} />;
+
+    case "image":
+      return (
+        <Figure
+          src={block.src}
+          alt={block.alt}
+          caption={block.caption}
+          maxWidth={block.maxWidth}
+        />
+      );
+
+    case "callout":
+      return (
+        <div className="rounded-[16px] border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)]/15 p-5">
+          <p className="text-sm font-black uppercase tracking-wide text-[var(--ink-dark)]">
+            {block.title}
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-[var(--foreground)] lg:text-base">
+            <RichText body={block.body} />
+          </p>
+        </div>
+      );
+  }
 }
 
 export default async function TutorialPage({
@@ -100,46 +176,84 @@ export default async function TutorialPage({
               <p className="text-base font-semibold leading-relaxed text-[var(--ink-dark)] lg:text-lg">
                 {tutorial.summary}
               </p>
+
+              <div className="rounded-[16px] border-[3px] border-[var(--card-shell)] bg-white p-5">
+                <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--ink-muted)]">
+                  Requirements
+                </h2>
+                <ul className="mt-3 space-y-2">
+                  {tutorial.requirements.map((r) => (
+                    <li
+                      key={r}
+                      className="flex gap-2 text-sm leading-relaxed text-[var(--foreground)]"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent-green)]"
+                      />
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
               <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
                 {tutorial.context}
               </p>
             </div>
           </div>
 
-          <div className="rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white p-5">
+          {/* On this page — the source page opens with this, and it doubles as
+              a progress map on a long document. */}
+          <nav
+            aria-label="On this page"
+            className="rounded-[16px] border-[3px] border-[var(--card-shell)] bg-white p-5"
+          >
             <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-[var(--ink-muted)]">
-              What you need
+              On this page
             </h2>
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {tutorial.requirements.map((r) => (
-                <li
-                  key={r}
-                  className="flex gap-2 text-sm leading-relaxed text-[var(--foreground)]"
-                >
-                  <span className="text-[var(--accent-green)]">▸</span>
-                  {r}
+            <ol className="mt-3 grid gap-2 sm:grid-cols-2">
+              {tutorial.sections.map((s) => (
+                <li key={s.id}>
+                  <a
+                    href={`#${s.id}`}
+                    className="inline-flex items-baseline gap-2 text-sm font-semibold text-[var(--ink-dark)] underline decoration-2 underline-offset-4 transition [overflow-wrap:anywhere] hover:text-[var(--accent-green)]"
+                  >
+                    {s.marker && (
+                      <span className="font-mono text-[var(--ink-muted)]">
+                        {s.marker}
+                      </span>
+                    )}
+                    {s.title}
+                  </a>
                 </li>
               ))}
-            </ul>
-          </div>
+            </ol>
+          </nav>
         </section>
 
-        {/* Steps */}
-        {tutorial.steps.map((step) => (
-          <section key={step.marker} className="card-panel p-6 lg:p-10">
+        {/* Sections, in the source page's own order */}
+        {tutorial.sections.map((section) => (
+          <section
+            key={section.id}
+            id={section.id}
+            className="card-panel scroll-mt-24 p-6 lg:p-10"
+          >
             <div className="grid gap-6 lg:grid-cols-12 lg:gap-12">
               <div className="lg:col-span-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] font-mono text-lg font-black text-[var(--ink-dark)]">
-                    {step.marker}
-                  </span>
-                  <h2 className="text-xl font-black uppercase leading-tight tracking-tight text-[var(--ink-dark)] lg:text-2xl">
-                    {step.title}
+                <div className="flex min-w-0 items-start gap-3 lg:sticky lg:top-28">
+                  {section.marker && (
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--accent-green)] font-mono text-lg font-black text-[var(--ink-dark)]">
+                      {section.marker}
+                    </span>
+                  )}
+                  <h2 className="min-w-0 text-lg font-black uppercase leading-tight tracking-tight text-[var(--ink-dark)] [overflow-wrap:anywhere] lg:text-xl">
+                    {section.title}
                   </h2>
                 </div>
               </div>
               <div className="space-y-5 lg:col-span-8">
-                {step.blocks.map((block, i) => (
+                {section.blocks.map((block, i) => (
                   <Block key={i} block={block} />
                 ))}
               </div>
