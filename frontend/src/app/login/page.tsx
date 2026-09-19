@@ -257,6 +257,8 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState(false);
+  const [authCode, setAuthCode] = useState("");
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
@@ -514,6 +516,47 @@ export default function Home() {
     } catch (error) {
       logger.error("Magic link error:", error);
       setAuthError("Unable to send magic link. Please check your email address and try again.");
+    }
+  };
+
+  // The email carries a code as well as a link. A mail scanner can follow a
+  // link but cannot type a code, so this path is immune to the Safe Links
+  // detonation that burns magic links on some institutional mail systems.
+  const handleCodeSubmit = async () => {
+    const token = authCode.replace(/\s/g, "");
+    if (token.length < 6) {
+      setAuthError("Enter the 6-digit code from the email.");
+      return;
+    }
+
+    setAuthError(null);
+    setVerifyingCode(true);
+    try {
+      // signInWithOtp issues a signup token to new users and an email one to
+      // returning users, and the type has to match — so try both.
+      let { error } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token,
+        type: "email",
+      });
+      if (error) {
+        ({ error } = await supabase.auth.verifyOtp({
+          email: authEmail,
+          token,
+          type: "signup",
+        }));
+      }
+      if (error) throw error;
+      // onAuthStateChange picks the session up from here; the only thing left
+      // is the redirect the magic link would have carried as ?next=.
+      if (redirectPath) {
+        window.location.assign(redirectPath);
+      }
+    } catch (error) {
+      logger.error("Code verification error:", error);
+      setAuthError("That code is not valid or has expired. Request a new one.");
+    } finally {
+      setVerifyingCode(false);
     }
   };
 
@@ -1254,7 +1297,51 @@ export default function Home() {
             {authSuccess && (
               <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                <span>Magic link sent! Check your email to sign in.</span>
+                <span>Email sent! Use the link, or the code below.</span>
+              </div>
+            )}
+            {authSuccess && (
+              <div className="space-y-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-4">
+                <p className="text-sm text-[var(--ink-dark)]">
+                  If the link says it has expired, enter the 6-digit code from
+                  the same email instead.
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="123456"
+                  value={authCode}
+                  onChange={(event) =>
+                    setAuthCode(event.target.value.replace(/\D/g, ""))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      handleCodeSubmit();
+                    }
+                  }}
+                  className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-center text-lg tracking-[0.5em] text-[var(--foreground)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleCodeSubmit}
+                  disabled={verifyingCode || authCode.length < 6}
+                  className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {verifyingCode ? "Verifying..." : "Verify code"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthSuccess(false);
+                    setAuthCode("");
+                    setAuthError(null);
+                  }}
+                  className="w-full text-xs text-[var(--ink-muted)] underline hover:text-[var(--foreground)]"
+                >
+                  Send a new email
+                </button>
               </div>
             )}
             <div className="space-y-3">
