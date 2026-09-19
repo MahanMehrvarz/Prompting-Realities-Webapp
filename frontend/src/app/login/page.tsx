@@ -42,6 +42,11 @@ import JSZip from "jszip";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
+// Supabase lets a project set its email OTP length anywhere from 6 to 10
+// digits (this one uses 8). Never assume a length in the input: a field capped
+// at 6 silently truncated 8-digit codes, so every code read as invalid.
+const OTP_MIN_LENGTH = 6;
+const OTP_MAX_LENGTH = 10;
 
 type ConfigSection = "prompt" | "schema" | "mqtt" | "apiKey";
 type AssistantStatus = "idle" | "running";
@@ -257,6 +262,8 @@ export default function Home() {
   const [authEmail, setAuthEmail] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState(false);
+  const [authCode, setAuthCode] = useState("");
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [redirectPath, setRedirectPath] = useState<string | null>(null);
 
   const [assistants, setAssistants] = useState<Assistant[]>([]);
@@ -496,24 +503,54 @@ export default function Home() {
     }
     
     try {
-      const confirmUrl = new URL("/auth/confirm", window.location.origin);
-      if (redirectPath) {
-        confirmUrl.searchParams.set("next", redirectPath);
-      }
+      // No emailRedirectTo: the email carries a code, not a link. Mail
+      // scanners spend any clickable sign-in URL before the recipient
+      // reaches it, which is why the link is gone.
       const { error } = await supabase.auth.signInWithOtp({
         email: authEmail,
-        options: {
-          emailRedirectTo: confirmUrl.toString(),
-        },
       });
-      
+
       if (error) throw error;
-      
+
+      setAuthCode("");
       setAuthSuccess(true);
       setAuthError(null);
     } catch (error) {
-      logger.error("Magic link error:", error);
-      setAuthError("Unable to send magic link. Please check your email address and try again.");
+      logger.error("Sign-in code error:", error);
+      setAuthError("Unable to send the code. Please check your email address and try again.");
+    }
+  };
+  const handleCodeSubmit = async () => {
+    const token = authCode.replace(/\s/g, "");
+    if (token.length < OTP_MIN_LENGTH) {
+      setAuthError("Enter the full code from the email.");
+      return;
+    }
+
+    setAuthError(null);
+    setVerifyingCode(true);
+    try {
+      // type "email" redeems both kinds of code signInWithOtp issues: tested
+      // end to end against a new address (Confirm signup template) and a
+      // returning one (Magic Link template), 200 on the first call each time.
+      // Do not add fallback types - every extra attempt on a mistyped code
+      // counts against Supabase's verification rate limit.
+      const { error } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token,
+        type: "email",
+      });
+      if (error) throw error;
+      // onAuthStateChange picks the session up from here; the only thing left
+      // is the redirect the magic link would have carried as ?next=.
+      if (redirectPath) {
+        window.location.assign(redirectPath);
+      }
+    } catch (error) {
+      logger.error("Code verification error:", error);
+      setAuthError("That code is not valid or has expired. Request a new one.");
+    } finally {
+      setVerifyingCode(false);
     }
   };
 
@@ -1254,7 +1291,51 @@ export default function Home() {
             {authSuccess && (
               <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                <span>Magic link sent! Check your email to sign in.</span>
+                <span>Code sent to {authEmail}</span>
+              </div>
+            )}
+            {authSuccess && (
+              <div className="space-y-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-4">
+                <p className="text-sm text-[var(--ink-dark)]">
+                  Enter the code from the email. It expires in 10
+                  minutes.
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={OTP_MAX_LENGTH}
+                  placeholder="Code"
+                  value={authCode}
+                  onChange={(event) =>
+                    setAuthCode(event.target.value.replace(/\D/g, ""))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      handleCodeSubmit();
+                    }
+                  }}
+                  className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-center text-lg tracking-[0.35em] text-[var(--foreground)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleCodeSubmit}
+                  disabled={verifyingCode || authCode.length < OTP_MIN_LENGTH}
+                  className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {verifyingCode ? "Verifying..." : "Verify code"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthSuccess(false);
+                    setAuthCode("");
+                    setAuthError(null);
+                  }}
+                  className="w-full text-xs text-[var(--ink-muted)] underline hover:text-[var(--foreground)]"
+                >
+                  Send a new code
+                </button>
               </div>
             )}
             <div className="space-y-3">
@@ -1277,10 +1358,10 @@ export default function Home() {
                 disabled={authSuccess || !authEmail}
                 className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {authSuccess ? "Magic link sent" : "Send magic link"}
+                {authSuccess ? "Code sent" : "Send code"}
               </button>
               <p className="text-xs text-[var(--ink-muted)] text-center">
-                We&apos;ll send you a magic link to sign in without a password.
+                We&apos;ll email you a code to sign in without a password.
               </p>
               <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
                 <a href="/hidden-login" className="underline hover:text-[var(--foreground)]">
