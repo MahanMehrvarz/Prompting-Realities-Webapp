@@ -525,21 +525,26 @@ export default function Home() {
     setAuthError(null);
     setVerifyingCode(true);
     try {
-      // signInWithOtp issues a signup token to new users and an email one to
-      // returning users, and the type has to match — so try both.
-      let { error } = await supabase.auth.verifyOtp({
-        email: authEmail,
-        token,
-        type: "email",
-      });
-      if (error) {
-        ({ error } = await supabase.auth.verifyOtp({
+      // The code has to be verified under the type GoTrue filed it under, and
+      // signInWithOtp picks that per user: a returning user's /otp logs
+      // "user_recovery_requested" and the code lands under magiclink, while a
+      // new address gets signup. Looking under the wrong type returns the same
+      // otp_expired error as a genuinely dead code, so walk the candidates.
+      const types = ["email", "magiclink", "signup", "recovery"] as const;
+      let lastError = null;
+      for (const type of types) {
+        const { error } = await supabase.auth.verifyOtp({
           email: authEmail,
           token,
-          type: "signup",
-        }));
+          type,
+        });
+        if (!error) {
+          lastError = null;
+          break;
+        }
+        lastError = error;
       }
-      if (error) throw error;
+      if (lastError) throw lastError;
       // onAuthStateChange picks the session up from here; the only thing left
       // is the redirect the magic link would have carried as ?next=.
       if (redirectPath) {
