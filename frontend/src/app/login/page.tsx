@@ -498,30 +498,23 @@ export default function Home() {
     }
     
     try {
-      const confirmUrl = new URL("/auth/confirm", window.location.origin);
-      if (redirectPath) {
-        confirmUrl.searchParams.set("next", redirectPath);
-      }
+      // No emailRedirectTo: the email carries a code, not a link. Mail
+      // scanners spend any clickable sign-in URL before the recipient
+      // reaches it, which is why the link is gone.
       const { error } = await supabase.auth.signInWithOtp({
         email: authEmail,
-        options: {
-          emailRedirectTo: confirmUrl.toString(),
-        },
       });
-      
+
       if (error) throw error;
-      
+
+      setAuthCode("");
       setAuthSuccess(true);
       setAuthError(null);
     } catch (error) {
-      logger.error("Magic link error:", error);
-      setAuthError("Unable to send magic link. Please check your email address and try again.");
+      logger.error("Sign-in code error:", error);
+      setAuthError("Unable to send the code. Please check your email address and try again.");
     }
   };
-
-  // The email carries a code as well as a link. A mail scanner can follow a
-  // link but cannot type a code, so this path is immune to the Safe Links
-  // detonation that burns magic links on some institutional mail systems.
   const handleCodeSubmit = async () => {
     const token = authCode.replace(/\s/g, "");
     if (token.length < 6) {
@@ -1297,14 +1290,14 @@ export default function Home() {
             {authSuccess && (
               <div className="flex items-center gap-2 rounded-[20px] border-[3px] border-[#00d692] bg-[#e6fff5] px-4 py-3 text-sm text-[#013022]">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                <span>Email sent! Use the link, or the code below.</span>
+                <span>Code sent to {authEmail}</span>
               </div>
             )}
             {authSuccess && (
               <div className="space-y-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-4">
                 <p className="text-sm text-[var(--ink-dark)]">
-                  If the link says it has expired, enter the 6-digit code from
-                  the same email instead.
+                  Enter the 6-digit code from the email. It expires in 10
+                  minutes.
                 </p>
                 <input
                   type="text"
@@ -1340,7 +1333,7 @@ export default function Home() {
                   }}
                   className="w-full text-xs text-[var(--ink-muted)] underline hover:text-[var(--foreground)]"
                 >
-                  Send a new email
+                  Send a new code
                 </button>
               </div>
             )}
@@ -1364,10 +1357,10 @@ export default function Home() {
                 disabled={authSuccess || !authEmail}
                 className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {authSuccess ? "Magic link sent" : "Send magic link"}
+                {authSuccess ? "Code sent" : "Send code"}
               </button>
               <p className="text-xs text-[var(--ink-muted)] text-center">
-                We&apos;ll send you a magic link to sign in without a password.
+                We&apos;ll email you a 6-digit code to sign in without a password.
               </p>
               <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
                 <a href="/hidden-login" className="underline hover:text-[var(--foreground)]">

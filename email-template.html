@@ -1,21 +1,23 @@
 <!--
   Supabase email template - Magic Link.
 
-  The link points at our own /auth/confirm carrying {{ .TokenHash }}, NOT at
-  {{ .ConfirmationURL }}. ConfirmationURL points at Supabase's /auth/v1/verify,
-  and merely FETCHING that URL consumes the single-use token and mints a
-  session. Mail scanners (Microsoft EOP observed sending HEAD from
-  104.47.51.254, another host doing a full GET) open links before the recipient
-  does, so users reliably saw "Email link is invalid or has expired".
-  Pointing at our own page means a scanner fetches static HTML and burns
-  nothing - the token is only redeemed when verifyOtp runs in the browser.
+  THERE IS DELIBERATELY NO LINK IN THIS EMAIL. Only {{ .Token }}, the 6-digit
+  code the user types on the sign-in page.
 
-  {{ .SiteURL }} is deliberately not used: it is set to
-  https://promptingrealities.com/login, which would build the wrong path.
+  Any clickable sign-in URL gets spent before the recipient reaches it.
+  {{ .ConfirmationURL }} points at Supabase's /auth/v1/verify, where a bare
+  FETCH consumes the single-use token; pointing at our own /auth/confirm
+  instead did not help, because Microsoft Defender Safe Links detonates the
+  URL in a real JS-executing browser and our own verifyOtp then ran inside
+  the scanner's sandbox. Institutional recipients (tudelft.nl) reliably saw
+  "Email link is invalid or has expired". A scanner can follow a link but
+  cannot type a code, so the code cannot be burned.
 
-  For the "Confirm signup" template, reuse this file but change
-  type=magiclink to type=signup. signInWithOtp sends Confirm signup to new
-  users and Magic Link to returning ones, so both templates need this.
+  Do not add a convenience link back. Put nothing here a machine can click.
+
+  For the "Confirm signup" template, use email-template-signup.html.
+  signInWithOtp sends Confirm signup to new users and Magic Link to returning
+  ones, so both templates need to carry the code.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -188,40 +190,21 @@
         <div class="content">
             <h2 class="greeting">Welcome! 👋</h2>
             
-            <p class="message">
-                You requested a magic link to sign in to your Prompting Realities account. 
-                Click the button below to securely access your LLM things and continue your work.
+            <p class="message" style="text-align: center;">
+                Here is your sign-in code for Prompting Realities.
+                Enter it on the page you left open.
             </p>
 
-            <div class="button-container">
-                <a href="https://promptingrealities.com/auth/confirm?token_hash={{ .TokenHash }}&amp;type=magiclink" class="magic-link-button">
-                    Sign in to Prompting Realities
-                </a>
+            <div style="text-align: center; margin: 28px 0 8px;">
+                <span style="display: inline-block; padding: 18px 32px; border: 3px solid #1d1d1d; border-radius: 20px; font-size: 38px; font-weight: 700; letter-spacing: 12px; font-family: 'Courier New', monospace; color: #1d1d1d;">{{ .Token }}</span>
             </div>
-
-            <p class="message" style="text-align: center; font-size: 14px; margin-top: 28px;">
-                Or enter this code on the sign-in page:
-            </p>
-            <div style="text-align: center; margin: 12px 0 8px;">
-                <span style="display: inline-block; padding: 14px 28px; border: 3px solid #1d1d1d; border-radius: 20px; font-size: 30px; font-weight: 700; letter-spacing: 10px; font-family: 'Courier New', monospace; color: #1d1d1d;">{{ .Token }}</span>
-            </div>
-            <p class="message" style="text-align: center; font-size: 13px; color: #666;">
-                Use the code if the link says it has already expired &mdash; some
-                university mail systems open links before you do.
-            </p>
 
             <div class="info-box">
                 <p>
-                    <strong>🔒 Security note:</strong> This link will expire in 10 minutes and can only be used once. 
-                    If you didn't request this email, you can safely ignore it.
+                    <strong>🔒 Security note:</strong> This code expires in 10 minutes and can only be used once.
+                    If you didn't request it, you can safely ignore this email. Never share the code with anyone.
                 </p>
             </div>
-
-            <p class="message" style="margin-top: 32px; font-size: 14px;">
-                If the button doesn't work, copy and paste this link into your browser:
-                <br>
-                <a href="https://promptingrealities.com/auth/confirm?token_hash={{ .TokenHash }}&amp;type=magiclink" style="color: #1d1d1d; word-break: break-all;">https://promptingrealities.com/auth/confirm</a>
-            </p>
         </div>
 
         <div class="footer">
