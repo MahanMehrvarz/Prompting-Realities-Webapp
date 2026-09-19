@@ -42,6 +42,11 @@ import JSZip from "jszip";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
 const MQTT_PASS_STORAGE_PREFIX = "pr-mqtt-pass-";
+// Supabase lets a project set its email OTP length anywhere from 6 to 10
+// digits (this one uses 8). Never assume a length in the input: a field capped
+// at 6 silently truncated 8-digit codes, so every code read as invalid.
+const OTP_MIN_LENGTH = 6;
+const OTP_MAX_LENGTH = 10;
 
 type ConfigSection = "prompt" | "schema" | "mqtt" | "apiKey";
 type AssistantStatus = "idle" | "running";
@@ -517,34 +522,25 @@ export default function Home() {
   };
   const handleCodeSubmit = async () => {
     const token = authCode.replace(/\s/g, "");
-    if (token.length < 6) {
-      setAuthError("Enter the 6-digit code from the email.");
+    if (token.length < OTP_MIN_LENGTH) {
+      setAuthError("Enter the full code from the email.");
       return;
     }
 
     setAuthError(null);
     setVerifyingCode(true);
     try {
-      // The code has to be verified under the type GoTrue filed it under, and
-      // signInWithOtp picks that per user: a returning user's /otp logs
-      // "user_recovery_requested" and the code lands under magiclink, while a
-      // new address gets signup. Looking under the wrong type returns the same
-      // otp_expired error as a genuinely dead code, so walk the candidates.
-      const types = ["email", "magiclink", "signup", "recovery"] as const;
-      let lastError = null;
-      for (const type of types) {
-        const { error } = await supabase.auth.verifyOtp({
-          email: authEmail,
-          token,
-          type,
-        });
-        if (!error) {
-          lastError = null;
-          break;
-        }
-        lastError = error;
-      }
-      if (lastError) throw lastError;
+      // type "email" redeems both kinds of code signInWithOtp issues: tested
+      // end to end against a new address (Confirm signup template) and a
+      // returning one (Magic Link template), 200 on the first call each time.
+      // Do not add fallback types - every extra attempt on a mistyped code
+      // counts against Supabase's verification rate limit.
+      const { error } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token,
+        type: "email",
+      });
+      if (error) throw error;
       // onAuthStateChange picks the session up from here; the only thing left
       // is the redirect the magic link would have carried as ?next=.
       if (redirectPath) {
@@ -1301,15 +1297,15 @@ export default function Home() {
             {authSuccess && (
               <div className="space-y-3 rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-4">
                 <p className="text-sm text-[var(--ink-dark)]">
-                  Enter the 6-digit code from the email. It expires in 10
+                  Enter the code from the email. It expires in 10
                   minutes.
                 </p>
                 <input
                   type="text"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  maxLength={6}
-                  placeholder="123456"
+                  maxLength={OTP_MAX_LENGTH}
+                  placeholder="Code"
                   value={authCode}
                   onChange={(event) =>
                     setAuthCode(event.target.value.replace(/\D/g, ""))
@@ -1319,12 +1315,12 @@ export default function Home() {
                       handleCodeSubmit();
                     }
                   }}
-                  className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-center text-lg tracking-[0.5em] text-[var(--foreground)]"
+                  className="w-full rounded-[20px] border-[3px] border-[var(--card-shell)] bg-white px-4 py-3 text-center text-lg tracking-[0.35em] text-[var(--foreground)]"
                 />
                 <button
                   type="button"
                   onClick={handleCodeSubmit}
-                  disabled={verifyingCode || authCode.length < 6}
+                  disabled={verifyingCode || authCode.length < OTP_MIN_LENGTH}
                   className="w-full rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] px-4 py-3 text-sm font-semibold text-[var(--card-fill)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {verifyingCode ? "Verifying..." : "Verify code"}
@@ -1365,7 +1361,7 @@ export default function Home() {
                 {authSuccess ? "Code sent" : "Send code"}
               </button>
               <p className="text-xs text-[var(--ink-muted)] text-center">
-                We&apos;ll email you a 6-digit code to sign in without a password.
+                We&apos;ll email you a code to sign in without a password.
               </p>
               <p className="text-xs text-[var(--ink-muted)] text-center pt-2">
                 <a href="/hidden-login" className="underline hover:text-[var(--foreground)]">
