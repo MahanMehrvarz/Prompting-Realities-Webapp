@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { Footer } from "@/components/Footer";
 import { HeroDemo } from "@/components/HeroDemo";
+import { HeroPoster } from "@/components/HeroPoster";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ProjectCard } from "@/components/ProjectCard";
 import { SectionPanel } from "@/components/SectionPanel";
@@ -52,7 +53,9 @@ const stats = [
   { figure: "2", label: "peer-reviewed publications" },
 ];
 
-export default function HomePage() {
+// `heroVariant` exists only so /hero-poster can show the alternative hero
+// for review. Remove it, and that route, once one is chosen.
+export default function HomePage({ heroVariant = "chat" }: { heroVariant?: "chat" | "poster" }) {
   return (
     <div className="flex min-h-screen flex-col text-[var(--foreground)]">
       <SiteHeader />
@@ -69,7 +72,7 @@ export default function HomePage() {
             // cleaned photo, so it is crisp at any size and the lamp can answer.
             // TODO: hero-lamp.jpg is 796px wide — soft at 2x. Swap for an original.
             <figure className="space-y-3">
-              <HeroDemo />
+              {heroVariant === "poster" ? <HeroPoster /> : <HeroDemo />}
               <figcaption className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ink-muted)]">
                 Ask for a dance vibe — the lamp answers in light
               </figcaption>
