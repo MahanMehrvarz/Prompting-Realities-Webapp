@@ -14,8 +14,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
 
-from ..chat_turn import run_assistant_turn
+from ..chat_turn import resolve_assistant_model, run_assistant_turn
 from ..conversation_service import run_model_turn, transcribe_blob
+from ..model_catalog import DEFAULT_MODEL
 from ..mqtt_utils import publish_payload, test_mqtt_connection
 from ..security import get_current_user_email, maybe_current_user_id
 from .. import voice_message_store
@@ -812,6 +813,7 @@ async def _process_voice_message(
     prompt_instruction: str,
     json_schema: Optional[dict],
     previous_response_id: Optional[str],
+    model: str = DEFAULT_MODEL,
 ) -> None:
     """Background task: transcribe -> chat -> store result."""
     try:
@@ -829,7 +831,7 @@ async def _process_voice_message(
             api_key,
             prompt_instruction,
             json_schema,
-            model="gpt-4o-mini",
+            model=model,
         )
 
         logger.info(f"✅ [VoiceMsg] Processing complete for {message_id}")
@@ -905,6 +907,7 @@ async def send_voice_message(
             prompt_instruction,
             json_schema,
             previous_response_id,
+            resolve_assistant_model(assistant),
         )
 
         logger.info(f"✅ [Backend] Returning ack JSON for {message_id}")

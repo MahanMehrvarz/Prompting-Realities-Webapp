@@ -99,6 +99,32 @@ export type GetApiKeyResponse = {
   has_api_key: boolean;
 };
 
+export type ModelSpeed = "fast" | "balanced" | "slow";
+
+export type ModelEntry = {
+  id: string;
+  speed: ModelSpeed;
+  note: string;
+};
+
+export type AvailableModelsResponse = {
+  default_model: string;
+  current_model: string;
+  models: ModelEntry[];
+};
+
+export type ProbeResult = {
+  model: string;
+  ok: boolean;
+  ms: number;
+  output_tokens: number | null;
+  error: string | null;
+};
+
+export type ProbeModelsResponse = {
+  results: ProbeResult[];
+};
+
 export type LogoutResponse = {
   success: boolean;
   message: string;
@@ -257,6 +283,39 @@ export const backendApi = {
       token,
       {
         method: "GET",
+      }
+    );
+  },
+
+  /**
+   * List structured-output-capable models the assistant's key can use.
+   */
+  async getAvailableModels(
+    assistantId: string,
+    token: string
+  ): Promise<AvailableModelsResponse> {
+    return apiFetch<AvailableModelsResponse>(
+      `/assistants/${assistantId}/models`,
+      token,
+      { method: "GET" }
+    );
+  },
+
+  /**
+   * Time one structured-output request per model on the assistant's own key.
+   * Spends a few tokens per model, so only call on an explicit user action.
+   */
+  async probeModels(
+    assistantId: string,
+    models: string[],
+    token: string
+  ): Promise<ProbeModelsResponse> {
+    return apiFetch<ProbeModelsResponse>(
+      `/assistants/${assistantId}/models/probe`,
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({ models }),
       }
     );
   },
