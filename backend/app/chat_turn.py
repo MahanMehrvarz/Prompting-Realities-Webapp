@@ -11,8 +11,19 @@ import logging
 from typing import Any, Dict, Optional, Tuple
 
 from .conversation_service import run_model_turn
+from .model_catalog import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_assistant_model(assistant: Dict[str, Any]) -> str:
+    """The model an assistant row should run on: its ``model`` column, else the default.
+
+    Rows created before the column existed (or with it cleared) keep the
+    pre-selection behaviour.
+    """
+    stored = assistant.get("model")
+    return stored.strip() if isinstance(stored, str) and stored.strip() else DEFAULT_MODEL
 
 # Conversation context is threaded through OpenAI's Responses API via
 # previous_response_id. The id for a thread is parked on a marker row in
@@ -113,9 +124,12 @@ async def run_assistant_turn(
     previous_response_id: Optional[str],
     session_id: Optional[str],
     thread_id: Optional[str],
-    model: str = "gpt-4o-mini",
+    model: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """Run one model turn and persist the thread's response_id.
+
+    ``model`` overrides the assistant's stored choice; otherwise the row's
+    ``model`` column is used, falling back to the backend default.
 
     Returns ``(payload, response_id, display_text)``.
     """
@@ -125,8 +139,11 @@ async def run_assistant_turn(
     json_schema_raw = assistant.get("json_schema")
     json_schema = json_schema_raw if isinstance(json_schema_raw, dict) else None
 
+    model = model or resolve_assistant_model(assistant)
+
     logger.info(f"📋 [ChatTurn] Prompt instruction: {prompt_instruction[:50]}...")
     logger.info(f"📊 [ChatTurn] JSON schema present: {json_schema is not None}")
+    logger.info(f"🤖 [ChatTurn] Model: {model}")
 
     payload, response_id, display_text = await run_model_turn(
         previous_response_id,

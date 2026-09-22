@@ -32,7 +32,12 @@ import {
   type ChatMessage as DbChatMessage,
 } from "@/lib/supabaseClient";
 import { getAssistantColors } from "@/lib/assistantColors";
-import { backendApi } from "@/lib/backendApi";
+import {
+  backendApi,
+  type AvailableModelsResponse,
+  type ModelSpeed,
+  type ProbeResult,
+} from "@/lib/backendApi";
 import { SkeletonLoader } from "@/components/SkeletonLoader";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { ExportDataModal, type ExportOptions } from "@/components/ExportDataModal";
@@ -80,6 +85,7 @@ type Assistant = {
   mqttPass?: string;
   mqttTopic: string;
   apiKey?: string;
+  model: string | null; // OpenAI model id; null = backend default
   status: AssistantStatus;
   mqttConnected: boolean;
   lastUpdated?: string;
@@ -171,6 +177,14 @@ const configSections: {
 ];
 
 
+const MODEL_SPEED_TONE: Record<ModelSpeed, string> = {
+  fast: "bg-[#c8f28c] text-[#1f3300]",
+  balanced: "bg-[#ffe08a] text-[#3d2a00]",
+  slow: "bg-[#ff9d4d] text-[#2b1400]",
+};
+
+const formatProbeMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`);
+
 const DEFAULT_JSON_SCHEMA = {
   "type": "object",
   "required": [
@@ -207,6 +221,7 @@ const formatAssistant = (record: DbAssistant): Assistant => ({
   mqttPort: String(record.mqtt_port ?? 1883),
   mqttUser: record.mqtt_user ?? undefined,
   mqttTopic: record.mqtt_topic ?? "",
+  model: record.model ?? null,
   status: "idle",
   mqttConnected: false,
   lastUpdated: record.updated_at,
@@ -286,6 +301,14 @@ export default function Home() {
   const [checkingAdminStatus, setCheckingAdminStatus] = useState(true);
   const [testingMqtt, setTestingMqtt] = useState(false);
   const [mqttTestResult, setMqttTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Model picker under the API key. The list is fetched per assistant once the
+  // key exists; probe timings are per assistant too, since they run its schema.
+  const [availableModels, setAvailableModels] = useState<AvailableModelsResponse | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [probeResults, setProbeResults] = useState<Record<string, ProbeResult>>({});
+  const [probingModels, setProbingModels] = useState(false);
 
   useEffect(() => {
     setHydrated(true);
@@ -562,6 +585,76 @@ export default function Home() {
     );
   };
 
+  // Load the model list whenever the API key section opens for an assistant
+  // that has a key. Reset on assistant change so one assistant's list (and
+  // timings, which depend on its schema) never shows under another.
+  const selectedHasApiKey = Boolean((selectedAssistant?.apiKey ?? "").trim());
+  useEffect(() => {
+    setAvailableModels(null);
+    setProbeResults({});
+    setModelsError(null);
+
+    if (activeConfigSection !== "apiKey" || !selectedAssistantId || !selectedHasApiKey || !authToken) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingModels(true);
+    backendApi
+      .getAvailableModels(selectedAssistantId, authToken)
+      .then((response) => {
+        if (!cancelled) setAvailableModels(response);
+      })
+      .catch((error) => {
+        logger.error("Failed to load models", error);
+        if (!cancelled) setModelsError("Couldn't list models for this key. Check that the key is valid.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingModels(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConfigSection, selectedAssistantId, selectedHasApiKey, authToken]);
+
+  const handleModelSelect = async (assistantId: string, model: string) => {
+    // Same immediate-save behaviour as the API key field right above it:
+    // no one should have to remember to press Save for a dropdown.
+    updateAssistantState(assistantId, (assistant) => ({
+      ...assistant,
+      model,
+      lastUpdated: new Date().toISOString(),
+    }));
+    try {
+      await assistantService.update(assistantId, { model });
+    } catch (error) {
+      logger.error("Failed to save model", error);
+      setSaveError("Failed to save model choice. Please try again.");
+    }
+  };
+
+  const handleProbeModels = async () => {
+    if (!selectedAssistantId || !authToken || !availableModels) return;
+    setProbingModels(true);
+    setModelsError(null);
+    try {
+      const response = await backendApi.probeModels(
+        selectedAssistantId,
+        availableModels.models.map((m) => m.id),
+        authToken
+      );
+      const byModel: Record<string, ProbeResult> = {};
+      for (const result of response.results) byModel[result.model] = result;
+      setProbeResults(byModel);
+    } catch (error) {
+      logger.error("Failed to probe models", error);
+      setModelsError("Speed test failed. Please try again.");
+    } finally {
+      setProbingModels(false);
+    }
+  };
+
   const handleFieldChange = async (assistantId: string, field: EditableField, value: string) => {
     // Store raw value in local state - no auto-save
     updateAssistantState(assistantId, (assistant) => ({
@@ -621,6 +714,7 @@ export default function Home() {
         // otherwise a Save from any new device wipes the broker password.
         ...(assistant.mqttPass ? { mqtt_pass: assistant.mqttPass } : {}),
         mqtt_topic: assistant.mqttTopic,
+        model: assistant.model,
       });
       
       // Update local state with parsed schema
@@ -687,6 +781,7 @@ export default function Home() {
         mqtt_user: source.mqttUser ?? null,
         mqtt_topic: newTopic,
         mqtt_pass: null,
+        model: source.model,
       });
 
       const formatted = formatAssistant(record);
@@ -1867,6 +1962,85 @@ export default function Home() {
                     <p className="text-xs text-[var(--ink-muted)]">
                       Each user brings their own key. We store it encrypted and only decrypt while calling OpenAI.
                     </p>
+
+                    {selectedHasApiKey && (
+                      <div className="mt-4 flex flex-col gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <label className="text-sm font-semibold text-[var(--foreground)]">
+                            Model
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleProbeModels}
+                            disabled={probingModels || loadingModels || !availableModels}
+                            className="rounded-full border-[3px] border-[var(--card-shell)] bg-[var(--card-fill)] px-3 py-1 text-xs font-semibold text-[var(--foreground)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {probingModels ? "Testing…" : "Test speed"}
+                          </button>
+                        </div>
+
+                        {loadingModels && (
+                          <p className="text-xs text-[var(--ink-muted)]">Checking which models this key can use…</p>
+                        )}
+                        {modelsError && <p className="text-xs text-red-600">{modelsError}</p>}
+
+                        {availableModels && (
+                          <div className="flex flex-col gap-2">
+                            {availableModels.models.map((entry) => {
+                              const currentModel = selectedAssistant.model ?? availableModels.default_model;
+                              const isSelected = entry.id === currentModel;
+                              const probe = probeResults[entry.id];
+                              return (
+                                <button
+                                  key={entry.id}
+                                  type="button"
+                                  onClick={() => handleModelSelect(selectedAssistant.id, entry.id)}
+                                  className={`flex items-center gap-3 rounded-[20px] border-[3px] px-4 py-2 text-left transition ${
+                                    isSelected
+                                      ? "border-[var(--ink-dark)] bg-[var(--card-fill)]"
+                                      : "border-[var(--card-shell)] bg-[var(--card-fill)]/60 hover:bg-[var(--card-fill)]"
+                                  }`}
+                                >
+                                  <span
+                                    aria-hidden
+                                    className={`h-3 w-3 shrink-0 rounded-full border-2 border-[var(--ink-dark)] ${
+                                      isSelected ? "bg-[var(--ink-dark)]" : "bg-transparent"
+                                    }`}
+                                  />
+                                  <span className="flex min-w-0 flex-1 flex-col">
+                                    <span className="flex flex-wrap items-center gap-2">
+                                      <span className="font-mono text-sm text-[var(--foreground)]">{entry.id}</span>
+                                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${MODEL_SPEED_TONE[entry.speed]}`}>
+                                        {entry.speed}
+                                      </span>
+                                      {entry.id === availableModels.default_model && (
+                                        <span className="text-[10px] uppercase tracking-wide text-[var(--ink-muted)]">default</span>
+                                      )}
+                                    </span>
+                                    <span className="text-xs text-[var(--ink-muted)]">{entry.note}</span>
+                                  </span>
+                                  {probe && (
+                                    <span
+                                      className={`shrink-0 font-mono text-xs ${probe.ok ? "text-[var(--foreground)]" : "text-red-600"}`}
+                                      title={probe.ok ? `${probe.output_tokens ?? "?"} output tokens` : probe.error ?? "failed"}
+                                    >
+                                      {probe.ok ? formatProbeMs(probe.ms) : "failed"}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {availableModels && (
+                          <p className="text-xs text-[var(--ink-muted)]">
+                            Only models that support JSON-schema structured output are listed. &ldquo;Test speed&rdquo; sends one tiny
+                            request per model using this assistant&apos;s schema, on your key.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

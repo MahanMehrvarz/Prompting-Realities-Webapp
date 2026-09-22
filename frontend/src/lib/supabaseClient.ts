@@ -22,6 +22,7 @@ export type Assistant = {
   mqtt_user: string | null;
   mqtt_pass: string | null;
   mqtt_topic: string;
+  model?: string | null; // OpenAI model id; null = backend default
   created_at: string;
   updated_at: string;
 };

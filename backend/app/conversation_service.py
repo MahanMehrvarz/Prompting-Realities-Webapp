@@ -80,6 +80,49 @@ def _extract_assistant_text(response: Any) -> str:
     return "".join(chunks).strip()
 
 
+def build_text_format(json_schema: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Turn a stored assistant schema into the Responses API ``text`` argument.
+
+    Accepts either the wrapped form saved from the UI (``{name, strict, schema}``)
+    or a bare JSON schema. Returns ``None`` when there is no schema, so callers
+    can leave ``text`` out entirely. Shared by the real chat turn and the model
+    speed probe so both hit OpenAI with the identical format.
+    """
+    if not json_schema or not isinstance(json_schema, dict):
+        return None
+
+    logger.info("📊 [ConversationService] Using structured output with JSON schema")
+
+    # Check if this is a wrapped schema (has name, strict, schema keys) or a direct schema
+    if "schema" in json_schema and "name" in json_schema:
+        # This is already a wrapped schema format from the database
+        schema_name = json_schema.get("name", "assistant_response")
+        # Validate and sanitize the schema name to match OpenAI's pattern ^[a-zA-Z0-9_-]+$
+        # Remove any characters that don't match the pattern
+        import re
+        schema_name = re.sub(r'[^a-zA-Z0-9_-]', '_', schema_name)
+        if not schema_name:
+            schema_name = "assistant_response"
+        strict_mode = json_schema.get("strict", True)
+        actual_schema = json_schema.get("schema", {})
+        logger.info(f"📊 [ConversationService] Using wrapped schema format: name={schema_name}, strict={strict_mode}")
+    else:
+        # This is a direct schema, wrap it
+        schema_name = "assistant_response"
+        strict_mode = True
+        actual_schema = json_schema
+        logger.info(f"📊 [ConversationService] Using direct schema format, wrapping with strict={strict_mode}")
+
+    return {
+        "format": {
+            "type": "json_schema",
+            "name": schema_name,
+            "schema": actual_schema,
+            "strict": strict_mode,
+        }
+    }
+
+
 async def run_model_turn(
     previous_response_id: Optional[str],
     user_message: str,
@@ -139,37 +182,9 @@ async def run_model_turn(
             kwargs["instructions"] = prompt_instruction
 
         # Configure JSON schema output format if provided
-        if json_schema and isinstance(json_schema, dict):
-            logger.info("📊 [ConversationService] Using structured output with JSON schema")
-            
-            # Check if this is a wrapped schema (has name, strict, schema keys) or a direct schema
-            if "schema" in json_schema and "name" in json_schema:
-                # This is already a wrapped schema format from the database
-                schema_name = json_schema.get("name", "assistant_response")
-                # Validate and sanitize the schema name to match OpenAI's pattern ^[a-zA-Z0-9_-]+$
-                # Remove any characters that don't match the pattern
-                import re
-                schema_name = re.sub(r'[^a-zA-Z0-9_-]', '_', schema_name)
-                if not schema_name:
-                    schema_name = "assistant_response"
-                strict_mode = json_schema.get("strict", True)
-                actual_schema = json_schema.get("schema", {})
-                logger.info(f"📊 [ConversationService] Using wrapped schema format: name={schema_name}, strict={strict_mode}")
-            else:
-                # This is a direct schema, wrap it
-                schema_name = "assistant_response"
-                strict_mode = True
-                actual_schema = json_schema
-                logger.info(f"📊 [ConversationService] Using direct schema format, wrapping with strict={strict_mode}")
-            
-            kwargs["text"] = {
-                "format": {
-                    "type": "json_schema",
-                    "name": schema_name,
-                    "schema": actual_schema,
-                    "strict": strict_mode,
-                }
-            }
+        text_format = build_text_format(json_schema)
+        if text_format:
+            kwargs["text"] = text_format
 
         logger.info("🤖 [ConversationService] Calling OpenAI Responses API...")
 
