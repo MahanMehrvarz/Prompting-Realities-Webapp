@@ -78,7 +78,8 @@ export function HeroPoster() {
     "radial-gradient(ellipse 25% 27% at 48% 52%, #000 84%, transparent 100%)";
 
   return (
-    <div className="relative aspect-[1078/606] overflow-hidden rounded-[20px] shadow-[5px_5px_0_var(--shadow-deep)]">
+    <div className="relative">
+      <div className="relative aspect-[1078/606] overflow-hidden rounded-[20px] shadow-[5px_5px_0_var(--shadow-deep)]">
       <img
         src="/projects/hero.jpg"
         alt="A lamp-like artifact glowing while a Telegram conversation beside it asks for a dance vibe, then a move from blue to red and slowly to orange"
@@ -108,11 +109,18 @@ export function HeroPoster() {
         }}
       />
 
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 rounded-[20px] border-[3px] border-[var(--card-shell)]"
+      />
+      </div>
+
       {/* The payload, landing on the device. Top-left is the one clear patch
-          of wall on the poster. */}
+          of wall on the poster; on a phone the poster is too small for that,
+          so it sits under the picture instead. */}
       <div
         aria-hidden={!overlayVisible}
-        className={`pointer-events-none absolute left-3 top-3 max-w-[min(42%,22rem)] rounded-[14px] border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 sm:left-4 sm:top-4 ${
+        className={`pointer-events-none mt-3 rounded-[14px] border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 sm:absolute sm:left-4 sm:top-4 sm:mt-0 sm:max-w-[min(42%,22rem)] ${
           overlayVisible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
         }`}
       >
@@ -120,15 +128,12 @@ export function HeroPoster() {
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-green)]" />
           Sent to the lamp · MQTT
         </div>
-        <code className="block font-mono text-[10px] leading-snug sm:text-[11px] lg:text-xs">
-          {payload?.text}
+        <code className="block font-mono text-[11px] leading-snug lg:text-xs">
+          {/* Keep the last text while fading out; a blank line otherwise so
+              the phone layout doesn't jump. */}
+          {payload?.text ?? " "}
         </code>
       </div>
-
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 rounded-[20px] border-[3px] border-[var(--card-shell)]"
-      />
     </div>
   );
 }
