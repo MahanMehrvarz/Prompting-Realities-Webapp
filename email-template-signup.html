@@ -1,23 +1,14 @@
 <!--
-  Supabase email template - Magic Link.
+  Supabase email template - Confirm signup.
 
   THERE IS DELIBERATELY NO LINK IN THIS EMAIL. Only {{ .Token }}, the 6-digit
-  code the user types on the sign-in page.
+  code the user types on the sign-in page. See email-template.html for why:
+  any clickable sign-in URL is spent by Microsoft Defender Safe Links before
+  the recipient reaches it. Do not add a convenience link back.
 
-  Any clickable sign-in URL gets spent before the recipient reaches it.
-  {{ .ConfirmationURL }} points at Supabase's /auth/v1/verify, where a bare
-  FETCH consumes the single-use token; pointing at our own /auth/confirm
-  instead did not help, because Microsoft Defender Safe Links detonates the
-  URL in a real JS-executing browser and our own verifyOtp then ran inside
-  the scanner's sandbox. Institutional recipients (tudelft.nl) reliably saw
-  "Email link is invalid or has expired". A scanner can follow a link but
-  cannot type a code, so the code cannot be burned.
-
-  Do not add a convenience link back. Put nothing here a machine can click.
-
-  For the "Confirm signup" template, use email-template-signup.html.
   signInWithOtp sends Confirm signup to new users and Magic Link to returning
-  ones, so both templates need to carry the code.
+  ones, so both templates need to carry the code. This file is identical to
+  email-template.html apart from the wording.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -191,8 +182,9 @@
             <h2 class="greeting">Welcome! 👋</h2>
             
             <p class="message" style="text-align: center;">
-                Here is your sign-in code for Prompting Realities.
-                Enter it on the page you left open.
+                Welcome to Prompting Realities. Here is your code to confirm your
+                email address and finish creating your account. Enter it on the
+                page you left open.
             </p>
 
             <div style="text-align: center; margin: 28px 0 8px;">

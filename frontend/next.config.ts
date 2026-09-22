@@ -1,6 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      // public/ is served with max-age=0 by default, so every play re-fetched
+      // the footage — and every re-fetch was another chance to fail.
+      {
+        source: "/projects/:file*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       // The DDW, 4TU and CHItaly paper links point at /about. It must not break.
