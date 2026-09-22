@@ -3,32 +3,35 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 /**
- * The hero: a photo of the lamp beside a chat that types itself. Every bot
- * turn is followed by the JSON payload it emitted, and the lamp's glow in the
- * photo follows the payload's colour — the whole framework in one loop.
+ * The hero: a photo of the lamp beside a chat that types itself. The chat
+ * shows only what a person would see — the JSON the model emits alongside
+ * each reply never enters the chat; it lands on the lamp as an overlay,
+ * recolours the disc, and fades. The whole framework in one loop.
  */
 
 type Turn =
   | { who: "user"; text: string }
   | { who: "bot"; text: string }
-  | { who: "json"; text: string; glow: string };
+  | { who: "payload"; text: string; glow: string };
 
 const SCRIPT: Turn[] = [
   { who: "user", text: "Give me a dance vibe with warm colors" },
   { who: "bot", text: "Warm dance vibe coming up — pulsing through red, orange and yellow." },
   {
-    who: "json",
-    text: '{"mode":"pulse","colors":["#ff3b30","#ff9500","#ffcc00"],"speed":"fast"}',
+    who: "payload",
+    text: '{ "mode": "pulse", "colors": ["red", "orange", "yellow"], "speed": "fast" }',
     glow: "#ff6a1a",
   },
   { who: "user", text: "Now three quick flashes of blue" },
   { who: "bot", text: "Three flashes of blue, then holding." },
-  { who: "json", text: '{"mode":"flash","color":"#2f6bff","count":3}', glow: "#2f6bff" },
+  { who: "payload", text: '{ "mode": "flash", "color": "blue", "count": 3 }', glow: "#2f6bff" },
 ];
 
 const NATURAL_GLOW = "#4a5cff"; // what the photo already shows
 const CHAR_MS = 28;
 const TURN_PAUSE_MS = 700;
+const PAYLOAD_ARRIVE_MS = 400; // reply finished → packet lands on the lamp
+const PAYLOAD_HOLD_MS = 3200; // how long the overlay stays before fading
 const LOOP_PAUSE_MS = 4000;
 
 const REDUCE = "(prefers-reduced-motion: reduce)";
@@ -46,7 +49,7 @@ function useReducedMotion() {
 }
 
 function useTranscript(reduceMotion: boolean) {
-  // How many turns are fully shown, and how far the next one has typed.
+  // How many turns are complete, and how far the current one has typed.
   const [done, setDone] = useState(0);
   const [typed, setTyped] = useState(0);
 
@@ -60,20 +63,26 @@ function useTranscript(reduceMotion: boolean) {
       return () => clearTimeout(t);
     }
     const current = SCRIPT[done];
+    const isPayload = current.who === "payload";
     if (typed < current.text.length) {
-      // JSON arrives as one packet, not keystrokes.
-      const step = current.who === "json" ? current.text.length : 1;
-      const t = setTimeout(() => setTyped((n) => n + step), current.who === "json" ? 350 : CHAR_MS);
+      // A payload is one packet, not keystrokes.
+      const t = setTimeout(
+        () => setTyped((n) => n + (isPayload ? current.text.length : 1)),
+        isPayload ? PAYLOAD_ARRIVE_MS : CHAR_MS,
+      );
       return () => clearTimeout(t);
     }
-    const t = setTimeout(() => {
-      setDone((n) => n + 1);
-      setTyped(0);
-    }, TURN_PAUSE_MS);
+    const t = setTimeout(
+      () => {
+        setDone((n) => n + 1);
+        setTyped(0);
+      },
+      isPayload ? PAYLOAD_HOLD_MS : TURN_PAUSE_MS,
+    );
     return () => clearTimeout(t);
   }, [done, typed, reduceMotion]);
 
-  // Reduced motion: the whole transcript, no typing.
+  // Reduced motion: the whole transcript, no typing, no overlay.
   return reduceMotion ? { done: SCRIPT.length, typed: 0 } : { done, typed };
 }
 
@@ -81,10 +90,18 @@ export function HeroDemo() {
   const reduceMotion = useReducedMotion();
   const { done, typed } = useTranscript(reduceMotion);
 
-  const visible = SCRIPT.slice(0, done + 1);
-  const lastJson = [...SCRIPT.slice(0, done)].reverse().find((t) => t.who === "json");
-  const lit = lastJson?.who === "json";
-  const glow = lit ? lastJson.glow : NATURAL_GLOW;
+  const current = SCRIPT[done];
+  const visible = SCRIPT.slice(0, done + 1).filter((t) => t.who !== "payload");
+
+  // The overlay shows while the payload turn is the current one and has
+  // landed. Afterwards it fades out still holding that payload's text, which
+  // is why the most recent payload is looked up through `done` inclusive.
+  const payloadShowing = current?.who === "payload" && typed >= current.text.length && !reduceMotion;
+  const lastPayload = [...SCRIPT.slice(0, done + 1)]
+    .reverse()
+    .find((t): t is Extract<Turn, { who: "payload" }> => t.who === "payload");
+  const lit = !!lastPayload && (payloadShowing || SCRIPT.indexOf(lastPayload) < done);
+  const glow = lit ? lastPayload.glow : NATURAL_GLOW;
 
   // Where the disc sits in hero-lamp.jpg. The box keeps the image's own
   // aspect ratio (no cropping), so these percentages hold at every width.
@@ -127,13 +144,30 @@ export function HeroDemo() {
             transition: "background-color 900ms ease, opacity 900ms ease",
           }}
         />
+
+        {/* The payload, landing on the device — not in the chat. */}
+        <div
+          aria-hidden={!payloadShowing}
+          className={`pointer-events-none absolute inset-x-3 bottom-3 rounded-[14px] border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 ${
+            payloadShowing ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+          }`}
+        >
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--accent-green)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-green)]" />
+            Sent to the lamp · MQTT
+          </div>
+          <code className="block font-mono text-[11px] leading-snug lg:text-xs">
+            {lastPayload?.text}
+          </code>
+        </div>
+
         <span
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 rounded-[20px] border-[3px] border-[var(--card-shell)]"
         />
       </div>
 
-      {/* Chat */}
+      {/* Chat — what the person sees. */}
       <div
         className="flex flex-col overflow-hidden rounded-[20px] border-[3px] border-[var(--card-shell)] bg-[var(--ink-dark)] text-[var(--card-fill)] shadow-[5px_5px_0_var(--shadow-deep)]"
         aria-live="off"
@@ -156,23 +190,11 @@ export function HeroDemo() {
             maskImage: "linear-gradient(to bottom, transparent, #000 48px)",
           }}
         >
-          {visible.map((turn, i) => {
+          {visible.map((turn) => {
+            const i = SCRIPT.indexOf(turn);
             const full = i < done;
             const text = full ? turn.text : turn.text.slice(0, typed);
             if (!full && text.length === 0) return null;
-
-            if (turn.who === "json") {
-              return (
-                <div key={i} className="flex flex-col gap-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--accent-green)]">
-                    → MQTT · lamp/led
-                  </span>
-                  <code className="w-fit max-w-full break-all rounded-[12px] border border-[var(--accent-green)]/40 bg-black/40 px-3 py-2 font-mono text-[11px] leading-snug text-[var(--accent-green)] lg:text-xs">
-                    {text}
-                  </code>
-                </div>
-              );
-            }
 
             const user = turn.who === "user";
             return (
@@ -186,7 +208,10 @@ export function HeroDemo() {
               >
                 {text}
                 {!full && !reduceMotion && (
-                  <span className="ml-0.5 inline-block w-[2px] animate-pulse bg-current align-middle" style={{ height: "1em" }} />
+                  <span
+                    className="ml-0.5 inline-block w-[2px] animate-pulse bg-current align-middle"
+                    style={{ height: "1em" }}
+                  />
                 )}
               </p>
             );
