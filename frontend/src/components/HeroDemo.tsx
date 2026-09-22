@@ -59,7 +59,7 @@ const SCRIPT: Turn[] = [
 const CHAR_MS = 28;
 const TURN_PAUSE_MS = 700;
 const PAYLOAD_ARRIVE_MS = 400; // reply finished → packet lands on the lamp
-const PAYLOAD_HOLD_MS = 3200; // how long the overlay stays before fading
+const PAYLOAD_HOLD_MS = 2200; // how long the overlay stays before fading
 const LOOP_PAUSE_MS = 4000;
 
 const REDUCE = "(prefers-reduced-motion: reduce)";
@@ -205,12 +205,12 @@ export function HeroDemo() {
           }}
         />
 
-        {/* The payload, landing on the device — not in the chat. Bottom-right
-            is the patch of the poster with no handwriting on it. */}
+        {/* The payload, landing on the device — not in the chat. Top-left is
+            the patch of the poster with no handwriting on it. */}
         <div
           aria-hidden={!payloadShowing}
-          className={`pointer-events-none absolute bottom-3 left-3 right-3 rounded-[14px] sm:left-auto sm:max-w-[44%] lg:bottom-4 lg:right-4 border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 ${
-            payloadShowing ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+          className={`pointer-events-none absolute left-3 right-3 top-3 rounded-[14px] sm:right-auto sm:max-w-[48%] lg:left-4 lg:top-4 border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 ${
+            payloadShowing ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
           }`}
         >
           <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--accent-green)]">
