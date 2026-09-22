@@ -1,4 +1,5 @@
 import type { Project } from "@/lib/projects";
+import { VideoPlayer } from "@/components/VideoPlayer";
 
 /**
  * Cards without media fall back to a typographic tile rather than an empty box,
@@ -26,18 +27,11 @@ export function ProjectCard({ project }: { project: Project }) {
       >
         <div className="absolute inset-0">
           {project.media?.kind === "video" ? (
-            // preload="none" — the poster is all that loads until someone hits
-            // play, so the grid costs thumbnails, not 35MB of video.
-            <video
-              controls
-              playsInline
-              preload="none"
+            <VideoPlayer
+              src={project.media.src}
               poster={project.media.poster}
-              className="h-full w-full bg-black object-cover"
               title={project.title}
-            >
-              <source src={project.media.src} type="video/mp4" />
-            </video>
+            />
           ) : project.media?.kind === "vimeo" ? (
             <iframe
               src={project.media.src}
