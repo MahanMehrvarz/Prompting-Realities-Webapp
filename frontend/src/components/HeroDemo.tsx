@@ -9,25 +9,53 @@ import { useEffect, useState, useSyncExternalStore } from "react";
  * recolours the disc, and fades. The whole framework in one loop.
  */
 
+/** One colour the disc goes to: `ease` ms to get there, `hold` ms before the next. */
+type Step = { color: string; ease: number; hold: number };
+type Effect = { steps: Step[]; loop: boolean };
+
 type Turn =
   | { who: "user"; text: string }
   | { who: "bot"; text: string }
-  | { who: "payload"; text: string; glow: string };
+  | { who: "payload"; text: string; effect: Effect };
 
+const RED = "#ff2d2d";
+const ORANGE = "#ff8c1a";
+const YELLOW = "#ffd21f";
+const BLUE = "#2f6bff";
+const NATURAL_GLOW = "#4a5cff"; // what the photo already shows
+
+// The prompts are the ones handwritten on the poster, and the lamp does
+// what each payload says — a pulse pulses, a fast fade is fast.
 const SCRIPT: Turn[] = [
-  { who: "user", text: "Give me a dance vibe with warm colors" },
+  { who: "user", text: "Give me a dance vibe!" },
   { who: "bot", text: "Warm dance vibe coming up — pulsing through red, orange and yellow." },
   {
     who: "payload",
     text: '{ "mode": "pulse", "colors": ["red", "orange", "yellow"], "speed": "fast" }',
-    glow: "#ff6a1a",
+    effect: {
+      loop: true,
+      steps: [
+        { color: RED, ease: 450, hold: 650 },
+        { color: ORANGE, ease: 450, hold: 650 },
+        { color: YELLOW, ease: 450, hold: 650 },
+      ],
+    },
   },
-  { who: "user", text: "Now three quick flashes of blue" },
-  { who: "bot", text: "Three flashes of blue, then holding." },
-  { who: "payload", text: '{ "mode": "flash", "color": "blue", "count": 3 }', glow: "#2f6bff" },
+  { who: "user", text: "I want a move from blue to red quickly and then slowly to orange" },
+  { who: "bot", text: "Snapping to red, then easing into orange." },
+  {
+    who: "payload",
+    text: '{ "mode": "fade", "from": "blue", "to": "red", "speed": "fast", "then": { "to": "orange", "speed": "slow" } }',
+    effect: {
+      loop: false,
+      steps: [
+        { color: BLUE, ease: 300, hold: 700 },
+        { color: RED, ease: 250, hold: 1600 },
+        { color: ORANGE, ease: 2800, hold: 0 },
+      ],
+    },
+  },
 ];
-
-const NATURAL_GLOW = "#4a5cff"; // what the photo already shows
 const CHAR_MS = 28;
 const TURN_PAUSE_MS = 700;
 const PAYLOAD_ARRIVE_MS = 400; // reply finished → packet lands on the lamp
@@ -86,6 +114,35 @@ function useTranscript(reduceMotion: boolean) {
   return reduceMotion ? { done: SCRIPT.length, typed: 0 } : { done, typed };
 }
 
+/**
+ * Plays an effect's steps on the disc from the moment its payload lands,
+ * and keeps going (a pulse keeps pulsing) until the next payload replaces
+ * it or the loop restarts. `key` changes whenever a new effect starts.
+ */
+function useGlow(key: number | null, effect: Effect | null) {
+  const [frame, setFrame] = useState<Step | null>(null);
+
+  useEffect(() => {
+    if (key === null || !effect) return;
+    let i = 0;
+    let t: ReturnType<typeof setTimeout>;
+    const next = () => {
+      const step = effect.steps[i];
+      setFrame(step);
+      i += 1;
+      if (i >= effect.steps.length) {
+        if (!effect.loop) return;
+        i = 0;
+      }
+      t = setTimeout(next, step.ease + step.hold);
+    };
+    t = setTimeout(next, 0);
+    return () => clearTimeout(t);
+  }, [key, effect]);
+
+  return key === null || !frame ? { color: NATURAL_GLOW, ease: 900 } : frame;
+}
+
 export function HeroDemo() {
   const reduceMotion = useReducedMotion();
   const { done, typed } = useTranscript(reduceMotion);
@@ -101,7 +158,10 @@ export function HeroDemo() {
     .reverse()
     .find((t): t is Extract<Turn, { who: "payload" }> => t.who === "payload");
   const lit = !!lastPayload && (payloadShowing || SCRIPT.indexOf(lastPayload) < done);
-  const glow = lit ? lastPayload.glow : NATURAL_GLOW;
+  const { color: glow, ease } = useGlow(
+    lit ? SCRIPT.indexOf(lastPayload) : null,
+    lit ? lastPayload.effect : null,
+  );
 
   // Where the disc sits in hero-poster.jpg. The box keeps the image's own
   // aspect ratio (no cropping), so these percentages hold at every width.
@@ -129,7 +189,7 @@ export function HeroDemo() {
             mixBlendMode: "color",
             WebkitMaskImage: discMask,
             maskImage: discMask,
-            transition: "background-color 900ms ease",
+            transition: `background-color ${ease}ms ease`,
           }}
         />
         <span
@@ -141,7 +201,7 @@ export function HeroDemo() {
             opacity: lit ? 0.45 : 0,
             WebkitMaskImage: discMask,
             maskImage: discMask,
-            transition: "background-color 900ms ease, opacity 900ms ease",
+            transition: `background-color ${ease}ms ease, opacity 900ms ease`,
           }}
         />
 
