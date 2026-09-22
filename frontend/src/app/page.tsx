@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { Footer } from "@/components/Footer";
+import { HeroDemo } from "@/components/HeroDemo";
 import { SiteHeader } from "@/components/SiteHeader";
 import { ProjectCard } from "@/components/ProjectCard";
 import { SectionPanel } from "@/components/SectionPanel";
@@ -63,30 +64,12 @@ export default function HomePage() {
           headingSpan={5}
           title="Prototype things you can talk to"
           above={
-            // The image is a composed poster — its own typography runs to the
-            // edges — so it is shown whole at its native ratio. Cropping it to a
-            // fixed height cut the handwriting off top and bottom, and laying the
-            // headline over it put two typographic systems on top of each other.
+            // The poster keeps its handwritten prompts; only the phone screenshot
+            // was cropped off, since the chat is now real markup beside it and
+            // the lamp in the photo answers the payloads.
+            // TODO: hero-poster.jpg is 818px wide — soft at 2x. Swap for an original.
             <figure className="space-y-3">
-              {/* Design-system frame — 20px radius, 3px stroke, hard offset
-                  shadow — but with the photo bled to the edge instead of matted.
-                  The stroke is an overlay drawn ON TOP of the image, so it costs
-                  the outermost 3px of the photo rather than adding white space.
-                  A real `border` here would clip the child against a different
-                  curve than its own and leave the ragged corner seam.
-                  TODO: supplied at 1078x606 — soft at full width on a retina
-                  display. Swap for a higher-resolution original. */}
-              <div className="relative overflow-hidden rounded-[20px] shadow-[5px_5px_0_var(--shadow-deep)]">
-                <img
-                  src="/projects/hero.jpg"
-                  alt="A lamp-like artifact glowing blue while a Telegram conversation beside it asks for a move from blue to red and then slowly to orange"
-                  className="block h-auto w-full"
-                />
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 rounded-[20px] border-[3px] border-[var(--card-shell)]"
-                />
-              </div>
+              <HeroDemo />
               <figcaption className="text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--ink-muted)]">
                 Ask for a dance vibe — the lamp answers in light
               </figcaption>

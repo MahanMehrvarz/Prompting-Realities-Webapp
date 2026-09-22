@@ -187,9 +187,13 @@
                 page you left open.
             </p>
 
+            <!-- No copy button: mail clients strip scripts. See email-template.html. -->
             <div style="text-align: center; margin: 28px 0 8px;">
-                <span style="display: inline-block; padding: 18px 32px; border: 3px solid #1d1d1d; border-radius: 20px; font-size: 38px; font-weight: 700; letter-spacing: 12px; font-family: 'Courier New', monospace; color: #1d1d1d;">{{ .Token }}</span>
+                <span style="display: inline-block; padding: 18px 32px; border: 3px solid #1d1d1d; border-radius: 20px; font-size: 38px; font-weight: 700; letter-spacing: 12px; font-family: 'Courier New', monospace; color: #1d1d1d; -webkit-user-select: all; user-select: all; cursor: text;">{{ .Token }}</span>
             </div>
+            <p style="text-align: center; margin: 0 0 20px; font-size: 13px; color: #666;">
+                Double-click the code (tap and hold on a phone) to select it, then copy.
+            </p>
 
             <div class="info-box">
                 <p>
