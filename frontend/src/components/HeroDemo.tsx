@@ -103,19 +103,19 @@ export function HeroDemo() {
   const lit = !!lastPayload && (payloadShowing || SCRIPT.indexOf(lastPayload) < done);
   const glow = lit ? lastPayload.glow : NATURAL_GLOW;
 
-  // Where the disc sits in hero-lamp.jpg. The box keeps the image's own
+  // Where the disc sits in hero-poster.jpg. The box keeps the image's own
   // aspect ratio (no cropping), so these percentages hold at every width.
   const discMask =
-    "radial-gradient(ellipse 35% 33% at 64% 66%, #000 84%, transparent 100%)";
+    "radial-gradient(ellipse 33% 27% at 62% 52%, #000 84%, transparent 100%)";
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.25fr_1fr] lg:gap-5">
       {/* Photo — design-system frame with the stroke drawn over the image so
           the picture bleeds to the edge. */}
-      <div className="relative aspect-[796/468] overflow-hidden rounded-[20px] bg-[#d9d2c8] shadow-[5px_5px_0_var(--shadow-deep)]">
+      <div className="relative aspect-[818/606] overflow-hidden rounded-[20px] bg-[#d9d2c8] shadow-[5px_5px_0_var(--shadow-deep)]">
         <img
-          src="/projects/hero-lamp.jpg"
-          alt="A round lamp-like artifact on a desk, its top disc glowing"
+          src="/projects/hero-poster.jpg"
+          alt="A round lamp-like artifact with its top disc glowing; handwritten prompts around it read 'Give me a dance vibe!' and 'I want a move from blue to red quickly and then slowly to orange'"
           className="absolute inset-0 h-full w-full"
         />
         {/* Recolours only the lamp's disc: hue and saturation from this layer,
@@ -145,10 +145,11 @@ export function HeroDemo() {
           }}
         />
 
-        {/* The payload, landing on the device — not in the chat. */}
+        {/* The payload, landing on the device — not in the chat. Bottom-right
+            is the patch of the poster with no handwriting on it. */}
         <div
           aria-hidden={!payloadShowing}
-          className={`pointer-events-none absolute inset-x-3 bottom-3 rounded-[14px] border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 ${
+          className={`pointer-events-none absolute bottom-3 left-3 right-3 rounded-[14px] sm:left-auto sm:max-w-[44%] lg:bottom-4 lg:right-4 border-2 border-[var(--accent-green)] bg-[var(--ink-dark)]/92 px-3 py-2.5 text-[var(--card-fill)] shadow-[3px_3px_0_var(--shadow-deep)] transition-all duration-500 ${
             payloadShowing ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
           }`}
         >
@@ -184,7 +185,7 @@ export function HeroDemo() {
             from the transcript, so the hero never reflows; older turns slide
             off the top the way a chat does. */}
         <div
-          className="flex h-[300px] flex-col justify-end gap-2 overflow-hidden p-4 lg:h-auto lg:min-h-0 lg:flex-1"
+          className="flex h-[300px] flex-col justify-end gap-2 overflow-hidden p-4 lg:h-auto lg:min-h-0 lg:flex-1 lg:gap-3 lg:p-5"
           style={{
             WebkitMaskImage: "linear-gradient(to bottom, transparent, #000 48px)",
             maskImage: "linear-gradient(to bottom, transparent, #000 48px)",
@@ -200,7 +201,7 @@ export function HeroDemo() {
             return (
               <p
                 key={i}
-                className={`max-w-[85%] rounded-[16px] px-3.5 py-2 text-sm leading-snug ${
+                className={`max-w-[85%] rounded-[16px] px-3.5 py-2 text-sm leading-snug lg:px-4 lg:py-2.5 lg:text-base ${
                   user
                     ? "self-end rounded-br-[4px] bg-[var(--accent-green)] text-[var(--ink-dark)]"
                     : "self-start rounded-bl-[4px] bg-[var(--card-fill)] text-[var(--ink-dark)]"
