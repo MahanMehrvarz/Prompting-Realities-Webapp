@@ -1423,7 +1423,7 @@ def _gather_conversations_export(sb, list_id: str) -> dict:
     messages: list[dict] = []
     if assistant_ids:
         msg_res = sb.table("chat_messages").select(
-            "id, assistant_id, session_id, thread_id, device_id, user_text, response_text, mqtt_payload, reaction, created_at"
+            "id, assistant_id, session_id, thread_id, device_id, user_text, response_text, mqtt_payload, reaction, image_path, created_at"
         ).in_("assistant_id", assistant_ids).order("created_at", desc=False).execute()
         for m in (msg_res.data or []):
             if m.get("user_text") is None and m.get("response_text") is None:
@@ -1559,9 +1559,9 @@ def _build_conversations_workbook(data: dict, include_instructions: bool = True,
         tab_name = thread_tab_names[idx]
         ws = wb.create_sheet(tab_name)
         if include_mqtt:
-            headers = ["User", "AI", "MQTT", "Reaction"]
+            headers = ["User", "AI", "MQTT", "Reaction", "Image"]
         else:
-            headers = ["User", "AI", "Reaction"]
+            headers = ["User", "AI", "Reaction", "Image"]
         ws.append(headers)
         style_header(ws, len(headers))
         for row_idx, m in enumerate(t["messages"], start=2):
@@ -1578,6 +1578,8 @@ def _build_conversations_workbook(data: dict, include_instructions: bool = True,
                 ws.cell(row=row_idx, column=4, value=reaction)
             else:
                 ws.cell(row=row_idx, column=3, value=reaction)
+            # Storage path in the private chat-images bucket; empty for text-only turns.
+            ws.cell(row=row_idx, column=len(headers), value=m.get("image_path") or "")
         ws.column_dimensions["A"].width = 50
         ws.column_dimensions["B"].width = 60
         if include_mqtt:
@@ -1602,7 +1604,7 @@ def _gather_assistant_conversations_export(sb, assistant_id: str) -> dict:
     asst_name_map = {assistant_id: asst_name}
 
     msg_res = sb.table("chat_messages").select(
-        "id, assistant_id, session_id, thread_id, device_id, user_text, response_text, mqtt_payload, reaction, created_at"
+        "id, assistant_id, session_id, thread_id, device_id, user_text, response_text, mqtt_payload, reaction, image_path, created_at"
     ).eq("assistant_id", assistant_id).order("created_at", desc=False).execute()
     messages = [m for m in (msg_res.data or []) if not (m.get("user_text") is None and m.get("response_text") is None)]
 

@@ -125,11 +125,16 @@ async def run_assistant_turn(
     session_id: Optional[str],
     thread_id: Optional[str],
     model: Optional[str] = None,
+    image_data_url: Optional[str] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """Run one model turn and persist the thread's response_id.
 
     ``model`` overrides the assistant's stored choice; otherwise the row's
     ``model`` column is used, falling back to the backend default.
+
+    ``image_data_url`` attaches one image to the user's message. An image turn
+    raises on OpenAI failure instead of returning the canned error reply, so a
+    rejected image is reported rather than saved as a normal turn.
 
     Returns ``(payload, response_id, display_text)``.
     """
@@ -152,6 +157,8 @@ async def run_assistant_turn(
         prompt_instruction,
         json_schema,
         model=model,
+        image_data_url=image_data_url,
+        raise_on_error=image_data_url is not None,
     )
 
     if session_id and thread_id and response_id:

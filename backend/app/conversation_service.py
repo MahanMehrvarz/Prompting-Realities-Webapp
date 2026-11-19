@@ -130,10 +130,13 @@ async def run_model_turn(
     prompt_instruction: str = "You are a helpful assistant.",
     json_schema: Optional[Dict[str, Any]] = None,
     model: str = "gpt-5-mini",
+    *,
+    image_data_url: Optional[str] = None,
+    raise_on_error: bool = False,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Call OpenAI API to generate a response using Responses API.
-    
+
     Args:
         previous_response_id: ID of the previous response (for conversation continuity)
         user_message: The user's message
@@ -141,7 +144,11 @@ async def run_model_turn(
         prompt_instruction: System prompt for the assistant
         json_schema: Optional JSON schema for structured output
         model: Model to use (default: gpt-4o-mini)
-        
+        image_data_url: Optional ``data:image/...;base64,`` URL sent to the
+            model alongside the text as an ``input_image`` part
+        raise_on_error: Re-raise OpenAI failures instead of returning the
+            canned error reply, so the caller can report them
+
     Returns:
         Tuple of (payload dict, response_id string, display_text string)
     """
@@ -162,12 +169,11 @@ async def run_model_turn(
         sync_client = OpenAI(api_key=api_key)
 
         # Build input for Responses API
-        request_input = [
-            {
-                "role": "user",
-                "content": [{"type": "input_text", "text": user_message}],
-            }
-        ]
+        content: list[Dict[str, Any]] = [{"type": "input_text", "text": user_message}]
+        if image_data_url:
+            content.append({"type": "input_image", "image_url": image_data_url})
+            logger.info("🖼️ [ConversationService] Image attached to this turn")
+        request_input = [{"role": "user", "content": content}]
 
         # Build optional kwargs
         kwargs: Dict[str, Any] = {}
@@ -222,6 +228,8 @@ async def run_model_turn(
 
     except Exception as e:
         logger.error(f"❌ [ConversationService] Error calling OpenAI API: {e}", exc_info=True)
+        if raise_on_error:
+            raise
         # On error, return the same previous_response_id so frontend can retry
         return (
             {"response": "An error occurred while processing your request"},

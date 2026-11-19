@@ -23,6 +23,7 @@ export type Assistant = {
   mqtt_pass: string | null;
   mqtt_topic: string;
   model?: string | null; // OpenAI model id; null = backend default
+  allow_images?: boolean; // Chat users may attach images (billed on the owner's key)
   created_at: string;
   updated_at: string;
 };
@@ -52,6 +53,7 @@ export type ChatMessage = {
   device_id: string | null;
   thread_id: string | null;
   reaction: "like" | "dislike" | null;
+  image_path?: string | null; // Path in the private chat-images bucket
   created_at: string;
 };
 
