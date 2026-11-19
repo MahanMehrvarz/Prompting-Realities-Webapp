@@ -696,16 +696,17 @@ export default function AssistantChatPage() {
   };
 
   // Core function to send a message to AI - reused by form submit and MQTT receiver
-  const sendMessageToAI = async (messageText: string, imageDataUrl?: string): Promise<void> => {
+  // Resolves to true once the turn is saved, false if it was not sent or failed.
+  const sendMessageToAI = async (messageText: string, imageDataUrl?: string): Promise<boolean> => {
     const trimmed = messageText.trim() || (imageDataUrl ? IMAGE_ONLY_TEXT : "");
     if (!trimmed) {
       logger.log("❌ [Frontend] Empty message");
-      return;
+      return false;
     }
 
     if (!sessionId || (!token && !shareToken)) {
       logger.log("❌ [Frontend] Missing sessionId or token");
-      return;
+      return false;
     }
 
     logger.log("📝 [Frontend] Sending message to AI:", trimmed);
@@ -919,6 +920,7 @@ export default function AssistantChatPage() {
       }
 
       setError(null);
+      return true;
     } catch (err) {
       logger.error("❌ [Frontend] Error in sendMessageToAI:", err);
       setMessages((prev) => prev.filter((message) => message.id !== tempId));
@@ -927,9 +929,13 @@ export default function AssistantChatPage() {
         setError("This session has stopped. The host needs to start a new run.");
       } else if (errorMessage.includes("Not authorized") || errorMessage.includes("Authentication required")) {
         setError("You need to log in to send messages. Viewing history works without login.");
+      } else if (errorMessage.includes("Failed to fetch") || errorMessage.includes("Load failed") || errorMessage.includes("NetworkError")) {
+        // What browsers report when the request never reached the server.
+        setError("Couldn't reach the server. Check your connection and try again.");
       } else {
         setError(errorMessage);
       }
+      return false;
     } finally {
       setIsAiResponding(false);
     }
@@ -1121,7 +1127,8 @@ export default function AssistantChatPage() {
     logger.log("🚀 [Frontend] handleSend triggered");
 
     const trimmed = input.trim();
-    const imageDataUrl = imageAttachment.attachment?.dataUrl;
+    const pendingImage = imageAttachment.attachment;
+    const imageDataUrl = pendingImage?.dataUrl;
     if (!trimmed && !imageDataUrl) {
       logger.log("❌ [Frontend] Empty message");
       return;
@@ -1131,7 +1138,14 @@ export default function AssistantChatPage() {
 
     setInput("");
     imageAttachment.clear();
-    await sendMessageToAI(trimmed, imageDataUrl);
+    const sent = await sendMessageToAI(trimmed, imageDataUrl);
+
+    // A failed send hands the text and photo back, so on a flaky phone
+    // connection the user can retry without retyping or picking the photo again.
+    if (!sent) {
+      setInput((current) => current || trimmed);
+      if (pendingImage) imageAttachment.restore(pendingImage);
+    }
   };
 
   /**
@@ -1807,7 +1821,7 @@ export default function AssistantChatPage() {
                         <button
                           type="button"
                           onClick={imageAttachment.clear}
-                          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)]"
+                          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)] after:absolute after:-inset-2.5 after:content-['']"
                           aria-label="Remove image"
                         >
                           <X className="h-3 w-3" />
@@ -1866,7 +1880,7 @@ export default function AssistantChatPage() {
                     <button
                       type="submit"
                       disabled={isAiResponding && !!imageAttachment.attachment}
-                      className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed sm:px-4 sm:py-3"
+                      className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed sm:h-auto sm:w-auto sm:px-4 sm:py-3"
                       aria-label="Send message"
                     >
                       <Send className="h-5 w-5 sm:h-5 sm:w-5" />
@@ -1891,7 +1905,7 @@ export default function AssistantChatPage() {
           <button
             type="button"
             onClick={() => setLightboxUrl(null)}
-            className="absolute right-4 top-4 rounded-full border-2 border-[var(--card-shell)] bg-white p-2 text-[var(--ink-dark)]"
+            className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)]"
             aria-label="Close image"
           >
             <X className="h-5 w-5" />

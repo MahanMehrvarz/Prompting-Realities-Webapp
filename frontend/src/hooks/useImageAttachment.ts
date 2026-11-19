@@ -50,5 +50,10 @@ export function useImageAttachment() {
     }
   }, []);
 
-  return { attachment, isPreparing, attachError, inputRef, openPicker, onFileChange, clear };
+  /** Put a cleared attachment back, e.g. after a send that failed. */
+  const restore = useCallback((previous: ImageAttachment) => {
+    setAttachment((current) => current ?? previous);
+  }, []);
+
+  return { attachment, isPreparing, attachError, inputRef, openPicker, onFileChange, clear, restore };
 }
