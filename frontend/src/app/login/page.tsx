@@ -86,6 +86,7 @@ type Assistant = {
   mqttTopic: string;
   apiKey?: string;
   model: string | null; // OpenAI model id; null = backend default
+  allowImages: boolean; // Chat users may attach images
   status: AssistantStatus;
   mqttConnected: boolean;
   lastUpdated?: string;
@@ -222,6 +223,7 @@ const formatAssistant = (record: DbAssistant): Assistant => ({
   mqttUser: record.mqtt_user ?? undefined,
   mqttTopic: record.mqtt_topic ?? "",
   model: record.model ?? null,
+  allowImages: Boolean(record.allow_images),
   status: "idle",
   mqttConnected: false,
   lastUpdated: record.updated_at,
@@ -631,6 +633,22 @@ export default function Home() {
     } catch (error) {
       logger.error("Failed to save model", error);
       setSaveError("Failed to save model choice. Please try again.");
+    }
+  };
+
+  const handleAllowImagesToggle = async (assistantId: string, allowImages: boolean) => {
+    // Saved immediately, like the model choice above.
+    updateAssistantState(assistantId, (assistant) => ({
+      ...assistant,
+      allowImages,
+      lastUpdated: new Date().toISOString(),
+    }));
+    try {
+      await assistantService.update(assistantId, { allow_images: allowImages });
+    } catch (error) {
+      logger.error("Failed to save image setting", error);
+      updateAssistantState(assistantId, (assistant) => ({ ...assistant, allowImages: !allowImages }));
+      setSaveError("Failed to save the image setting. Please try again.");
     }
   };
 
@@ -2039,6 +2057,22 @@ export default function Home() {
                             request per model using this assistant&apos;s schema, on your key.
                           </p>
                         )}
+
+                        <label className="flex cursor-pointer items-start gap-3 border-t-2 border-[var(--card-shell)]/10 pt-3">
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 accent-[var(--ink-dark)]"
+                            checked={selectedAssistant.allowImages}
+                            onChange={(event) => handleAllowImagesToggle(selectedAssistant.id, event.target.checked)}
+                          />
+                          <span>
+                            <span className="block text-sm font-semibold text-[var(--ink-dark)]">Allow images in chat</span>
+                            <span className="block text-xs text-[var(--ink-muted)]">
+                              People chatting with this assistant can attach a photo and ask about it. Images are billed
+                              on your key and stored with the conversation; the larger models read them more reliably.
+                            </span>
+                          </span>
+                        </label>
                       </div>
                     )}
                   </div>

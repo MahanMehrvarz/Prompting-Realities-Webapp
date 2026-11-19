@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio, X, Trash2 } from "lucide-react";
+import { Mic, Send, ArrowLeft, Loader2, Users, RotateCcw, ThumbsUp, ThumbsDown, Volume2, Radio, X, Trash2, ImagePlus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { isAdmin } from "@/lib/isAdmin";
 import { logger } from "@/lib/logger";
@@ -12,6 +12,7 @@ import { MqttReceiverModal } from "@/components/MqttReceiverModal";
 import { VoiceMessageBubble } from "@/components/VoiceMessageBubble";
 import { useMqttSubscriber, type MqttConnectionStatus } from "@/hooks/useMqttSubscriber";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
+import { useImageAttachment } from "@/hooks/useImageAttachment";
 import {
   sessionService,
   messageService,
@@ -23,6 +24,10 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useVisualViewport } from "@/hooks/useVisualViewport";
 
 const TOKEN_STORAGE_KEY = "pr-auth-token";
+
+// Saved as user_text when an image is sent with no words. Must never be null:
+// a null user_text is how the thread's response-id marker row is found.
+const IMAGE_ONLY_TEXT = "(image)";
 
 type ChatMessage = {
   id: string;
@@ -39,6 +44,7 @@ type ChatMessage = {
   isProcessing?: boolean;     // true while polling for voice message result
   voiceMessageId?: string;    // job ID for polling
   transcript?: string | null; // Whisper transcript (populated after polling)
+  imageUrl?: string;          // Attached image: data URL right after sending, signed URL after reload
 };
 
 export default function AssistantChatPage() {
@@ -67,6 +73,13 @@ export default function AssistantChatPage() {
   const [queuePosition, setQueuePosition] = useState<number>(0);
   const [showResetModal, setShowResetModal] = useState(false);
   const [isAiResponding, setIsAiResponding] = useState(false);
+
+  // Image attachments: owner opt-in per assistant (assistants.allow_images).
+  const [allowImages, setAllowImages] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const imageAttachment = useImageAttachment();
+  // chat_messages id -> image URL, so a re-read of the thread keeps its images.
+  const imageUrlsRef = useRef<Record<string, string>>({});
 
   // TTS state
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -138,7 +151,7 @@ export default function AssistantChatPage() {
         return true;
       });
 
-      const mapped = displayable.flatMap((record) => mapMessageRecord(record));
+      const mapped = displayable.flatMap((record) => mapMessageRecord(record, imageUrlsRef.current[record.id]));
       setMessages((prev) => (mapped.length === prev.length ? prev : mapped));
     } catch (err) {
       logger.warn("⚠️ [Receiver] Failed to reload thread messages:", err);
@@ -338,6 +351,24 @@ export default function AssistantChatPage() {
     };
   }, [sessionId, hydrated, assistantId]);
 
+  // Whether this assistant's owner allows image attachments. Any failure
+  // (including the column not existing yet) leaves the chat text-only.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    supabase
+      .from("assistants")
+      .select("allow_images")
+      .eq("id", assistantId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setAllowImages(Boolean(data?.allow_images));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantId, hydrated]);
+
   // Load messages only once when component mounts or sessionId changes
   useEffect(() => {
     if (!sessionId) return;
@@ -471,7 +502,21 @@ export default function AssistantChatPage() {
             return true;
           });
           
-          const mappedMessages = displayableRecords.flatMap((record) => mapMessageRecord(record));
+          // The bucket is private, so image turns need signed URLs from the backend.
+          // A failure here costs the thumbnails, not the history.
+          if (displayableRecords.some((record) => record.image_path)) {
+            try {
+              const urls = await backendApi.chatImageUrls(sessionId, threadIdRef.current, token || undefined);
+              imageUrlsRef.current = { ...imageUrlsRef.current, ...urls };
+            } catch (imageError) {
+              logger.warn("⚠️ [Frontend] Failed to load chat image URLs:", imageError);
+            }
+          }
+          if (!isMounted) return;
+
+          const mappedMessages = displayableRecords.flatMap((record) =>
+            mapMessageRecord(record, imageUrlsRef.current[record.id])
+          );
           setMessages(mappedMessages);
         }
       } catch (err) {
@@ -651,16 +696,17 @@ export default function AssistantChatPage() {
   };
 
   // Core function to send a message to AI - reused by form submit and MQTT receiver
-  const sendMessageToAI = async (messageText: string): Promise<void> => {
-    const trimmed = messageText.trim();
+  // Resolves to true once the turn is saved, false if it was not sent or failed.
+  const sendMessageToAI = async (messageText: string, imageDataUrl?: string): Promise<boolean> => {
+    const trimmed = messageText.trim() || (imageDataUrl ? IMAGE_ONLY_TEXT : "");
     if (!trimmed) {
       logger.log("❌ [Frontend] Empty message");
-      return;
+      return false;
     }
 
     if (!sessionId || (!token && !shareToken)) {
       logger.log("❌ [Frontend] Missing sessionId or token");
-      return;
+      return false;
     }
 
     logger.log("📝 [Frontend] Sending message to AI:", trimmed);
@@ -682,6 +728,7 @@ export default function AssistantChatPage() {
       role: "user",
       content: trimmed,
       timestamp: new Date().toISOString(),
+      imageUrl: imageDataUrl,
     };
     setMessages((prev) => [...prev, optimisticMessage]);
     setIsAiResponding(true);
@@ -730,6 +777,7 @@ export default function AssistantChatPage() {
           assistant_id: assistantId,
           session_id: sessionId,
           thread_id: threadIdRef.current,
+          ...(imageDataUrl ? { image_data_url: imageDataUrl } : {}),
         },
         token || undefined
       );
@@ -829,8 +877,14 @@ export default function AssistantChatPage() {
         device_id: user ? null : deviceIdRef.current,
         thread_id: threadIdRef.current,
         reaction: null,
+        // Only sent for image turns, so text turns never touch the column.
+        ...(aiResponse.image_path ? { image_path: aiResponse.image_path } : {}),
       });
       logger.log("✅ [Frontend] Conversation turn saved:", conversationMessage.id);
+
+      if (imageDataUrl) {
+        imageUrlsRef.current[conversationMessage.id] = imageDataUrl;
+      }
 
       // Update local state
       const newUserMessage: ChatMessage = {
@@ -838,6 +892,7 @@ export default function AssistantChatPage() {
         role: "user",
         content: trimmed,
         timestamp: conversationMessage.created_at,
+        imageUrl: imageDataUrl,
       };
 
       const newAssistantMessage: ChatMessage = {
@@ -865,6 +920,7 @@ export default function AssistantChatPage() {
       }
 
       setError(null);
+      return true;
     } catch (err) {
       logger.error("❌ [Frontend] Error in sendMessageToAI:", err);
       setMessages((prev) => prev.filter((message) => message.id !== tempId));
@@ -873,9 +929,13 @@ export default function AssistantChatPage() {
         setError("This session has stopped. The host needs to start a new run.");
       } else if (errorMessage.includes("Not authorized") || errorMessage.includes("Authentication required")) {
         setError("You need to log in to send messages. Viewing history works without login.");
+      } else if (errorMessage.includes("Failed to fetch") || errorMessage.includes("Load failed") || errorMessage.includes("NetworkError")) {
+        // What browsers report when the request never reached the server.
+        setError("Couldn't reach the server. Check your connection and try again.");
       } else {
         setError(errorMessage);
       }
+      return false;
     } finally {
       setIsAiResponding(false);
     }
@@ -1067,13 +1127,25 @@ export default function AssistantChatPage() {
     logger.log("🚀 [Frontend] handleSend triggered");
 
     const trimmed = input.trim();
-    if (!trimmed) {
+    const pendingImage = imageAttachment.attachment;
+    const imageDataUrl = pendingImage?.dataUrl;
+    if (!trimmed && !imageDataUrl) {
       logger.log("❌ [Frontend] Empty message");
       return;
     }
+    // One image turn at a time: a second one mid-reply would fork the thread.
+    if (imageDataUrl && isAiResponding) return;
 
     setInput("");
-    await sendMessageToAI(trimmed);
+    imageAttachment.clear();
+    const sent = await sendMessageToAI(trimmed, imageDataUrl);
+
+    // A failed send hands the text and photo back, so on a flaky phone
+    // connection the user can retry without retyping or picking the photo again.
+    if (!sent) {
+      setInput((current) => current || trimmed);
+      if (pendingImage) imageAttachment.restore(pendingImage);
+    }
   };
 
   /**
@@ -1550,12 +1622,29 @@ export default function AssistantChatPage() {
                       }`}
                       style={message.role === "assistant" ? { backgroundColor: assistantColors.accent } : undefined}
                     >
-                      <p className="text-sm leading-relaxed sm:text-base flex items-center gap-2">
-                        {message.content}
-                        {message.isProcessing && (
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-current opacity-70 animate-pulse" />
-                        )}
-                      </p>
+                      {message.imageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setLightboxUrl(message.imageUrl ?? null)}
+                          className="mb-2 block overflow-hidden rounded-xl"
+                          aria-label="Open image"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={message.imageUrl}
+                            alt="Attached image"
+                            className="max-h-60 w-auto max-w-full object-contain"
+                          />
+                        </button>
+                      )}
+                      {!(message.imageUrl && message.content === IMAGE_ONLY_TEXT) && (
+                        <p className="text-sm leading-relaxed sm:text-base flex items-center gap-2">
+                          {message.content}
+                          {message.isProcessing && (
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current opacity-70 animate-pulse" />
+                          )}
+                        </p>
+                      )}
                       <p className="mt-1 text-right text-[9px] opacity-70 sm:text-[10px]">
                         {new Date(message.timestamp).toLocaleTimeString([], {
                           hour: "2-digit",
@@ -1713,7 +1802,60 @@ export default function AssistantChatPage() {
             ) : (
               /* ── Normal mode: text input + mic + send ── */
               <form onSubmit={handleSend} className="mx-auto max-w-3xl">
+                {/* Pending image: thumbnail with a remove button */}
+                {(imageAttachment.attachment || imageAttachment.isPreparing || imageAttachment.attachError) && (
+                  <div className="mb-2 flex items-center gap-3">
+                    {imageAttachment.isPreparing && (
+                      <div className="flex h-16 w-16 items-center justify-center rounded-xl border-2 border-[var(--card-shell)] bg-white">
+                        <Loader2 className="h-5 w-5 animate-spin text-[var(--ink-muted)]" />
+                      </div>
+                    )}
+                    {imageAttachment.attachment && (
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imageAttachment.attachment.dataUrl}
+                          alt="Image to send"
+                          className="h-16 w-16 rounded-xl border-2 border-[var(--card-shell)] object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={imageAttachment.clear}
+                          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)] after:absolute after:-inset-2.5 after:content-['']"
+                          aria-label="Remove image"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                    {imageAttachment.attachError && (
+                      <p className="text-sm text-red-600">{imageAttachment.attachError}</p>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 sm:gap-3">
+                  {/* Attach image: only when the assistant's owner allows it */}
+                  {allowImages && (
+                    <>
+                      <input
+                        ref={imageAttachment.inputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={imageAttachment.onFileChange}
+                      />
+                      <button
+                        type="button"
+                        onClick={imageAttachment.openPicker}
+                        disabled={isAiResponding || imageAttachment.isPreparing}
+                        className="flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed"
+                        aria-label="Attach image"
+                        title="Attach image"
+                      >
+                        <ImagePlus className="h-5 w-5" />
+                      </button>
+                    </>
+                  )}
                   {/* Input field */}
                   <input
                     value={input}
@@ -1724,7 +1866,7 @@ export default function AssistantChatPage() {
                   />
 
                   {/* Mic button (idle) — shown when input is empty, replaces send */}
-                  {!input.trim() ? (
+                  {!input.trim() && !imageAttachment.attachment ? (
                     <button
                       type="button"
                       disabled={isAiResponding}
@@ -1737,7 +1879,8 @@ export default function AssistantChatPage() {
                   ) : (
                     <button
                       type="submit"
-                      className="flex-shrink-0 rounded-full bg-[var(--ink-dark)] p-2.5 text-[var(--card-fill)] transition-all hover:scale-105 sm:px-4 sm:py-3"
+                      disabled={isAiResponding && !!imageAttachment.attachment}
+                      className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[var(--ink-dark)] text-[var(--card-fill)] transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed sm:h-auto sm:w-auto sm:px-4 sm:py-3"
                       aria-label="Send message"
                     >
                       <Send className="h-5 w-5 sm:h-5 sm:w-5" />
@@ -1749,12 +1892,39 @@ export default function AssistantChatPage() {
           </div>
         </div>
       </main>
+
+      {/* Full-size view of an attached image */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setLightboxUrl(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Attached image"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full border-2 border-[var(--card-shell)] bg-white text-[var(--ink-dark)]"
+            aria-label="Close image"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxUrl}
+            alt="Attached image"
+            className="max-h-[85vh] max-w-[90vw] rounded-[20px] border-[3px] border-[var(--card-shell)] object-contain"
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 
-function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
+function mapMessageRecord(message: DbChatMessage, imageUrl?: string): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
   // If there's a user message, add it first
@@ -1764,6 +1934,7 @@ function mapMessageRecord(message: DbChatMessage): ChatMessage[] {
       role: "user",
       content: message.user_text,
       timestamp: message.created_at,
+      imageUrl,
     });
   }
 

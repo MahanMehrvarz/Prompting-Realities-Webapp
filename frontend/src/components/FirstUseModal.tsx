@@ -23,7 +23,7 @@ export function FirstUseModal({ isOpen, onAccept }: FirstUseModalProps) {
             Welcome to Prompting Realities! Before you begin, please note:
           </p>
           <p className="font-semibold">
-            All conversation logs and interaction data collected through this platform are kept strictly for research purposes only.
+            All conversation logs, interaction data and any images you share in a chat are kept strictly for research purposes only.
           </p>
           <p>
             Your data helps us improve AI interactions and understand how people engage with language models. We are committed to using this information responsibly and solely for academic and research objectives.

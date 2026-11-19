@@ -60,12 +60,14 @@ export type ChatRequest = {
   assistant_id: string;  // Backend will fetch config from database
   session_id?: string | null;  // Session ID for persisting response_id
   thread_id?: string | null;  // Thread ID for isolating conversation context per user/device
+  image_data_url?: string | null;  // One attached image as a base64 JPEG data URL
 };
 
 export type ChatResponse = {
   payload: Record<string, any> | null;
   response_id: string | null;
   display_text: string | null;
+  image_path?: string | null;  // Storage path of the attached image, saved on the chat_messages row
 };
 
 export type MqttPublishRequest = {
@@ -183,6 +185,24 @@ export const backendApi = {
       method: "POST",
       body: JSON.stringify(request),
     });
+  },
+
+  /**
+   * Signed URLs for the images attached in one thread, keyed by chat_messages id.
+   * The bucket is private, so the chat page asks for these after loading rows.
+   */
+  async chatImageUrls(
+    sessionId: string,
+    threadId: string,
+    token?: string
+  ): Promise<Record<string, string>> {
+    const query = new URLSearchParams({ session_id: sessionId, thread_id: threadId });
+    const result = await apiFetch<{ urls: Record<string, string> }>(
+      `/ai/chat-image-urls?${query.toString()}`,
+      token,
+      { method: "GET" }
+    );
+    return result.urls ?? {};
   },
 
   /**

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import io
 import logging
 import random
+import re
 import uuid
 from typing import Any, Dict, Optional, Tuple
 
@@ -44,6 +47,7 @@ class ChatRequest(BaseModel):
     assistant_id: str  # ID of the assistant to get config from database
     session_id: str | None = None  # Session ID for persisting response_id
     thread_id: str | None = None  # Thread ID for isolating conversation context per user/device
+    image_data_url: str | None = None  # One attached image as a base64 JPEG data URL
 
 
 class ChatResponse(BaseModel):
@@ -51,6 +55,66 @@ class ChatResponse(BaseModel):
     payload: Dict[str, Any] | None
     response_id: str | None
     display_text: str | None
+    image_path: str | None = None  # Storage path of the attached image, for the chat_messages row
+
+
+# The chat page re-encodes every attachment to JPEG before sending, so anything
+# else is a malformed or hand-crafted request.
+CHAT_IMAGE_BUCKET = "chat-images"
+CHAT_IMAGE_PREFIX = "data:image/jpeg;base64,"
+CHAT_IMAGE_MAX_BYTES = 4 * 1024 * 1024
+CHAT_IMAGE_URL_TTL_SECONDS = 3600
+
+
+def _decode_chat_image(image_data_url: str) -> bytes:
+    """Validate an attached image and return its raw JPEG bytes."""
+    if not image_data_url.startswith(CHAT_IMAGE_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image must be a base64-encoded JPEG data URL",
+        )
+    encoded = image_data_url[len(CHAT_IMAGE_PREFIX):]
+    # Cheap length check before decoding: 4 base64 chars carry 3 bytes.
+    if len(encoded) * 3 // 4 > CHAT_IMAGE_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Image is too large (4 MB maximum)",
+        )
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image data is not valid base64",
+        )
+    if not image_bytes.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image data is not a JPEG",
+        )
+    return image_bytes
+
+
+def _path_segment(value: str | None, fallback: str) -> str:
+    """Make a client-supplied id safe to use as one storage path segment."""
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", value or "")
+    return cleaned or fallback
+
+
+def _store_chat_image(supabase, image_bytes: bytes, session_id: str | None, thread_id: str | None) -> str | None:
+    """Upload an attached image to the private bucket and return its path.
+
+    Returns None on failure: the model has already answered, so a storage
+    hiccup should cost the thumbnail, not the turn.
+    """
+    path = f"{_path_segment(session_id, 'no-session')}/{_path_segment(thread_id, 'no-thread')}/{uuid.uuid4()}.jpg"
+    try:
+        supabase.storage.from_(CHAT_IMAGE_BUCKET).upload(path, image_bytes, {"content-type": "image/jpeg"})
+        logger.info(f"🖼️ [Backend] Stored chat image at {path} ({len(image_bytes)} bytes)")
+        return path
+    except Exception as exc:
+        logger.error(f"❌ [Backend] Failed to store chat image: {exc}", exc_info=True)
+        return None
 
 
 class MqttPublishRequest(BaseModel):
@@ -158,23 +222,54 @@ async def chat_with_openai(
                 detail="API key not configured for this assistant"
             )
         
+        # An attached image is checked before any model call is paid for.
+        image_bytes: bytes | None = None
+        if request.image_data_url:
+            if not assistant.get("allow_images"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Images are not enabled for this assistant"
+                )
+            image_bytes = _decode_chat_image(request.image_data_url)
+            logger.info(f"🖼️ [Backend] Image attached ({len(image_bytes)} bytes)")
+
         # Run the turn and persist the thread's response_id. Shared with the
         # headless MQTT receiver so both paths keep conversation state the same way.
         logger.info("🤖 [Backend] Calling run_assistant_turn...")
 
-        payload, response_id, display_text = await run_assistant_turn(
-            assistant=assistant,
-            api_key=api_key,
-            user_message=request.user_message,
-            previous_response_id=request.previous_response_id,
-            session_id=request.session_id,
-            thread_id=request.thread_id,
-        )
+        try:
+            payload, response_id, display_text = await run_assistant_turn(
+                assistant=assistant,
+                api_key=api_key,
+                user_message=request.user_message,
+                previous_response_id=request.previous_response_id,
+                session_id=request.session_id,
+                thread_id=request.thread_id,
+                image_data_url=request.image_data_url or None,
+            )
+        except Exception as turn_error:
+            # Only image turns raise; text turns keep returning the canned reply.
+            if image_bytes is None:
+                raise
+            logger.error(f"❌ [Backend] Image turn failed: {turn_error}", exc_info=True)
+            message = getattr(turn_error, "message", None) or str(turn_error)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"The model could not process this image: {message[:300]}"
+            )
 
         logger.info(f"✅ [Backend] run_assistant_turn completed: payload={payload}, response_id={response_id}")
         logger.info(f"📝 [Backend] Display text extracted: {display_text[:100] if display_text else 'None'}...")
-        
-        response = ChatResponse(payload=payload, response_id=response_id, display_text=display_text)
+
+        image_path: str | None = None
+        if image_bytes is not None:
+            image_path = await asyncio.to_thread(
+                _store_chat_image, supabase, image_bytes, request.session_id, request.thread_id
+            )
+
+        response = ChatResponse(
+            payload=payload, response_id=response_id, display_text=display_text, image_path=image_path
+        )
         logger.info(f"📤 [Backend] Sending response back to frontend")
         return response
     except HTTPException:
@@ -185,6 +280,57 @@ async def chat_with_openai(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get response from OpenAI: {str(exc)}"
         )
+
+
+@router.get("/chat-image-urls")
+async def chat_image_urls(
+    session_id: str,
+    thread_id: str,
+    user_id: str | None = Depends(maybe_current_user_id),
+):
+    """
+    Signed URLs for the images attached in one thread, keyed by chat_messages id.
+
+    The bucket is private and share-link visitors carry no token, so the chat
+    page asks here after loading a thread's rows. Allows anonymous access, like
+    /ai/chat: knowing the session and thread ids is what grants a look.
+    """
+    from ..config import get_supabase_client
+
+    supabase = get_supabase_client()
+
+    def _load() -> Dict[str, str]:
+        rows = (
+            supabase.table("chat_messages")
+            .select("id, image_path")
+            .eq("session_id", session_id)
+            .eq("thread_id", thread_id)
+            .not_.is_("image_path", "null")
+            .execute()
+        ).data or []
+        paths = {str(row["id"]): row["image_path"] for row in rows if isinstance(row, dict) and row.get("image_path")}
+        if not paths:
+            return {}
+        signed = supabase.storage.from_(CHAT_IMAGE_BUCKET).create_signed_urls(
+            list(paths.values()), CHAT_IMAGE_URL_TTL_SECONDS
+        )
+        # storage3 has spelled the key both ways across versions.
+        url_by_path = {
+            item.get("path"): item.get("signedURL") or item.get("signedUrl")
+            for item in signed
+            if isinstance(item, dict) and not item.get("error")
+        }
+        return {message_id: url_by_path[path] for message_id, path in paths.items() if url_by_path.get(path)}
+
+    try:
+        urls = await asyncio.to_thread(_load)
+    except Exception as exc:
+        logger.error(f"❌ [Backend] Failed to sign chat image URLs: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load chat images"
+        )
+    return {"urls": urls}
 
 
 @router.post("/mqtt/publish", response_model=MqttResponse)
